@@ -101,11 +101,6 @@ export function CalcBreakdown({
             formula="price × visits/yr ÷ 12  ·  × visits/yr"
             value={`${usd(result.monthly_price)} / ${usd(result.annual_price)}`}
           />
-          <Row
-            label="Cole annual cut"
-            formula="annual gross profit × share"
-            value={usd(result.cole_annual_cut)}
-          />
         </tbody>
       </table>
     </section>
