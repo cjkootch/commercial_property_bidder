@@ -9,9 +9,8 @@ export const CLASS_INDEX: Record<(typeof AREA_KINDS)[number], number> = {
   bed: 2,
   tree: 3,
   building: 4,
-  parking: 5,
-  sidewalk: 6,
-  other: 7,
+  pavement: 5,
+  other: 6,
 };
 
 export const CLASS_NAMES = [
@@ -20,8 +19,7 @@ export const CLASS_NAMES = [
   "bed",
   "tree",
   "building",
-  "parking",
-  "sidewalk",
+  "pavement",
   "other",
 ] as const;
 
@@ -57,7 +55,7 @@ function pointInPolygon(x: number, y: number, coords: number[][][]): boolean {
 
 // Paint order: later kinds override earlier where polygons overlap (e.g. a
 // building drawn over turf wins). Hard surfaces and beds sit on top of turf/tree.
-const PAINT_ORDER: UiKind[] = ["turf", "tree", "bed", "sidewalk", "parking", "other", "building"];
+const PAINT_ORDER: UiKind[] = ["turf", "tree", "bed", "pavement", "other", "building"];
 
 /**
  * Rasterize labeled service-area polygons into a class-index mask aligned to a

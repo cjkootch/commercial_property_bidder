@@ -113,10 +113,10 @@ export async function fetchOsmFeaturesInParcel(
   return out;
 }
 
-function kindFromTags(tags?: Record<string, string>): "building" | "parking" | "tree" | null {
+function kindFromTags(tags?: Record<string, string>): "building" | "pavement" | "tree" | null {
   if (!tags) return null;
   if (tags.building) return "building";
-  if (tags.amenity === "parking") return "parking";
+  if (tags.amenity === "parking") return "pavement";
   if (tags.natural === "wood" || tags.landuse === "forest" || tags.natural === "scrub") {
     return "tree";
   }
