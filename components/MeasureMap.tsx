@@ -7,7 +7,11 @@ import area from "@turf/area";
 import "mapbox-gl/dist/mapbox-gl.css";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 
-import { detectOsmFeatures, saveMeasurementWithGeometry } from "@/app/properties/actions";
+import {
+  detectOsmFeatures,
+  estimateServiceableArea,
+  saveMeasurementWithGeometry,
+} from "@/app/properties/actions";
 import {
   colorForKind,
   effectiveTurfSqft,
@@ -113,6 +117,8 @@ export function MeasureMap({
 
   const [pending, startTransition] = useTransition();
   const [detecting, setDetecting] = useState(false);
+  const [estimating, setEstimating] = useState(false);
+  const [vegPct, setVegPct] = useState<number | null>(null);
   const [saved, setSaved] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -382,6 +388,39 @@ export function MeasureMap({
     });
   };
 
+  // RGB vegetation detection: estimate serviceable area + overlay the mask.
+  const estimateVeg = () => {
+    setEstimating(true);
+    startTransition(async () => {
+      try {
+        const est = await estimateServiceableArea(propertyId);
+        const map = mapRef.current;
+        if (!est || !map) {
+          setMapError("Couldn't estimate from imagery (needs a parcel + map token).");
+          return;
+        }
+        if (map.getLayer("veg-mask-layer")) map.removeLayer("veg-mask-layer");
+        if (map.getSource("veg-mask")) map.removeSource("veg-mask");
+        map.addSource("veg-mask", {
+          type: "image",
+          url: est.mask_data_url,
+          coordinates: est.coordinates,
+        });
+        map.addLayer({
+          id: "veg-mask-layer",
+          type: "raster",
+          source: "veg-mask",
+          paint: { "raster-opacity": 0.65 },
+        });
+        setVegPct(est.vegetation_fraction);
+        setTurfSqft(est.turf_sqft);
+        setSaved(false);
+      } finally {
+        setEstimating(false);
+      }
+    });
+  };
+
   // Toggle whether grass under tree canopy counts as mowable turf.
   const onToggleTreeGrass = (v: boolean) => {
     setCountTreeGrass(v);
@@ -506,6 +545,15 @@ export function MeasureMap({
               {detecting ? "Detecting…" : "Detect buildings/parking/trees (OSM)"}
             </button>
           ) : null}
+          {parcel ? (
+            <button
+              onClick={estimateVeg}
+              disabled={estimating}
+              className="rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-sm text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+            >
+              {estimating ? "Analyzing…" : "Estimate turf from imagery (beta)"}
+            </button>
+          ) : null}
           <span className="ml-2 text-xs text-gray-400">
             Click to drop points; double-click to close the shape. Use the trash icon to delete.
           </span>
@@ -535,6 +583,13 @@ export function MeasureMap({
         toggle below is on). Building, parking, sidewalk &amp; other are recorded for reference and
         to train future auto-measurement.
       </p>
+      {vegPct !== null ? (
+        <p className="mt-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
+          Imagery estimate: ~{(vegPct * 100).toFixed(0)}% of the parcel is vegetation (green
+          overlay) → filled into Turf. Note: this includes tree canopy and is sensitive to
+          season/shadows — refine by drawing beds/trees and trimming, then save.
+        </p>
+      ) : null}
 
       {editing ? (
         <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">

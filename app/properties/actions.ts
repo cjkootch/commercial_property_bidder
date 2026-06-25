@@ -14,9 +14,13 @@ import type {
   ServiceAreaCollection,
   ServiceAreaFeature,
 } from "@/lib/geo/types";
-import { geocodeAddress } from "@/lib/integrations/geocoding";
+import { geocodeAddress, getMapboxToken } from "@/lib/integrations/geocoding";
 import { fetchParcelAtPoint } from "@/lib/integrations/parcel";
 import { fetchOsmFeaturesInParcel } from "@/lib/integrations/osm";
+import {
+  estimateServiceableArea as estimateServiceableAreaImpl,
+  type ServiceableEstimate,
+} from "@/lib/integrations/imagery";
 
 const ICP_VALUES = [
   "self_storage",
@@ -278,6 +282,19 @@ export async function detectOsmFeatures(
     .set({ osm_features: feats, updated_at: new Date() })
     .where(eq(property.id, propertyId));
   return feats;
+}
+
+/**
+ * Estimate the serviceable (vegetated) area within the parcel from satellite
+ * imagery (RGB vegetation detection). Returns an estimate + a mask overlay the
+ * operator can audit, or null if there's no parcel/token.
+ */
+export async function estimateServiceableArea(
+  propertyId: string
+): Promise<ServiceableEstimate | null> {
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop?.parcel_geojson) return null;
+  return estimateServiceableAreaImpl(prop.parcel_geojson as ParcelResult, getMapboxToken());
 }
 
 /** Force a re-fetch of the parcel (e.g. after the operator moves the pin). */
