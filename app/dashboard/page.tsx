@@ -1,0 +1,144 @@
+import Link from "next/link";
+import { getDefaultCompany, listDashboard, type DashboardRow } from "@/lib/db/queries";
+import { usd, titleCase } from "@/lib/format";
+
+export const dynamic = "force-dynamic";
+
+// Pipeline order (build spec section 4).
+const PIPELINE = [
+  "sourced",
+  "priced",
+  "contacts_enriched",
+  "proposal_ready",
+  "outreach_drafted",
+  "sent",
+  "replied",
+  "walkthrough_booked",
+  "won",
+  "lost",
+] as const;
+
+export default async function DashboardPage() {
+  const co = await getDefaultCompany();
+  if (!co) {
+    return (
+      <EmptyState
+        title="No company yet"
+        body="Run `npm run db:seed` to create the company, pricing config, and sample properties."
+      />
+    );
+  }
+
+  const rows = await listDashboard(co.id);
+
+  // Header metrics: total annual pipeline value + projected Cole cut, excluding lost.
+  const live = rows.filter((r) => r.status !== "lost");
+  const totalAnnual = live.reduce((s, r) => s + (r.annual_price ?? 0), 0);
+  const totalCole = live.reduce((s, r) => s + (r.cole_annual_cut ?? 0), 0);
+  const needsReview = rows.filter((r) => r.needs_review).length;
+
+  const byStatus = new Map<string, DashboardRow[]>();
+  for (const r of rows) {
+    const list = byStatus.get(r.status) ?? [];
+    list.push(r);
+    byStatus.set(r.status, list);
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Pipeline</h1>
+        <Link
+          href="/properties/new"
+          className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark"
+        >
+          + Add property
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Metric label="Properties" value={String(rows.length)} />
+        <Metric label="Annual pipeline" value={usd(totalAnnual, { cents: false })} />
+        <Metric label="Projected Cole cut" value={usd(totalCole, { cents: false })} />
+        <Metric label="Needs review" value={String(needsReview)} accent={needsReview > 0} />
+      </div>
+
+      {rows.length === 0 ? (
+        <EmptyState
+          title="No properties yet"
+          body="Add your first property to price a contract."
+        />
+      ) : (
+        <div className="space-y-6">
+          {PIPELINE.filter((s) => byStatus.has(s)).map((status) => (
+            <section key={status}>
+              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
+                {titleCase(status)}{" "}
+                <span className="text-gray-400">({byStatus.get(status)!.length})</span>
+              </h2>
+              <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th className="px-4 py-2 font-medium">Property</th>
+                      <th className="px-4 py-2 font-medium">Type</th>
+                      <th className="px-4 py-2 font-medium">Owner</th>
+                      <th className="px-4 py-2 text-right font-medium">Monthly</th>
+                      <th className="px-4 py-2 text-right font-medium">Annual</th>
+                      <th className="px-4 py-2 text-right font-medium">Cole cut</th>
+                      <th className="px-4 py-2 font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {byStatus.get(status)!.map((r) => (
+                      <tr key={r.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2.5">
+                          <Link href={`/properties/${r.id}`} className="font-medium text-brand hover:underline">
+                            {r.name}
+                          </Link>
+                          {r.city ? <span className="ml-1 text-gray-400">· {r.city}</span> : null}
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-600">{titleCase(r.icp_type)}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{r.owner_org ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{usd(r.monthly_price)}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{usd(r.annual_price)}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">{usd(r.cole_annual_cut)}</td>
+                        <td className="px-4 py-2.5">
+                          {r.needs_review ? (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                              Review
+                            </span>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Metric({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className={`rounded-lg border p-4 ${accent ? "border-amber-200 bg-amber-50" : "border-gray-200 bg-white"}`}>
+      <div className="text-xs uppercase tracking-wide text-gray-500">{label}</div>
+      <div className={`mt-1 text-2xl font-semibold ${accent ? "text-amber-800" : "text-gray-900"}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-gray-300 bg-white p-10 text-center">
+      <h2 className="text-lg font-medium text-gray-700">{title}</h2>
+      <p className="mt-1 text-sm text-gray-500">{body}</p>
+    </div>
+  );
+}
