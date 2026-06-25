@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getActiveConfig, getPropertyDetail, toEngineConfig } from "@/lib/db/queries";
-import { saveMeasurement, ensurePropertyGeocoded } from "../actions";
+import { saveMeasurement, ensurePropertyGeocoded, ensurePropertyParcel } from "../actions";
 import { AckReviewToggle } from "@/components/AckReviewToggle";
 import { MeasureMapLoader } from "@/components/MeasureMapLoader";
 import { CalcBreakdown } from "@/components/CalcBreakdown";
@@ -28,6 +28,10 @@ export default async function PropertyWorkspace({
   const center: [number, number] = mapView?.center ?? coords ?? DEFAULT_CENTER;
   const zoom = mapView?.zoom ?? DEFAULT_ZOOM;
   const mapToken = getMapboxToken();
+
+  // Resolve the county parcel boundary (cached after first fetch) for the
+  // reference overlay.
+  const parcel = await ensurePropertyParcel(prop.id);
 
   // Recompute a breakdown for the calc-audit panel (cheap, pure; nothing stored).
   const cfgRow = await getActiveConfig(prop.company_id);
@@ -167,6 +171,7 @@ export default async function PropertyWorkspace({
         zoom={zoom}
         geocoded={geocoded}
         initialAreas={serviceAreas}
+        parcel={parcel}
         initial={{
           turf_sqft: meas?.turf_sqft ?? 0,
           bed_sqft: meas?.bed_sqft ?? 0,
