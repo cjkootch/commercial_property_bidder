@@ -15,7 +15,12 @@ function getDb(): NeonHttpDatabase<typeof schema> {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set. Copy .env.example to .env.");
   }
-  _db = drizzle(neon(connectionString), { schema });
+  // no-store: the Neon driver issues queries via fetch(), which Next.js would
+  // otherwise cache in its Data Cache — serving stale reads (e.g. rows inserted
+  // out-of-band wouldn't appear). Force every query to be a live read.
+  _db = drizzle(neon(connectionString, { fetchOptions: { cache: "no-store" } }), {
+    schema,
+  });
   return _db;
 }
 
