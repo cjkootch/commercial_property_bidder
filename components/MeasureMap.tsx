@@ -104,6 +104,8 @@ export function MeasureMap({
 
   const [pending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
 
   const totals = sumByKind(areas);
 
@@ -198,15 +200,14 @@ export function MeasureMap({
     mapRef.current = map;
     map.addControl(new mapboxgl.NavigationControl(), "top-right");
 
-    map.on("load", () => {
-      if (!geocoded) {
-        // Address couldn't be geocoded: drop a draggable pin to place it.
-        markerRef.current = new mapboxgl.Marker({ draggable: true, color: "#2f6f4e" })
-          .setLngLat(center)
-          .addTo(map);
-      }
-      if (parcel) addParcelLayer(map, parcel);
-      if (hasSaved && initialAreas) addReadonlyLayers(map, initialAreas);
+    // Single source of truth for "map finished loading". Covers the case where
+    // the load event already fired before a listener is attached.
+    const markReady = () => setMapReady(true);
+    if (map.loaded()) markReady();
+    else map.on("load", markReady);
+    map.on("error", (e) => {
+      // Surface a hint but don't crash; tiles/style errors are usually token/network.
+      if (e?.error?.message) setMapError(e.error.message);
     });
 
     return () => {
@@ -214,19 +215,33 @@ export function MeasureMap({
       mapRef.current = null;
       drawRef.current = null;
       markerRef.current = null;
+      setMapReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  // --- Toggle between read-only and edit (draw) modes ---
+  // --- Once loaded: pin (if not geocoded) + parcel reference overlay ---
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !mapReady) return;
+    if (!geocoded && !markerRef.current) {
+      markerRef.current = new mapboxgl.Marker({ draggable: true, color: "#2f6f4e" })
+        .setLngLat(center)
+        .addTo(map);
+    }
+    if (parcel) addParcelLayer(map, parcel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, geocoded, parcel]);
 
-    const apply = () => {
-      if (editing) {
-        removeReadonlyLayers(map);
-        if (!drawRef.current) {
+  // --- Toggle between read-only and edit (draw) modes (runs once loaded) ---
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    if (editing) {
+      removeReadonlyLayers(map);
+      if (!drawRef.current) {
+        try {
           const draw = new MapboxDraw({
             displayControlsDefault: false,
             controls: { trash: true },
@@ -238,22 +253,24 @@ export function MeasureMap({
           on("draw.update", refreshFromDraw);
           on("draw.delete", refreshFromDraw);
           if (areas) draw.set(areas as unknown as GeoJSON.FeatureCollection);
+        } catch (err) {
+          setMapError(
+            "Drawing tools failed to initialize: " +
+              (err instanceof Error ? err.message : String(err))
+          );
         }
-      } else if (drawRef.current) {
-        const off = map.off.bind(map) as (t: string, cb: (...a: unknown[]) => void) => void;
-        off("draw.create", onDrawCreate as (...a: unknown[]) => void);
-        off("draw.update", refreshFromDraw);
-        off("draw.delete", refreshFromDraw);
-        map.removeControl(drawRef.current);
-        drawRef.current = null;
-        if (areas) addReadonlyLayers(map, areas);
       }
-    };
-
-    if (map.isStyleLoaded()) apply();
-    else map.once("load", apply);
+    } else if (drawRef.current) {
+      const off = map.off.bind(map) as (t: string, cb: (...a: unknown[]) => void) => void;
+      off("draw.create", onDrawCreate as (...a: unknown[]) => void);
+      off("draw.update", refreshFromDraw);
+      off("draw.delete", refreshFromDraw);
+      map.removeControl(drawRef.current);
+      drawRef.current = null;
+      if (areas) addReadonlyLayers(map, areas);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing]);
+  }, [mapReady, editing]);
 
   // Assign the currently-selected kind to a freshly drawn polygon, then recompute.
   const onDrawCreate = useCallback(
@@ -283,7 +300,11 @@ export function MeasureMap({
   // Seed the draw with the parcel outline as a turf polygon to trim down.
   const useParcelAsTurf = () => {
     const draw = drawRef.current;
-    if (!draw || !parcel) return;
+    if (!parcel) return;
+    if (!draw) {
+      setMapError("Drawing tools aren't ready yet — give the map a moment and retry.");
+      return;
+    }
     const polys: number[][][][] =
       parcel.geometry.type === "MultiPolygon"
         ? (parcel.geometry.coordinates as number[][][][])
@@ -345,6 +366,12 @@ export function MeasureMap({
           </button>
         ) : null}
       </div>
+
+      {mapError ? (
+        <p className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+          Map issue: {mapError}
+        </p>
+      ) : null}
 
       {!geocoded ? (
         <p className="mt-1 text-sm text-amber-700">
