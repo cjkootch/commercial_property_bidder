@@ -272,7 +272,12 @@ export function MeasureMap({
           on("draw.create", onDrawCreate as (...a: unknown[]) => void);
           on("draw.update", refreshFromDraw);
           on("draw.delete", refreshFromDraw);
-          if (areas) draw.set(areas as unknown as GeoJSON.FeatureCollection);
+          if (areas) {
+            draw.set(areas as unknown as GeoJSON.FeatureCollection);
+            // Recompute mowable turf from the loaded polygons so re-opening an
+            // older measurement reflects the current subtraction logic.
+            refreshFromDraw();
+          }
         } catch (err) {
           setMapError(
             "Drawing tools failed to initialize: " +
