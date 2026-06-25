@@ -39,3 +39,23 @@ export interface AreaTotals {
   bed_sqft: number;
   exclude_sqft: number;
 }
+
+/**
+ * A county parcel (legal lot) boundary plus owner-of-record, resolved from a
+ * county GIS service. The geometry is a reference overlay — it frames where the
+ * property ends so the operator can trace the service area inside it. `owner`
+ * may seed (operator-confirmed) owner_org for the contact step; it is never
+ * auto-applied (build spec section 9).
+ */
+export interface ParcelResult {
+  county: string;
+  owner: string | null;
+  parcel_id: string | null;
+  address: string | null;
+  acres: number | null;
+  /** GeoJSON Polygon/MultiPolygon ring(s), [lng,lat]. */
+  geometry: {
+    type: "Polygon" | "MultiPolygon";
+    coordinates: number[][][] | number[][][][];
+  };
+}

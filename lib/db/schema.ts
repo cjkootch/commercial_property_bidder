@@ -154,6 +154,10 @@ export const property = pgTable("property", {
   // Operator must tick this before an email can be sent on a needs_review
   // property (build spec section 6.2 send gate).
   acknowledged_review: boolean("acknowledged_review").notNull().default(false),
+  // Cached county parcel boundary + owner-of-record (lib/geo/types ParcelResult)
+  // fetched lazily from county GIS. Reference overlay for the map; owner is a
+  // suggestion only, never auto-applied to owner_org.
+  parcel_geojson: jsonb("parcel_geojson"),
   notes: text("notes"),
   ...timestamps,
 });

@@ -17,6 +17,7 @@ import {
 import type {
   AreaKind,
   MapView,
+  ParcelResult,
   ServiceAreaCollection,
   ServiceAreaFeature,
 } from "@/lib/geo/types";
@@ -24,6 +25,7 @@ import type { Confidence } from "@/lib/pricing/types";
 
 const SATELLITE_STYLE = "mapbox://styles/mapbox/satellite-streets-v12";
 const READONLY_SRC = "saved-areas";
+const PARCEL_SRC = "parcel-boundary";
 
 type Props = {
   token: string | null;
@@ -32,6 +34,7 @@ type Props = {
   zoom: number;
   geocoded: boolean;
   initialAreas: ServiceAreaCollection | null;
+  parcel: ParcelResult | null;
   initial: {
     turf_sqft: number;
     bed_sqft: number;
@@ -83,6 +86,7 @@ export function MeasureMap({
   zoom,
   geocoded,
   initialAreas,
+  parcel,
   initial,
 }: Props) {
   const mapContainer = useRef<HTMLDivElement | null>(null);
@@ -116,6 +120,23 @@ export function MeasureMap({
     setTurfSqft(t.turf_sqft);
     setBedSqft(t.bed_sqft);
     setSaved(false);
+  }, []);
+
+  // --- Parcel boundary reference layer (dashed outline; not editable) ---
+  const addParcelLayer = useCallback((map: mapboxgl.Map, p: ParcelResult) => {
+    if (map.getSource(PARCEL_SRC)) return;
+    const feature: GeoJSON.Feature = {
+      type: "Feature",
+      properties: {},
+      geometry: p.geometry as GeoJSON.Geometry,
+    };
+    map.addSource(PARCEL_SRC, { type: "geojson", data: feature });
+    map.addLayer({
+      id: `${PARCEL_SRC}-line`,
+      type: "line",
+      source: PARCEL_SRC,
+      paint: { "line-color": "#f5d142", "line-width": 2.5, "line-dasharray": [2, 1.5] },
+    });
   }, []);
 
   // --- Read-only overlay of saved polygons (fill + outline + sqft labels) ---
@@ -190,6 +211,7 @@ export function MeasureMap({
           .setLngLat(center)
           .addTo(map);
       }
+      if (parcel) addParcelLayer(map, parcel);
       if (hasSaved && initialAreas) addReadonlyLayers(map, initialAreas);
     });
 
@@ -264,6 +286,25 @@ export function MeasureMap({
     drawRef.current?.changeMode("draw_polygon");
   };
 
+  // Seed the draw with the parcel outline as a turf polygon to trim down.
+  const useParcelAsTurf = () => {
+    const draw = drawRef.current;
+    if (!draw || !parcel) return;
+    const polys: number[][][][] =
+      parcel.geometry.type === "MultiPolygon"
+        ? (parcel.geometry.coordinates as number[][][][])
+        : [parcel.geometry.coordinates as number[][][]];
+    for (const coords of polys) {
+      const ids = draw.add({
+        type: "Feature",
+        properties: { kind: "turf" },
+        geometry: { type: "Polygon", coordinates: coords },
+      } as GeoJSON.Feature);
+      for (const id of ids) draw.setFeatureProperty(String(id), "kind", "turf");
+    }
+    refreshFromDraw();
+  };
+
   const onSave = () => {
     const map = mapRef.current;
     if (!map || !areas) return;
@@ -317,6 +358,15 @@ export function MeasureMap({
         </p>
       ) : null}
 
+      {parcel ? (
+        <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-500">
+          <span className="inline-block h-2.5 w-3 border-b-2 border-dashed border-yellow-400" />
+          Parcel ({parcel.county} County)
+          {parcel.owner ? ` · ${parcel.owner}` : ""}
+          {parcel.acres ? ` · ${parcel.acres.toFixed(2)} ac` : ""}
+        </p>
+      ) : null}
+
       {editing ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="text-sm text-gray-500">Draw:</span>
@@ -333,6 +383,14 @@ export function MeasureMap({
               {KIND_LABELS[k]}
             </button>
           ))}
+          {parcel ? (
+            <button
+              onClick={useParcelAsTurf}
+              className="rounded-md border border-yellow-400 bg-yellow-50 px-2.5 py-1 text-sm text-yellow-800 hover:bg-yellow-100"
+            >
+              Use parcel outline as turf
+            </button>
+          ) : null}
           <span className="ml-2 text-xs text-gray-400">
             Click to drop points; double-click to close the shape. Use the trash icon to delete.
           </span>

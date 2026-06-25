@@ -8,8 +8,9 @@ import { measurement, pricingResult, property } from "@/lib/db/schema";
 import { getActiveConfig, getDefaultCompany, toEngineConfig } from "@/lib/db/queries";
 import { computePricing } from "@/lib/pricing/engine";
 import type { Confidence } from "@/lib/pricing/types";
-import type { MapView, ServiceAreaCollection } from "@/lib/geo/types";
+import type { MapView, ParcelResult, ServiceAreaCollection } from "@/lib/geo/types";
 import { geocodeAddress } from "@/lib/integrations/geocoding";
+import { fetchParcelAtPoint } from "@/lib/integrations/parcel";
 
 const ICP_VALUES = [
   "self_storage",
@@ -225,6 +226,45 @@ export async function ensurePropertyGeocoded(
   // No revalidatePath here: this runs during page render (the coords are used
   // immediately) and revalidatePath is not allowed during render.
   return coords;
+}
+
+/**
+ * Lazily resolve & cache the county parcel boundary for a property. No-op if
+ * already cached or if the property has no coordinates. Resilient: county GIS
+ * failures return the existing (possibly null) value rather than throwing.
+ * Safe to call during render (no revalidatePath).
+ */
+export async function ensurePropertyParcel(
+  propertyId: string
+): Promise<ParcelResult | null> {
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) return null;
+  if (prop.parcel_geojson) return prop.parcel_geojson as ParcelResult;
+  if (prop.lng == null || prop.lat == null) return null;
+
+  const parcel = await fetchParcelAtPoint(prop.lng, prop.lat);
+  if (!parcel) return null;
+
+  await db
+    .update(property)
+    .set({ parcel_geojson: parcel, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  return parcel;
+}
+
+/** Force a re-fetch of the parcel (e.g. after the operator moves the pin). */
+export async function refreshPropertyParcel(
+  propertyId: string,
+  lng: number,
+  lat: number
+): Promise<ParcelResult | null> {
+  const parcel = await fetchParcelAtPoint(lng, lat);
+  await db
+    .update(property)
+    .set({ parcel_geojson: parcel ?? null, lng, lat, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  revalidatePath(`/properties/${propertyId}`);
+  return parcel;
 }
 
 /** Operator acknowledges the review flags (send gate, build spec section 6.2). */
