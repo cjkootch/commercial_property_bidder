@@ -1,15 +1,32 @@
-import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import * as schema from "./schema";
 
-// Neon HTTP driver over the pooled connection string (build spec section 3).
-// HTTP fetch model is serverless-friendly: no long-lived connections, which
-// matches the Vercel deploy target.
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error("DATABASE_URL is not set. Copy .env.example to .env.");
+// Lazy Neon HTTP (serverless) client. We must NOT connect — or throw — at
+// import time: `next build` imports every route module during its
+// "collecting page data" step, and that must not require DATABASE_URL (a
+// runtime secret). The connection is created on first query instead, so the
+// throw only happens at request time if the var is genuinely missing.
+let _db: NeonHttpDatabase<typeof schema> | null = null;
+
+function getDb(): NeonHttpDatabase<typeof schema> {
+  if (_db) return _db;
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is not set. Copy .env.example to .env.");
+  }
+  _db = drizzle(neon(connectionString), { schema });
+  return _db;
 }
 
-const sql = neon(connectionString);
-export const db = drizzle(sql, { schema });
+// Proxy so callers can `import { db }` and use it like a normal Drizzle client;
+// the real client is materialized on first property access (i.e. first query).
+export const db = new Proxy({} as NeonHttpDatabase<typeof schema>, {
+  get(_target, prop, receiver) {
+    const real = getDb();
+    const value = Reflect.get(real as object, prop, receiver);
+    return typeof value === "function" ? value.bind(real) : value;
+  },
+});
+
 export { schema };
