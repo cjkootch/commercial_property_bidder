@@ -13,24 +13,33 @@ export type AreaKind =
   | "bed"
   | "tree"
   | "building"
+  | "pavement"
+  | "other"
+  // legacy values (normalize to current kinds): parking/sidewalk -> pavement,
+  // exclude -> other
   | "parking"
   | "sidewalk"
-  | "other"
   | "exclude";
 
-/** Kinds offered in the UI (legacy `exclude` excluded). */
+/** Kinds offered in the UI. */
 export const AREA_KINDS = [
   "turf",
   "bed",
   "tree",
   "building",
-  "parking",
-  "sidewalk",
+  "pavement",
   "other",
 ] as const;
 
 /** Kinds that feed the pricing engine. */
 export const SERVICE_KINDS: AreaKind[] = ["turf", "bed"];
+
+/** Impervious / non-mowable kinds subtracted from turf to get mowable area. */
+export const SUBTRACT_FROM_TURF: (typeof AREA_KINDS)[number][] = [
+  "building",
+  "pavement",
+  "bed",
+];
 
 /** A single drawn polygon: a GeoJSON Polygon feature tagged with its kind. */
 export interface ServiceAreaFeature {

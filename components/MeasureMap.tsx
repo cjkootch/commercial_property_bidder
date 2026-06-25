@@ -14,7 +14,7 @@ import {
 } from "@/app/properties/actions";
 import {
   colorForKind,
-  effectiveTurfSqft,
+  computeEffectiveTurf,
   labelForKind,
   normalizeKind,
   roundSqft,
@@ -134,7 +134,9 @@ export function MeasureMap({
     const fc = toCollection(draw.getAll() as GeoJSON.FeatureCollection);
     setAreas(fc);
     const t = sumByKind(fc);
-    setTurfSqft(effectiveTurfSqft(t, countTreeGrassRef.current));
+    // Priced turf = turf minus overlapping building/pavement/bed (and trees
+    // unless grass-under-trees is on), computed geometrically.
+    setTurfSqft(roundSqft(computeEffectiveTurf(fc, countTreeGrassRef.current)));
     setBedSqft(t.bed_sqft);
     setSaved(false);
   }, []);
@@ -270,7 +272,12 @@ export function MeasureMap({
           on("draw.create", onDrawCreate as (...a: unknown[]) => void);
           on("draw.update", refreshFromDraw);
           on("draw.delete", refreshFromDraw);
-          if (areas) draw.set(areas as unknown as GeoJSON.FeatureCollection);
+          if (areas) {
+            draw.set(areas as unknown as GeoJSON.FeatureCollection);
+            // Recompute mowable turf from the loaded polygons so re-opening an
+            // older measurement reflects the current subtraction logic.
+            refreshFromDraw();
+          }
         } catch (err) {
           setMapError(
             "Drawing tools failed to initialize: " +
@@ -425,7 +432,7 @@ export function MeasureMap({
   const onToggleTreeGrass = (v: boolean) => {
     setCountTreeGrass(v);
     countTreeGrassRef.current = v;
-    setTurfSqft(effectiveTurfSqft(sumByKind(areas), v));
+    setTurfSqft(roundSqft(computeEffectiveTurf(areas, v)));
     setSaved(false);
   };
 
@@ -578,10 +585,12 @@ export function MeasureMap({
         ))}
       </div>
       <p className="mt-1 text-xs text-gray-400">
-        Only <span className="font-medium text-gray-500">Turf</span> and{" "}
-        <span className="font-medium text-gray-500">Beds</span> are priced (tree canopy too, if the
-        toggle below is on). Building, parking, sidewalk &amp; other are recorded for reference and
-        to train future auto-measurement.
+        Priced <span className="font-medium text-gray-500">Turf</span> = drawn turf minus any{" "}
+        <span className="font-medium text-gray-500">Building</span>,{" "}
+        <span className="font-medium text-gray-500">Pavement</span> &amp;{" "}
+        <span className="font-medium text-gray-500">Bed</span> inside it (and tree canopy, unless the
+        toggle below is on). So you can trace the whole lot as turf, then mark the hard surfaces to
+        carve out the mowable area.
       </p>
       {vegPct !== null ? (
         <p className="mt-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
