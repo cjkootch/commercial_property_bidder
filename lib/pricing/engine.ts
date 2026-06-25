@@ -2,6 +2,7 @@ import type {
   PricingConfig,
   PricingFlags,
   PricingMeasurement,
+  PricingOptions,
   PricingResult,
 } from "./types";
 
@@ -26,7 +27,8 @@ export function crewCostPerHour(config: PricingConfig): number {
  */
 export function computePricing(
   measurement: PricingMeasurement,
-  config: PricingConfig
+  config: PricingConfig,
+  opts: PricingOptions = {}
 ): PricingResult {
   const complexity = measurement.complexity ?? 1.0;
   const { turf_sqft, bed_sqft } = measurement;
@@ -112,7 +114,7 @@ export function computePricing(
   const needs_review =
     large || bed_heavy || high_value || low_confidence || below_market || above_market;
 
-  return {
+  const result: PricingResult = {
     turf_acres,
     crew_hours_per_visit,
     cost_per_visit,
@@ -128,4 +130,26 @@ export function computePricing(
     flags,
     needs_review,
   };
+
+  if (opts.breakdown) {
+    result.breakdown = {
+      complexity,
+      crew_cost_per_hour,
+      turf_acres,
+      turf_time,
+      bed_time,
+      fixed_min_per_stop: config.fixed_min_per_stop,
+      drive_min_per_stop: config.drive_min_per_stop,
+      total_crew_min,
+      crew_hours_per_visit,
+      cost_per_visit,
+      target_margin: config.target_margin,
+      price_before_floor: cost_per_visit / (1 - config.target_margin),
+      min_price_per_visit: config.min_price_per_visit,
+      price_floored:
+        cost_per_visit / (1 - config.target_margin) < config.min_price_per_visit,
+    };
+  }
+
+  return result;
 }

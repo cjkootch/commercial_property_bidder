@@ -111,3 +111,37 @@ describe("computePricing — edge cases", () => {
     expect(r.needs_review).toBe(true);
   });
 });
+
+describe("computePricing — breakdown option", () => {
+  const m = { turf_sqft: 35000, bed_sqft: 1500, complexity: 1.0, confidence: "High" } as const;
+
+  it("omits breakdown by default", () => {
+    const r = computePricing(m, DEFAULT_PRICING_CONFIG);
+    expect(r.breakdown).toBeUndefined();
+  });
+
+  it("attaches consistent intermediate values when requested", () => {
+    const r = computePricing(m, DEFAULT_PRICING_CONFIG, { breakdown: true });
+    const b = r.breakdown!;
+    expect(b).toBeDefined();
+    // Chain reconciles with the returned headline figures.
+    expect(b.turf_acres).toBeCloseTo(35000 / 43560, 6);
+    expect(b.total_crew_min).toBeCloseTo(
+      b.turf_time + b.bed_time + b.fixed_min_per_stop + b.drive_min_per_stop,
+      6
+    );
+    expect(b.crew_hours_per_visit).toBeCloseTo(b.total_crew_min / 60, 6);
+    expect(b.cost_per_visit).toBeCloseTo(r.cost_per_visit, 6);
+    expect(b.crew_cost_per_hour).toBe(96);
+    expect(b.price_floored).toBe(false);
+  });
+
+  it("flags the floor when the per-visit minimum binds (tiny lot)", () => {
+    const r = computePricing(
+      { turf_sqft: 0, bed_sqft: 0, confidence: "High" },
+      DEFAULT_PRICING_CONFIG,
+      { breakdown: true }
+    );
+    expect(r.breakdown!.price_floored).toBe(true);
+  });
+});

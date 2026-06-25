@@ -8,6 +8,8 @@ import { measurement, pricingResult, property } from "@/lib/db/schema";
 import { getActiveConfig, getDefaultCompany, toEngineConfig } from "@/lib/db/queries";
 import { computePricing } from "@/lib/pricing/engine";
 import type { Confidence } from "@/lib/pricing/types";
+import type { MapView, ServiceAreaCollection } from "@/lib/geo/types";
+import { geocodeAddress } from "@/lib/integrations/geocoding";
 
 const ICP_VALUES = [
   "self_storage",
@@ -57,46 +59,54 @@ export async function createProperty(formData: FormData) {
   redirect(`/properties/${prop.id}`);
 }
 
+/** Structured measurement input shared by the form and the map save paths. */
+type MeasurementInput = {
+  turf_sqft: number;
+  bed_sqft: number;
+  complexity: number;
+  confidence: Confidence;
+  shrub_count?: number | null;
+  tree_count?: number | null;
+  edging_lf?: number | null;
+  source?: "manual" | "siterecon" | "map_draw";
+  service_areas?: ServiceAreaCollection | null;
+  map_view?: MapView | null;
+};
+
 /**
- * Save measurements and recompute pricing in one shot (build spec section 7:
- * "recompute pricing on save"). Inserts a fresh measurement + pricing_result
- * snapshot and advances the pipeline to at least `priced`.
+ * Core persistence: insert a measurement snapshot, run the pricing engine,
+ * insert the pricing_result, advance the pipeline to `priced`, and revalidate.
+ * Shared by saveMeasurement (form) and saveMeasurementWithGeometry (map).
+ * Not exported, so it is a plain helper, not a server action.
  */
-export async function saveMeasurement(propertyId: string, formData: FormData) {
+async function persistMeasurementAndPrice(propertyId: string, input: MeasurementInput) {
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
   if (!prop) throw new Error("Property not found.");
 
   const cfgRow = await getActiveConfig(prop.company_id);
   if (!cfgRow) throw new Error("No active pricing config for this company.");
 
-  const confidenceRaw = (formData.get("confidence") as string) ?? "Med";
-  const confidence: Confidence = (["High", "Med", "Low"] as const).includes(
-    confidenceRaw as Confidence
-  )
-    ? (confidenceRaw as Confidence)
-    : "Med";
-
-  const turf_sqft = num(formData, "turf_sqft");
-  const bed_sqft = num(formData, "bed_sqft");
-  const complexity = num(formData, "complexity", 1.0) || 1.0;
+  const complexity = input.complexity || 1.0;
 
   const [meas] = await db
     .insert(measurement)
     .values({
       property_id: propertyId,
-      turf_sqft,
-      bed_sqft,
-      shrub_count: Math.trunc(num(formData, "shrub_count")) || null,
-      tree_count: Math.trunc(num(formData, "tree_count")) || null,
-      edging_lf: num(formData, "edging_lf") || null,
+      turf_sqft: input.turf_sqft,
+      bed_sqft: input.bed_sqft,
+      shrub_count: input.shrub_count ?? null,
+      tree_count: input.tree_count ?? null,
+      edging_lf: input.edging_lf ?? null,
       complexity: complexity.toFixed(2),
-      confidence,
-      source: "manual",
+      confidence: input.confidence,
+      source: input.source ?? "manual",
+      service_areas: input.service_areas ?? null,
+      map_view: input.map_view ?? null,
     })
     .returning();
 
   const result = computePricing(
-    { turf_sqft, bed_sqft, complexity, confidence },
+    { turf_sqft: input.turf_sqft, bed_sqft: input.bed_sqft, complexity, confidence: input.confidence },
     toEngineConfig(cfgRow)
   );
 
@@ -126,6 +136,95 @@ export async function saveMeasurement(propertyId: string, formData: FormData) {
 
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath("/dashboard");
+}
+
+function toConfidence(raw: unknown): Confidence {
+  return (["High", "Med", "Low"] as const).includes(raw as Confidence)
+    ? (raw as Confidence)
+    : "Med";
+}
+
+/**
+ * Save measurements from the manual form and recompute pricing (build spec
+ * section 7: "recompute pricing on save").
+ */
+export async function saveMeasurement(propertyId: string, formData: FormData) {
+  await persistMeasurementAndPrice(propertyId, {
+    turf_sqft: num(formData, "turf_sqft"),
+    bed_sqft: num(formData, "bed_sqft"),
+    complexity: num(formData, "complexity", 1.0) || 1.0,
+    confidence: toConfidence(formData.get("confidence")),
+    shrub_count: Math.trunc(num(formData, "shrub_count")) || null,
+    tree_count: Math.trunc(num(formData, "tree_count")) || null,
+    edging_lf: num(formData, "edging_lf") || null,
+    source: "manual",
+  });
+}
+
+/** Payload sent by the map workspace when saving drawn service areas. */
+export type GeometrySavePayload = {
+  turf_sqft: number;
+  bed_sqft: number;
+  complexity: number;
+  confidence: Confidence;
+  service_areas: ServiceAreaCollection;
+  map_view: MapView;
+  /** Map center the operator settled on, to back-fill property lat/lng. */
+  lat?: number | null;
+  lng?: number | null;
+};
+
+/**
+ * Save measurements derived from drawn map polygons. Persists the geometry +
+ * map view, back-fills property lat/lng if provided, and re-prices. The drawn
+ * sqft totals are passed in but the operator may have overridden them in the
+ * form fields before saving — the caller decides which values to send.
+ */
+export async function saveMeasurementWithGeometry(
+  propertyId: string,
+  payload: GeometrySavePayload
+) {
+  if (payload.lat != null && payload.lng != null) {
+    await db
+      .update(property)
+      .set({ lat: payload.lat, lng: payload.lng, updated_at: new Date() })
+      .where(eq(property.id, propertyId));
+  }
+
+  await persistMeasurementAndPrice(propertyId, {
+    turf_sqft: payload.turf_sqft,
+    bed_sqft: payload.bed_sqft,
+    complexity: payload.complexity || 1.0,
+    confidence: toConfidence(payload.confidence),
+    source: "map_draw",
+    service_areas: payload.service_areas,
+    map_view: payload.map_view,
+  });
+}
+
+/**
+ * Lazily geocode a property's address to lat/lng on first map open. No-op if
+ * already geocoded or if geocoding fails (the map falls back to a draggable
+ * pin). Returns the current [lng, lat] or null.
+ */
+export async function ensurePropertyGeocoded(
+  propertyId: string
+): Promise<[number, number] | null> {
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) return null;
+  if (prop.lng != null && prop.lat != null) return [prop.lng, prop.lat];
+
+  const addressParts = [prop.address, prop.city, prop.zip, "TX"].filter(Boolean).join(", ");
+  const coords = await geocodeAddress(addressParts);
+  if (!coords) return null;
+
+  await db
+    .update(property)
+    .set({ lng: coords[0], lat: coords[1], updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  // No revalidatePath here: this runs during page render (the coords are used
+  // immediately) and revalidatePath is not allowed during render.
+  return coords;
 }
 
 /** Operator acknowledges the review flags (send gate, build spec section 6.2). */
