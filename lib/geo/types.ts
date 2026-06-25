@@ -2,8 +2,33 @@
 // (plain GeoJSON shapes) so both client (Mapbox) and server (persistence) can
 // share them.
 
-/** What a drawn polygon represents on the property. */
-export type AreaKind = "turf" | "bed" | "exclude";
+/**
+ * What a drawn polygon represents on the property. Only `turf` and `bed` are
+ * priced; the rest are recorded for reference and as labeled training data for
+ * future auto-segmentation. (`exclude` is a legacy alias kept for back-compat
+ * with previously saved data; it normalizes to `other`.)
+ */
+export type AreaKind =
+  | "turf"
+  | "bed"
+  | "building"
+  | "parking"
+  | "sidewalk"
+  | "other"
+  | "exclude";
+
+/** Kinds offered in the UI (legacy `exclude` excluded). */
+export const AREA_KINDS = [
+  "turf",
+  "bed",
+  "building",
+  "parking",
+  "sidewalk",
+  "other",
+] as const;
+
+/** Kinds that feed the pricing engine. */
+export const SERVICE_KINDS: AreaKind[] = ["turf", "bed"];
 
 /** A single drawn polygon: a GeoJSON Polygon feature tagged with its kind. */
 export interface ServiceAreaFeature {
@@ -33,11 +58,14 @@ export interface MapView {
   zoom: number;
 }
 
-/** Totals derived from a ServiceAreaCollection, fed into the pricing engine. */
+/** Totals derived from a ServiceAreaCollection. turf+bed feed the engine. */
 export interface AreaTotals {
   turf_sqft: number;
   bed_sqft: number;
-  exclude_sqft: number;
+  /** sqft per category (all AREA_KINDS present, defaulting to 0). */
+  byKind: Record<(typeof AREA_KINDS)[number], number>;
+  /** total of non-service categories (building/parking/sidewalk/other). */
+  nonservice_sqft: number;
 }
 
 /**

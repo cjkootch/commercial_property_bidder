@@ -1,9 +1,18 @@
-import type {
-  AreaKind,
-  AreaTotals,
-  ServiceAreaCollection,
-  ServiceAreaFeature,
+import {
+  AREA_KINDS,
+  type AreaKind,
+  type AreaTotals,
+  type ServiceAreaCollection,
+  type ServiceAreaFeature,
 } from "./types";
+
+/** Normalize any stored/legacy kind to a current UI category. */
+export function normalizeKind(v: unknown): (typeof AREA_KINDS)[number] {
+  if (v === "exclude") return "other"; // legacy alias
+  return (AREA_KINDS as readonly string[]).includes(v as string)
+    ? (v as (typeof AREA_KINDS)[number])
+    : "turf";
+}
 
 /** Square feet per square meter (Turf returns m²). */
 export const M2_TO_SQFT = 10.7639104167;
@@ -21,16 +30,14 @@ export function sqftFromM2(m2: number): number {
  * are NOT subtracted from turf/bed; overlapping same-kind polygons double-count.
  */
 export function sumByKind(fc: ServiceAreaCollection | null | undefined): AreaTotals {
-  const totals: AreaTotals = { turf_sqft: 0, bed_sqft: 0, exclude_sqft: 0 };
-  if (!fc?.features?.length) return totals;
-  for (const f of fc.features) {
-    const kind: AreaKind = f.properties?.kind ?? "turf";
-    const a = Number(f.properties?.area_sqft) || 0;
-    if (kind === "turf") totals.turf_sqft += a;
-    else if (kind === "bed") totals.bed_sqft += a;
-    else totals.exclude_sqft += a;
+  const byKind = Object.fromEntries(AREA_KINDS.map((k) => [k, 0])) as AreaTotals["byKind"];
+  for (const f of fc?.features ?? []) {
+    const kind = normalizeKind(f.properties?.kind);
+    byKind[kind] += Number(f.properties?.area_sqft) || 0;
   }
-  return totals;
+  const nonservice_sqft =
+    byKind.building + byKind.parking + byKind.sidewalk + byKind.other;
+  return { turf_sqft: byKind.turf, bed_sqft: byKind.bed, byKind, nonservice_sqft };
 }
 
 /** Round a sqft value to a whole number for display/storage stability. */
@@ -38,20 +45,35 @@ export function roundSqft(n: number): number {
   return Math.round(n);
 }
 
-/** Default fill color per kind, shared by the draw styles and read-only layer. */
+const KIND_COLORS: Record<(typeof AREA_KINDS)[number], string> = {
+  turf: "#3fae5a", // green
+  bed: "#b9763f", // mulch brown
+  building: "#d1495b", // red
+  parking: "#475569", // asphalt slate
+  sidewalk: "#cbd5e1", // light concrete
+  other: "#9ca3af", // gray
+};
+
+const KIND_LABELS: Record<(typeof AREA_KINDS)[number], string> = {
+  turf: "Turf",
+  bed: "Bed",
+  building: "Building",
+  parking: "Parking",
+  sidewalk: "Sidewalk",
+  other: "Other",
+};
+
+/** Fill color per kind, shared by the draw styles and read-only layer. */
 export function colorForKind(kind: AreaKind): string {
-  switch (kind) {
-    case "turf":
-      return "#3fae5a"; // green
-    case "bed":
-      return "#b9763f"; // mulch brown
-    default:
-      return "#9ca3af"; // gray (exclude)
-  }
+  return KIND_COLORS[normalizeKind(kind)];
+}
+
+export function labelForKind(kind: AreaKind): string {
+  return KIND_LABELS[normalizeKind(kind)];
 }
 
 export function isAreaKind(v: unknown): v is AreaKind {
-  return v === "turf" || v === "bed" || v === "exclude";
+  return v === "exclude" || (AREA_KINDS as readonly string[]).includes(v as string);
 }
 
 /** Type guard for a persisted/incoming service-area feature. */
