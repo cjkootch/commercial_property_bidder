@@ -68,26 +68,42 @@ export type ServiceableEstimate = {
   coordinates: [LngLat, LngLat, LngLat, LngLat];
 };
 
+/** A fetched satellite tile for a parcel, with the geo bounds needed to align
+ *  pixels to lng/lat (for masking / rasterizing training labels). */
+export type ParcelTile = {
+  width: number;
+  height: number;
+  /** RGBA pixels, row-major. */
+  data: Uint8Array;
+  /** JPEG bytes as received (for saving training images without re-encoding). */
+  jpeg: Buffer;
+  minLng: number;
+  minLat: number;
+  maxLng: number;
+  maxLat: number;
+  /** Image-source corners: TL, TR, BR, BL as [lng,lat]. */
+  coordinates: [LngLat, LngLat, LngLat, LngLat];
+};
+
 /**
- * Estimate the vegetated (≈ serviceable) area within a parcel from satellite
- * imagery. Area is computed as a fraction of the known parcel area, so it's
- * robust to map projection. Returns null on missing token/parcel or fetch error.
+ * Fetch a Mapbox Static satellite image covering the parcel bbox, aspect-matched
+ * to ground (mercator) to avoid distortion. Shared by the vegetation estimator
+ * and the ML training-data exporter so image and mask use identical tiling.
  */
-export async function estimateServiceableArea(
+export async function fetchParcelTile(
   parcel: ParcelResult,
   token: string | null
-): Promise<ServiceableEstimate | null> {
+): Promise<ParcelTile | null> {
   if (!token) return null;
   const rings = parcelRings(parcel);
   if (!rings.length) return null;
 
   const [minLng, minLat, maxLng, maxLat] = bboxOf(rings);
-  const midLat = (minLat + maxLat) * (Math.PI / 180) / 2;
+  const midLat = ((minLat + maxLat) * (Math.PI / 180)) / 2;
   const lngSpan = maxLng - minLng;
   const latSpan = maxLat - minLat;
   if (lngSpan <= 0 || latSpan <= 0) return null;
 
-  // Match image aspect to the ground aspect (mercator) to avoid distortion.
   const aspect = (lngSpan * Math.cos(midLat)) / latSpan;
   let w = MAX_DIM;
   let h = Math.round(w / aspect);
@@ -103,18 +119,48 @@ export async function estimateServiceableArea(
     `https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/${bbox}/${w}x${h}` +
     `?access_token=${encodeURIComponent(token)}&attribution=false&logo=false&padding=0`;
 
-  // Mapbox Static returns JPEG for satellite imagery.
-  let img: { width: number; height: number; data: Uint8Array };
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
     const buf = Buffer.from(await res.arrayBuffer());
-    img = jpeg.decode(buf, { useTArray: true, formatAsRGBA: true });
+    const img = jpeg.decode(buf, { useTArray: true, formatAsRGBA: true });
+    return {
+      width: img.width,
+      height: img.height,
+      data: img.data,
+      jpeg: buf,
+      minLng,
+      minLat,
+      maxLng,
+      maxLat,
+      coordinates: [
+        [minLng, maxLat],
+        [maxLng, maxLat],
+        [maxLng, minLat],
+        [minLng, minLat],
+      ],
+    };
   } catch {
     return null;
   }
+}
 
-  const { width, height, data } = img;
+/**
+ * Estimate the vegetated (≈ serviceable) area within a parcel from satellite
+ * imagery. Area is computed as a fraction of the known parcel area, so it's
+ * robust to map projection. Returns null on missing token/parcel or fetch error.
+ */
+export async function estimateServiceableArea(
+  parcel: ParcelResult,
+  token: string | null
+): Promise<ServiceableEstimate | null> {
+  const tile = await fetchParcelTile(parcel, token);
+  if (!tile) return null;
+  const rings = parcelRings(parcel);
+  const { width, height, data, minLng, minLat, maxLng, maxLat } = tile;
+  const latSpan = maxLat - minLat;
+  const lngSpan = maxLng - minLng;
+
   const mask = new PNG({ width, height });
   let total = 0;
   let veg = 0;
