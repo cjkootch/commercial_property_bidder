@@ -1,0 +1,1 @@
+ALTER TABLE "property" ADD COLUMN "osm_features" jsonb;

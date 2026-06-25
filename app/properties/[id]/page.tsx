@@ -172,6 +172,7 @@ export default async function PropertyWorkspace({
         geocoded={geocoded}
         initialAreas={serviceAreas}
         parcel={parcel}
+        initialCountTreeGrass={mapView?.count_tree_grass ?? false}
         initial={{
           turf_sqft: meas?.turf_sqft ?? 0,
           bed_sqft: meas?.bed_sqft ?? 0,

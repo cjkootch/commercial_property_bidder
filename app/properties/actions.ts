@@ -8,9 +8,15 @@ import { measurement, pricingResult, property } from "@/lib/db/schema";
 import { getActiveConfig, getDefaultCompany, toEngineConfig } from "@/lib/db/queries";
 import { computePricing } from "@/lib/pricing/engine";
 import type { Confidence } from "@/lib/pricing/types";
-import type { MapView, ParcelResult, ServiceAreaCollection } from "@/lib/geo/types";
+import type {
+  MapView,
+  ParcelResult,
+  ServiceAreaCollection,
+  ServiceAreaFeature,
+} from "@/lib/geo/types";
 import { geocodeAddress } from "@/lib/integrations/geocoding";
 import { fetchParcelAtPoint } from "@/lib/integrations/parcel";
+import { fetchOsmFeaturesInParcel } from "@/lib/integrations/osm";
 
 const ICP_VALUES = [
   "self_storage",
@@ -250,6 +256,28 @@ export async function ensurePropertyParcel(
     .set({ parcel_geojson: parcel, updated_at: new Date() })
     .where(eq(property.id, propertyId));
   return parcel;
+}
+
+/**
+ * Detect buildings / parking / tree canopy inside the property's parcel from
+ * OpenStreetMap (cached). Returns the suggestions for the map to drop in as
+ * editable polygons. Empty array if there's no parcel or OSM has no coverage.
+ */
+export async function detectOsmFeatures(
+  propertyId: string,
+  force = false
+): Promise<ServiceAreaFeature[]> {
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) return [];
+  if (!force && prop.osm_features) return prop.osm_features as ServiceAreaFeature[];
+  if (!prop.parcel_geojson) return [];
+
+  const feats = await fetchOsmFeaturesInParcel(prop.parcel_geojson as ParcelResult);
+  await db
+    .update(property)
+    .set({ osm_features: feats, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  return feats;
 }
 
 /** Force a re-fetch of the parcel (e.g. after the operator moves the pin). */
