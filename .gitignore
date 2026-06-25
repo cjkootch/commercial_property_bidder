@@ -27,3 +27,6 @@ next-env.d.ts
 
 # vitest / coverage
 /coverage
+
+# ML training export (large; regenerated)
+/training-data
