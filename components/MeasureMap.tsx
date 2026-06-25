@@ -7,9 +7,10 @@ import area from "@turf/area";
 import "mapbox-gl/dist/mapbox-gl.css";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 
-import { saveMeasurementWithGeometry } from "@/app/properties/actions";
+import { detectOsmFeatures, saveMeasurementWithGeometry } from "@/app/properties/actions";
 import {
   colorForKind,
+  effectiveTurfSqft,
   labelForKind,
   normalizeKind,
   roundSqft,
@@ -38,6 +39,7 @@ type Props = {
   geocoded: boolean;
   initialAreas: ServiceAreaCollection | null;
   parcel: ParcelResult | null;
+  initialCountTreeGrass: boolean;
   initial: {
     turf_sqft: number;
     bed_sqft: number;
@@ -84,6 +86,7 @@ export function MeasureMap({
   geocoded,
   initialAreas,
   parcel,
+  initialCountTreeGrass,
   initial,
 }: Props) {
   const mapContainer = useRef<HTMLDivElement | null>(null);
@@ -93,6 +96,9 @@ export function MeasureMap({
   // IDs of the polygon(s) last seeded from the parcel, so re-clicking replaces
   // rather than stacks duplicates.
   const seededIdsRef = useRef<string[]>([]);
+  // IDs of OSM-detected features, deduped the same way.
+  const osmIdsRef = useRef<string[]>([]);
+  const autoDetectedRef = useRef(false);
 
   const hasSaved = !!initialAreas?.features?.length;
   const [editing, setEditing] = useState(!hasSaved);
@@ -106,9 +112,12 @@ export function MeasureMap({
   const [confidence, setConfidence] = useState<Confidence>(initial.confidence);
 
   const [pending, startTransition] = useTransition();
+  const [detecting, setDetecting] = useState(false);
   const [saved, setSaved] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [countTreeGrass, setCountTreeGrass] = useState(initialCountTreeGrass);
+  const countTreeGrassRef = useRef(initialCountTreeGrass);
 
   const totals = sumByKind(areas);
 
@@ -119,7 +128,7 @@ export function MeasureMap({
     const fc = toCollection(draw.getAll() as GeoJSON.FeatureCollection);
     setAreas(fc);
     const t = sumByKind(fc);
-    setTurfSqft(t.turf_sqft);
+    setTurfSqft(effectiveTurfSqft(t, countTreeGrassRef.current));
     setBedSqft(t.bed_sqft);
     setSaved(false);
   }, []);
@@ -338,11 +347,67 @@ export function MeasureMap({
     refreshFromDraw();
   };
 
+  // Pull OSM building/parking/tree polygons into the draw (deduped on re-run).
+  const detectAndAdd = (force: boolean) => {
+    const draw = drawRef.current;
+    if (!draw) return;
+    setDetecting(true);
+    startTransition(async () => {
+      try {
+        const feats = await detectOsmFeatures(propertyId, force);
+        if (osmIdsRef.current.length) {
+          try {
+            draw.delete(osmIdsRef.current);
+          } catch {
+            /* gone after edits */
+          }
+          osmIdsRef.current = [];
+        }
+        const ids: string[] = [];
+        for (const f of feats) {
+          const added = draw.add(f as unknown as GeoJSON.Feature);
+          for (const id of added) {
+            draw.setFeatureProperty(String(id), "kind", f.properties.kind);
+            ids.push(String(id));
+          }
+        }
+        osmIdsRef.current = ids;
+        refreshFromDraw();
+        if (!feats.length) {
+          setMapError("No OSM buildings/parking/trees found for this parcel.");
+        }
+      } finally {
+        setDetecting(false);
+      }
+    });
+  };
+
+  // Toggle whether grass under tree canopy counts as mowable turf.
+  const onToggleTreeGrass = (v: boolean) => {
+    setCountTreeGrass(v);
+    countTreeGrassRef.current = v;
+    setTurfSqft(effectiveTurfSqft(sumByKind(areas), v));
+    setSaved(false);
+  };
+
+  // Auto-detect OSM features once when first editing a fresh (unsaved) property.
+  useEffect(() => {
+    if (!mapReady || !editing || hasSaved || autoDetectedRef.current) return;
+    if (!drawRef.current) return;
+    autoDetectedRef.current = true;
+    detectAndAdd(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, editing]);
+
   const onSave = () => {
     const map = mapRef.current;
     if (!map || !areas) return;
     const c = map.getCenter();
-    const view: MapView = { center: [c.lng, c.lat], zoom: map.getZoom() };
+    const view: MapView = {
+      center: [c.lng, c.lat],
+      zoom: map.getZoom(),
+      count_tree_grass: countTreeGrass,
+    };
     const pin = markerRef.current?.getLngLat();
     const lngLat = pin ? [pin.lng, pin.lat] : [c.lng, c.lat];
 
@@ -432,6 +497,15 @@ export function MeasureMap({
               Use parcel outline as turf
             </button>
           ) : null}
+          {parcel ? (
+            <button
+              onClick={() => detectAndAdd(true)}
+              disabled={detecting}
+              className="rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-sm text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+            >
+              {detecting ? "Detecting…" : "Detect buildings/parking/trees (OSM)"}
+            </button>
+          ) : null}
           <span className="ml-2 text-xs text-gray-400">
             Click to drop points; double-click to close the shape. Use the trash icon to delete.
           </span>
@@ -457,14 +531,32 @@ export function MeasureMap({
       </div>
       <p className="mt-1 text-xs text-gray-400">
         Only <span className="font-medium text-gray-500">Turf</span> and{" "}
-        <span className="font-medium text-gray-500">Beds</span> are priced. Building, parking,
-        sidewalk &amp; other are recorded for reference and to train future auto-measurement.
+        <span className="font-medium text-gray-500">Beds</span> are priced (tree canopy too, if the
+        toggle below is on). Building, parking, sidewalk &amp; other are recorded for reference and
+        to train future auto-measurement.
       </p>
 
       {editing ? (
         <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
+          {totals.byKind.tree > 0 ? (
+            <label className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                checked={countTreeGrass}
+                onChange={(e) => onToggleTreeGrass(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+              />
+              <span className="text-gray-700">
+                Count grass under tree canopy as mowable turf
+                <span className="text-gray-400">
+                  {" "}
+                  (+{totals.byKind.tree.toLocaleString()} sf)
+                </span>
+              </span>
+            </label>
+          ) : null}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <NumField label="Turf sqft" value={turfSqft} onChange={setTurfSqft} />
+            <NumField label="Turf sqft (priced)" value={turfSqft} onChange={setTurfSqft} />
             <NumField label="Bed sqft" value={bedSqft} onChange={setBedSqft} />
             <NumField label="Complexity" step={0.1} value={complexity} onChange={setComplexity} />
             <label className="block">

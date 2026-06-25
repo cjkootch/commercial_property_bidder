@@ -11,6 +11,7 @@
 export type AreaKind =
   | "turf"
   | "bed"
+  | "tree"
   | "building"
   | "parking"
   | "sidewalk"
@@ -21,6 +22,7 @@ export type AreaKind =
 export const AREA_KINDS = [
   "turf",
   "bed",
+  "tree",
   "building",
   "parking",
   "sidewalk",
@@ -56,6 +58,8 @@ export interface ServiceAreaCollection {
 export interface MapView {
   center: [number, number]; // [lng, lat]
   zoom: number;
+  /** Whether grass under tree canopy was counted as mowable turf at save time. */
+  count_tree_grass?: boolean;
 }
 
 /** Totals derived from a ServiceAreaCollection. turf+bed feed the engine. */

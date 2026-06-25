@@ -40,6 +40,14 @@ export function sumByKind(fc: ServiceAreaCollection | null | undefined): AreaTot
   return { turf_sqft: byKind.turf, bed_sqft: byKind.bed, byKind, nonservice_sqft };
 }
 
+/**
+ * Mowable turf fed to pricing. Tree-canopy area is included only when the
+ * operator has confirmed there is mowable grass under the trees (toggle).
+ */
+export function effectiveTurfSqft(totals: AreaTotals, countTreeGrass: boolean): number {
+  return totals.turf_sqft + (countTreeGrass ? totals.byKind.tree : 0);
+}
+
 /** Round a sqft value to a whole number for display/storage stability. */
 export function roundSqft(n: number): number {
   return Math.round(n);
@@ -48,6 +56,7 @@ export function roundSqft(n: number): number {
 const KIND_COLORS: Record<(typeof AREA_KINDS)[number], string> = {
   turf: "#3fae5a", // green
   bed: "#b9763f", // mulch brown
+  tree: "#1f7a3d", // dark canopy green
   building: "#d1495b", // red
   parking: "#475569", // asphalt slate
   sidewalk: "#cbd5e1", // light concrete
@@ -57,6 +66,7 @@ const KIND_COLORS: Record<(typeof AREA_KINDS)[number], string> = {
 const KIND_LABELS: Record<(typeof AREA_KINDS)[number], string> = {
   turf: "Turf",
   bed: "Bed",
+  tree: "Tree canopy",
   building: "Building",
   parking: "Parking",
   sidewalk: "Sidewalk",

@@ -158,6 +158,9 @@ export const property = pgTable("property", {
   // fetched lazily from county GIS. Reference overlay for the map; owner is a
   // suggestion only, never auto-applied to owner_org.
   parcel_geojson: jsonb("parcel_geojson"),
+  // Cached OSM-detected features (buildings/parking/tree canopy) within the
+  // parcel — suggestions the operator adjusts on the map.
+  osm_features: jsonb("osm_features"),
   notes: text("notes"),
   ...timestamps,
 });
