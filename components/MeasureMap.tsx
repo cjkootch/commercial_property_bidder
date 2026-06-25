@@ -65,6 +65,22 @@ function ringCentroid(coords: number[][][]): [number, number] {
   return [x / ring.length, y / ring.length];
 }
 
+/** Delete all draw features whose (normalized) kind is in `kinds`. */
+function deleteFeaturesByKind(draw: MapboxDraw, kinds: Set<string>) {
+  const all = draw.getAll() as GeoJSON.FeatureCollection;
+  const ids = all.features
+    .filter((f) => kinds.has(normalizeKind(f.properties?.kind)))
+    .map((f) => String(f.id))
+    .filter((id) => id && id !== "undefined");
+  if (ids.length) {
+    try {
+      draw.delete(ids);
+    } catch {
+      /* ids may already be gone */
+    }
+  }
+}
+
 /** Recompute each drawn feature's kind + area_sqft into a ServiceAreaCollection. */
 function toCollection(fc: GeoJSON.FeatureCollection): ServiceAreaCollection {
   const features: ServiceAreaFeature[] = fc.features
@@ -97,11 +113,6 @@ export function MeasureMap({
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const drawRef = useRef<MapboxDraw | null>(null);
   const markerRef = useRef<mapboxgl.Marker | null>(null);
-  // IDs of the polygon(s) last seeded from the parcel, so re-clicking replaces
-  // rather than stacks duplicates.
-  const seededIdsRef = useRef<string[]>([]);
-  // IDs of OSM-detected features, deduped the same way.
-  const osmIdsRef = useRef<string[]>([]);
   const autoDetectedRef = useRef(false);
 
   const hasSaved = !!initialAreas?.features?.length;
@@ -330,37 +341,27 @@ export function MeasureMap({
       setMapError("Drawing tools aren't ready yet — give the map a moment and retry.");
       return;
     }
-    // Remove any previously-seeded parcel polygon(s) so re-clicking re-seeds
-    // once instead of stacking duplicates (which doubled the area).
-    if (seededIdsRef.current.length) {
-      try {
-        draw.delete(seededIdsRef.current);
-      } catch {
-        /* ids may already be gone after manual edits */
-      }
-      seededIdsRef.current = [];
-    }
+    // Replace any existing turf so re-clicking (incl. after re-opening) resets
+    // turf to the parcel outline instead of stacking duplicates.
+    deleteFeaturesByKind(draw, new Set(["turf"]));
     const polys: number[][][][] =
       parcel.geometry.type === "MultiPolygon"
         ? (parcel.geometry.coordinates as number[][][][])
         : [parcel.geometry.coordinates as number[][][]];
-    const newIds: string[] = [];
     for (const coords of polys) {
       const ids = draw.add({
         type: "Feature",
         properties: { kind: "turf" },
         geometry: { type: "Polygon", coordinates: coords },
       } as GeoJSON.Feature);
-      for (const id of ids) {
-        draw.setFeatureProperty(String(id), "kind", "turf");
-        newIds.push(String(id));
-      }
+      for (const id of ids) draw.setFeatureProperty(String(id), "kind", "turf");
     }
-    seededIdsRef.current = newIds;
     refreshFromDraw();
   };
 
-  // Pull OSM building/parking/tree polygons into the draw (deduped on re-run).
+  // Pull OSM building/pavement/tree polygons into the draw. Replaces existing
+  // features of those kinds so re-detecting (incl. after re-opening) doesn't
+  // stack duplicates.
   const detectAndAdd = (force: boolean) => {
     const draw = drawRef.current;
     if (!draw) return;
@@ -368,26 +369,16 @@ export function MeasureMap({
     startTransition(async () => {
       try {
         const feats = await detectOsmFeatures(propertyId, force);
-        if (osmIdsRef.current.length) {
-          try {
-            draw.delete(osmIdsRef.current);
-          } catch {
-            /* gone after edits */
-          }
-          osmIdsRef.current = [];
-        }
-        const ids: string[] = [];
+        deleteFeaturesByKind(draw, new Set(["building", "pavement", "tree"]));
         for (const f of feats) {
           const added = draw.add(f as unknown as GeoJSON.Feature);
           for (const id of added) {
             draw.setFeatureProperty(String(id), "kind", f.properties.kind);
-            ids.push(String(id));
           }
         }
-        osmIdsRef.current = ids;
         refreshFromDraw();
         if (!feats.length) {
-          setMapError("No OSM buildings/parking/trees found for this parcel.");
+          setMapError("No OSM buildings/parking/trees found inside this parcel.");
         }
       } finally {
         setDetecting(false);
@@ -572,13 +563,14 @@ export function MeasureMap({
         className="mt-3 h-[460px] w-full overflow-hidden rounded-md bg-gray-100"
       />
 
-      {/* Totals strip — service areas (priced) then other categories */}
+      {/* Totals strip — service areas (priced) then other categories. Turf shows
+          the mowable (priced) value: drawn turf minus overlapping hard surfaces. */}
       <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
         {AREA_KINDS.map((k) => (
           <Total
             key={k}
-            label={labelForKind(k)}
-            value={`${totals.byKind[k].toLocaleString()} sf`}
+            label={k === "turf" ? "Turf (mowable)" : labelForKind(k)}
+            value={`${(k === "turf" ? Math.round(turfSqft) : totals.byKind[k]).toLocaleString()} sf`}
             kind={k}
             priced={k === "turf" || k === "bed"}
           />

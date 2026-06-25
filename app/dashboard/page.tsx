@@ -31,10 +31,9 @@ export default async function DashboardPage() {
 
   const rows = await listDashboard(co.id);
 
-  // Header metrics: total annual pipeline value + projected Cole cut, excluding lost.
+  // Header metrics: total annual pipeline value, excluding lost.
   const live = rows.filter((r) => r.status !== "lost");
   const totalAnnual = live.reduce((s, r) => s + (r.annual_price ?? 0), 0);
-  const totalCole = live.reduce((s, r) => s + (r.cole_annual_cut ?? 0), 0);
   const needsReview = rows.filter((r) => r.needs_review).length;
 
   const byStatus = new Map<string, DashboardRow[]>();
@@ -56,10 +55,9 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-3 gap-4">
         <Metric label="Properties" value={String(rows.length)} />
         <Metric label="Annual pipeline" value={usd(totalAnnual, { cents: false })} />
-        <Metric label="Projected Cole cut" value={usd(totalCole, { cents: false })} />
         <Metric label="Needs review" value={String(needsReview)} accent={needsReview > 0} />
       </div>
 
@@ -85,7 +83,6 @@ export default async function DashboardPage() {
                       <th className="px-4 py-2 font-medium">Owner</th>
                       <th className="px-4 py-2 text-right font-medium">Monthly</th>
                       <th className="px-4 py-2 text-right font-medium">Annual</th>
-                      <th className="px-4 py-2 text-right font-medium">Cole cut</th>
                       <th className="px-4 py-2 font-medium"></th>
                     </tr>
                   </thead>
@@ -102,7 +99,6 @@ export default async function DashboardPage() {
                         <td className="px-4 py-2.5 text-gray-600">{r.owner_org ?? "—"}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums">{usd(r.monthly_price)}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums">{usd(r.annual_price)}</td>
-                        <td className="px-4 py-2.5 text-right tabular-nums">{usd(r.cole_annual_cut)}</td>
                         <td className="px-4 py-2.5">
                           {r.needs_review ? (
                             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">

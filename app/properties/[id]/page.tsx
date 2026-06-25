@@ -127,7 +127,6 @@ export default async function PropertyWorkspace({
                 <Stat label="Gross margin" value={pct(pricing.gross_margin_pct)} />
                 <Stat label="Cost / visit" value={usd(pricing.cost_per_visit)} />
                 <Stat label="Min acceptable" value={usd(pricing.min_acceptable_price)} />
-                <Stat label="Cole annual cut" value={usd(pricing.cole_annual_cut)} />
                 <Stat
                   label="$ / acre / visit"
                   value={pricing.implied_per_acre_visit ? usd(pricing.implied_per_acre_visit) : "n/a"}
