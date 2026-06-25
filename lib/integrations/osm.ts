@@ -79,13 +79,9 @@ export async function fetchOsmFeaturesInParcel(
 ): Promise<ServiceAreaFeature[]> {
   const rings = parcelRings(parcel);
   if (!rings.length) return [];
-  // Buffer the parcel bbox (~55 m) so footprints that sit slightly outside the
-  // county polygon — due to GIS/OSM positional offsets — are still detected.
-  // The operator deletes any strays; better than returning nothing.
-  const BUFFER_DEG = 0.0005;
-  const [s0, w0, n0, e0] = bboxOf(rings);
-  const [s, w, n, e] = [s0 - BUFFER_DEG, w0 - BUFFER_DEG, n0 + BUFFER_DEG, e0 + BUFFER_DEG];
-  const inBufferedBbox = ([x, y]: LngLat) => x >= w && x <= e && y >= s && y <= n;
+  // Query the parcel bbox, then keep only features that actually fall inside the
+  // parcel polygon — so we never pull in a neighbor's footprints.
+  const [s, w, n, e] = bboxOf(rings);
   const bb = `(${s},${w},${n},${e})`;
   const query =
     `[out:json][timeout:25];(` +
@@ -104,8 +100,8 @@ export async function fetchOsmFeaturesInParcel(
     const first = ring[0];
     const last = ring[ring.length - 1];
     if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
-    const c = ringCentroid(ring);
-    if (!pointInParcel(c, rings) && !inBufferedBbox(c)) continue;
+    // Strict: the footprint's centroid must be within the parcel boundary.
+    if (!pointInParcel(ringCentroid(ring), rings)) continue;
     const kind = kindFromTags(el.tags);
     if (!kind) continue;
     out.push({
