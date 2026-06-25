@@ -8,7 +8,6 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 
 import {
-  detectOsmFeatures,
   estimateServiceableArea,
   saveMeasurementWithGeometry,
 } from "@/app/properties/actions";
@@ -113,7 +112,6 @@ export function MeasureMap({
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const drawRef = useRef<MapboxDraw | null>(null);
   const markerRef = useRef<mapboxgl.Marker | null>(null);
-  const autoDetectedRef = useRef(false);
 
   const hasSaved = !!initialAreas?.features?.length;
   const [editing, setEditing] = useState(!hasSaved);
@@ -127,7 +125,6 @@ export function MeasureMap({
   const [confidence, setConfidence] = useState<Confidence>(initial.confidence);
 
   const [pending, startTransition] = useTransition();
-  const [detecting, setDetecting] = useState(false);
   const [estimating, setEstimating] = useState(false);
   const [vegPct, setVegPct] = useState<number | null>(null);
   const [saved, setSaved] = useState(false);
@@ -359,33 +356,6 @@ export function MeasureMap({
     refreshFromDraw();
   };
 
-  // Pull OSM building/pavement/tree polygons into the draw. Replaces existing
-  // features of those kinds so re-detecting (incl. after re-opening) doesn't
-  // stack duplicates.
-  const detectAndAdd = (force: boolean) => {
-    const draw = drawRef.current;
-    if (!draw) return;
-    setDetecting(true);
-    startTransition(async () => {
-      try {
-        const feats = await detectOsmFeatures(propertyId, force);
-        deleteFeaturesByKind(draw, new Set(["building", "pavement", "tree"]));
-        for (const f of feats) {
-          const added = draw.add(f as unknown as GeoJSON.Feature);
-          for (const id of added) {
-            draw.setFeatureProperty(String(id), "kind", f.properties.kind);
-          }
-        }
-        refreshFromDraw();
-        if (!feats.length) {
-          setMapError("No OSM buildings/parking/trees found inside this parcel.");
-        }
-      } finally {
-        setDetecting(false);
-      }
-    });
-  };
-
   // RGB vegetation detection: estimate serviceable area + overlay the mask.
   const estimateVeg = () => {
     setEstimating(true);
@@ -426,15 +396,6 @@ export function MeasureMap({
     setTurfSqft(roundSqft(computeEffectiveTurf(areas, v)));
     setSaved(false);
   };
-
-  // Auto-detect OSM features once when first editing a fresh (unsaved) property.
-  useEffect(() => {
-    if (!mapReady || !editing || hasSaved || autoDetectedRef.current) return;
-    if (!drawRef.current) return;
-    autoDetectedRef.current = true;
-    detectAndAdd(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapReady, editing]);
 
   const onSave = () => {
     const map = mapRef.current;
@@ -532,15 +493,6 @@ export function MeasureMap({
               className="rounded-md border border-yellow-400 bg-yellow-50 px-2.5 py-1 text-sm text-yellow-800 hover:bg-yellow-100"
             >
               Use parcel outline as turf
-            </button>
-          ) : null}
-          {parcel ? (
-            <button
-              onClick={() => detectAndAdd(true)}
-              disabled={detecting}
-              className="rounded-md border border-blue-300 bg-blue-50 px-2.5 py-1 text-sm text-blue-800 hover:bg-blue-100 disabled:opacity-50"
-            >
-              {detecting ? "Detecting…" : "Detect buildings/parking/trees (OSM)"}
             </button>
           ) : null}
           {parcel ? (
