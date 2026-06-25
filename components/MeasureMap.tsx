@@ -10,16 +10,19 @@ import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import { saveMeasurementWithGeometry } from "@/app/properties/actions";
 import {
   colorForKind,
+  labelForKind,
+  normalizeKind,
   roundSqft,
   sqftFromM2,
   sumByKind,
 } from "@/lib/geo/area";
-import type {
-  AreaKind,
-  MapView,
-  ParcelResult,
-  ServiceAreaCollection,
-  ServiceAreaFeature,
+import {
+  AREA_KINDS,
+  type AreaKind,
+  type MapView,
+  type ParcelResult,
+  type ServiceAreaCollection,
+  type ServiceAreaFeature,
 } from "@/lib/geo/types";
 import type { Confidence } from "@/lib/pricing/types";
 
@@ -43,12 +46,6 @@ type Props = {
   };
 };
 
-const KIND_LABELS: Record<AreaKind, string> = {
-  turf: "Turf",
-  bed: "Bed",
-  exclude: "Exclude",
-};
-
 /** Average of a polygon's exterior ring — good enough for a label anchor. */
 function ringCentroid(coords: number[][][]): [number, number] {
   const ring = coords[0] ?? [];
@@ -67,7 +64,7 @@ function toCollection(fc: GeoJSON.FeatureCollection): ServiceAreaCollection {
   const features: ServiceAreaFeature[] = fc.features
     .filter((f) => f.geometry?.type === "Polygon")
     .map((f) => {
-      const kind = ((f.properties?.kind as AreaKind) ?? "turf") as AreaKind;
+      const kind = normalizeKind(f.properties?.kind);
       const sqft = roundSqft(sqftFromM2(area(f as GeoJSON.Feature)));
       return {
         type: "Feature",
@@ -159,11 +156,8 @@ export function MeasureMap({
         "fill-color": [
           "match",
           ["get", "kind"],
-          "turf",
-          colorForKind("turf"),
-          "bed",
-          colorForKind("bed"),
-          colorForKind("exclude"),
+          ...AREA_KINDS.flatMap((k) => [k, colorForKind(k)] as [string, string]),
+          colorForKind("other"),
         ],
         "fill-opacity": 0.35,
       },
@@ -370,17 +364,19 @@ export function MeasureMap({
       {editing ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="text-sm text-gray-500">Draw:</span>
-          {(["turf", "bed", "exclude"] as AreaKind[]).map((k) => (
+          {AREA_KINDS.map((k) => (
             <button
               key={k}
               onClick={() => startDrawing(k)}
-              className="flex items-center gap-1.5 rounded-md border border-gray-300 px-2.5 py-1 text-sm hover:bg-gray-50"
+              className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm hover:bg-gray-50 ${
+                drawKind === k ? "border-gray-800 ring-1 ring-gray-300" : "border-gray-300"
+              }`}
             >
               <span
                 className="inline-block h-3 w-3 rounded-sm"
                 style={{ backgroundColor: colorForKind(k) }}
               />
-              {KIND_LABELS[k]}
+              {labelForKind(k)}
             </button>
           ))}
           {parcel ? (
@@ -402,21 +398,23 @@ export function MeasureMap({
         className="mt-3 h-[460px] w-full overflow-hidden rounded-md bg-gray-100"
       />
 
-      {/* Totals strip */}
-      <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
-        <Total label="Turf" value={`${totals.turf_sqft.toLocaleString()} sf`} kind="turf" />
-        <Total label="Beds" value={`${totals.bed_sqft.toLocaleString()} sf`} kind="bed" />
-        <Total
-          label="Excluded"
-          value={`${totals.exclude_sqft.toLocaleString()} sf`}
-          kind="exclude"
-        />
+      {/* Totals strip — service areas (priced) then other categories */}
+      <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
+        {AREA_KINDS.map((k) => (
+          <Total
+            key={k}
+            label={labelForKind(k)}
+            value={`${totals.byKind[k].toLocaleString()} sf`}
+            kind={k}
+            priced={k === "turf" || k === "bed"}
+          />
+        ))}
       </div>
-      {totals.exclude_sqft > 0 ? (
-        <p className="mt-1 text-xs text-gray-400">
-          Excluded areas are annotation only — they are not subtracted from turf/bed in v1.
-        </p>
-      ) : null}
+      <p className="mt-1 text-xs text-gray-400">
+        Only <span className="font-medium text-gray-500">Turf</span> and{" "}
+        <span className="font-medium text-gray-500">Beds</span> are priced. Building, parking,
+        sidewalk &amp; other are recorded for reference and to train future auto-measurement.
+      </p>
 
       {editing ? (
         <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
@@ -464,9 +462,19 @@ export function MeasureMap({
   );
 }
 
-function Total({ label, value, kind }: { label: string; value: string; kind: AreaKind }) {
+function Total({
+  label,
+  value,
+  kind,
+  priced,
+}: {
+  label: string;
+  value: string;
+  kind: AreaKind;
+  priced?: boolean;
+}) {
   return (
-    <div className="rounded-md border border-gray-200 p-2.5">
+    <div className={`rounded-md border p-2.5 ${priced ? "border-gray-300 bg-gray-50" : "border-gray-200"}`}>
       <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-gray-500">
         <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: colorForKind(kind) }} />
         {label}
