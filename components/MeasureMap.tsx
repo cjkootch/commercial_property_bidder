@@ -90,6 +90,9 @@ export function MeasureMap({
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const drawRef = useRef<MapboxDraw | null>(null);
   const markerRef = useRef<mapboxgl.Marker | null>(null);
+  // IDs of the polygon(s) last seeded from the parcel, so re-clicking replaces
+  // rather than stacks duplicates.
+  const seededIdsRef = useRef<string[]>([]);
 
   const hasSaved = !!initialAreas?.features?.length;
   const [editing, setEditing] = useState(!hasSaved);
@@ -305,18 +308,33 @@ export function MeasureMap({
       setMapError("Drawing tools aren't ready yet — give the map a moment and retry.");
       return;
     }
+    // Remove any previously-seeded parcel polygon(s) so re-clicking re-seeds
+    // once instead of stacking duplicates (which doubled the area).
+    if (seededIdsRef.current.length) {
+      try {
+        draw.delete(seededIdsRef.current);
+      } catch {
+        /* ids may already be gone after manual edits */
+      }
+      seededIdsRef.current = [];
+    }
     const polys: number[][][][] =
       parcel.geometry.type === "MultiPolygon"
         ? (parcel.geometry.coordinates as number[][][][])
         : [parcel.geometry.coordinates as number[][][]];
+    const newIds: string[] = [];
     for (const coords of polys) {
       const ids = draw.add({
         type: "Feature",
         properties: { kind: "turf" },
         geometry: { type: "Polygon", coordinates: coords },
       } as GeoJSON.Feature);
-      for (const id of ids) draw.setFeatureProperty(String(id), "kind", "turf");
+      for (const id of ids) {
+        draw.setFeatureProperty(String(id), "kind", "turf");
+        newIds.push(String(id));
+      }
     }
+    seededIdsRef.current = newIds;
     refreshFromDraw();
   };
 
