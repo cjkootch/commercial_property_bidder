@@ -60,6 +60,7 @@ export const confidenceEnum = pgEnum("confidence", ["High", "Med", "Low"]);
 export const measurementSourceEnum = pgEnum("measurement_source", [
   "manual",
   "siterecon",
+  "map_draw",
 ]);
 
 export const contactSourceEnum = pgEnum("contact_source", ["apollo", "manual"]);
@@ -172,6 +173,13 @@ export const measurement = pgTable("measurement", {
   complexity: numeric("complexity", { precision: 4, scale: 2 }).notNull().default("1.00"),
   confidence: confidenceEnum("confidence").notNull().default("Med"),
   source: measurementSourceEnum("source").notNull().default("manual"),
+  // Drawn service-area polygons (GeoJSON FeatureCollection; each feature tagged
+  // with properties.kind in turf|bed|exclude + properties.area_sqft) when the
+  // measurement came from the map workspace. See lib/geo/types.ts.
+  service_areas: jsonb("service_areas"),
+  // Persisted map camera ({ center:[lng,lat], zoom }) so the audit view
+  // re-renders at the same framing.
+  map_view: jsonb("map_view"),
   measured_at: timestamp("measured_at", { withTimezone: true }).notNull().defaultNow(),
   ...timestamps,
 });

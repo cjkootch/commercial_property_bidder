@@ -70,4 +70,35 @@ export interface PricingResult {
   implied_per_acre_visit: number | null;
   flags: PricingFlags;
   needs_review: boolean;
+  /** Present only when computePricing is called with { breakdown: true }. */
+  breakdown?: PricingBreakdown;
+}
+
+/** Options for computePricing. */
+export interface PricingOptions {
+  /** When true, attach the intermediate calculation values for auditing. */
+  breakdown?: boolean;
+}
+
+/**
+ * Intermediate values from the calculation chain (build spec section 5.2),
+ * surfaced so the operator can audit how inputs become a price. These are the
+ * same locals the engine already computes — nothing is recomputed or
+ * duplicated.
+ */
+export interface PricingBreakdown {
+  complexity: number;
+  crew_cost_per_hour: number;
+  turf_acres: number;
+  turf_time: number; // crew-minutes
+  bed_time: number; // crew-minutes
+  fixed_min_per_stop: number; // crew-minutes
+  drive_min_per_stop: number; // crew-minutes
+  total_crew_min: number;
+  crew_hours_per_visit: number;
+  cost_per_visit: number;
+  target_margin: number;
+  price_before_floor: number; // cost / (1 - target_margin)
+  min_price_per_visit: number;
+  price_floored: boolean; // true if the per-visit minimum was binding
 }

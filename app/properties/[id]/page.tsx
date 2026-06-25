@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getPropertyDetail } from "@/lib/db/queries";
-import { saveMeasurement } from "../actions";
+import { getActiveConfig, getPropertyDetail, toEngineConfig } from "@/lib/db/queries";
+import { saveMeasurement, ensurePropertyGeocoded } from "../actions";
 import { AckReviewToggle } from "@/components/AckReviewToggle";
+import { MeasureMapLoader } from "@/components/MeasureMapLoader";
+import { CalcBreakdown } from "@/components/CalcBreakdown";
+import { computePricing } from "@/lib/pricing/engine";
+import { getMapboxToken, DEFAULT_CENTER, DEFAULT_ZOOM } from "@/lib/integrations/geocoding";
 import { usd, pct, titleCase } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -15,8 +19,31 @@ export default async function PropertyWorkspace({
   const detail = await getPropertyDetail(params.id);
   if (!detail) notFound();
 
-  const { property: prop, measurement: meas, pricing, flags } = detail;
+  const { property: prop, measurement: meas, pricing, flags, serviceAreas, mapView } = detail;
   const save = saveMeasurement.bind(null, prop.id);
+
+  // Lazily geocode the address so the map can center on the property.
+  const coords = await ensurePropertyGeocoded(prop.id);
+  const geocoded = coords != null;
+  const center: [number, number] = mapView?.center ?? coords ?? DEFAULT_CENTER;
+  const zoom = mapView?.zoom ?? DEFAULT_ZOOM;
+  const mapToken = getMapboxToken();
+
+  // Recompute a breakdown for the calc-audit panel (cheap, pure; nothing stored).
+  const cfgRow = await getActiveConfig(prop.company_id);
+  const breakdownResult =
+    meas && cfgRow
+      ? computePricing(
+          {
+            turf_sqft: meas.turf_sqft,
+            bed_sqft: meas.bed_sqft,
+            complexity: Number(meas.complexity),
+            confidence: meas.confidence,
+          },
+          toEngineConfig(cfgRow),
+          { breakdown: true }
+        )
+      : null;
 
   return (
     <div className="space-y-8">
@@ -131,6 +158,27 @@ export default async function PropertyWorkspace({
           )}
         </section>
       </div>
+
+      {/* Aerial measure & audit */}
+      <MeasureMapLoader
+        token={mapToken}
+        propertyId={prop.id}
+        center={center}
+        zoom={zoom}
+        geocoded={geocoded}
+        initialAreas={serviceAreas}
+        initial={{
+          turf_sqft: meas?.turf_sqft ?? 0,
+          bed_sqft: meas?.bed_sqft ?? 0,
+          complexity: meas ? Number(meas.complexity) : 1.0,
+          confidence: meas?.confidence ?? "Med",
+        }}
+      />
+
+      {/* Pricing calculation audit */}
+      {breakdownResult?.breakdown ? (
+        <CalcBreakdown result={breakdownResult} breakdown={breakdownResult.breakdown} />
+      ) : null}
 
       {/* Downstream phases — present as seams, built in later phases. */}
       <section className="rounded-lg border border-dashed border-gray-300 bg-white/50 p-5 text-sm text-gray-500">

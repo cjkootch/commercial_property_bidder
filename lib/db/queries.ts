@@ -9,6 +9,7 @@ import {
   type PricingConfigRow,
 } from "./schema";
 import type { PricingConfig, PricingFlags } from "../pricing/types";
+import type { MapView, ServiceAreaCollection } from "../geo/types";
 
 /** Map a pricing_config DB row to the engine's PricingConfig shape. */
 export function toEngineConfig(row: PricingConfigRow): PricingConfig {
@@ -121,5 +122,7 @@ export async function getPropertyDetail(propertyId: string) {
     measurement: meas ?? null,
     pricing: pr ?? null,
     flags: (pr?.flags as PricingFlags | undefined) ?? null,
+    serviceAreas: (meas?.service_areas as ServiceAreaCollection | null | undefined) ?? null,
+    mapView: (meas?.map_view as MapView | null | undefined) ?? null,
   };
 }
