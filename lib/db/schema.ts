@@ -61,6 +61,7 @@ export const measurementSourceEnum = pgEnum("measurement_source", [
   "manual",
   "siterecon",
   "map_draw",
+  "ml_pred",
 ]);
 
 export const contactSourceEnum = pgEnum("contact_source", ["apollo", "manual"]);

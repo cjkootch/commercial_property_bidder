@@ -1,0 +1,1 @@
+ALTER TYPE "public"."measurement_source" ADD VALUE 'ml_pred';

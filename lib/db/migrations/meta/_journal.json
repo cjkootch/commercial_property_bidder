@@ -29,6 +29,13 @@
       "when": 1782426310753,
       "tag": "0003_keen_rocket_racer",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782433574732,
+      "tag": "0004_worthless_lester",
+      "breakpoints": true
     }
   ]
 }
