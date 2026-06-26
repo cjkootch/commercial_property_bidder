@@ -6,10 +6,14 @@ output has one channel per class in CLASSES (independent sigmoids, NOT a softmax
 so a pixel can be turf OR tree and the classes are learned with their own
 pos_weight — important because each is a different-sized pixel minority.
 
-Currently CLASSES = ["turf", "tree"]:
-  - turf  drives the mowable-area price.
-  - tree  separates canopy from grass (the "grass under trees" toggle, and a
-          cleaner grass pre-screen — RGB veg % lumps the two together).
+Currently CLASSES = ["turf", "tree", "building", "pavement"]:
+  - turf      drives the mowable-area price.
+  - tree      separates canopy from grass (the "grass under trees" toggle, and a
+              cleaner grass pre-screen — RGB veg % lumps the two together).
+  - building  } subtracted from turf to get the geometric mowable area, so the
+  - pavement  } self-training drafts are complete enough to price without hand work.
+(bed is also subtracted from turf but has no labels yet — add it to CLASSES once
+ properties carry bed polygons.)
 
 This is a DEMO on a handful of samples to show the pipeline learns — not a
 production model (that needs dozens+ of labeled properties, and in particular
@@ -35,7 +39,7 @@ SEED = 0
 
 # Classes the model predicts, in output-channel order, mapped to the class-index
 # the exporter writes into the mask (lib/geo/raster CLASS_INDEX).
-CLASSES = ["turf", "tree"]
+CLASSES = ["turf", "tree", "building", "pavement"]
 CLASS_IDS = {"turf": 1, "bed": 2, "tree": 3, "building": 4, "pavement": 5, "other": 6}
 # Back-compat alias (older predict scripts imported TURF_CLASS).
 TURF_CLASS = CLASS_IDS["turf"]
