@@ -1,9 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getActiveConfig, getPropertyDetail, toEngineConfig } from "@/lib/db/queries";
-import { saveMeasurement, ensurePropertyGeocoded, ensurePropertyParcel } from "../actions";
+import {
+  saveMeasurement,
+  ensurePropertyGeocoded,
+  ensurePropertyParcel,
+  ensurePropertyOwnerSuggestion,
+} from "../actions";
 import { AckReviewToggle } from "@/components/AckReviewToggle";
 import { GrassScreen } from "@/components/GrassScreen";
+import { OwnerSuggestion } from "@/components/OwnerSuggestion";
+import { ContactFinder } from "@/components/ContactFinder";
+import type { ContactSuggestion } from "@/lib/integrations/contact";
 import { MeasureMapLoader } from "@/components/MeasureMapLoader";
 import { CalcBreakdown } from "@/components/CalcBreakdown";
 import { MIN_GRASS_FRACTION } from "@/lib/sourcing/criteria";
@@ -34,6 +42,10 @@ export default async function PropertyWorkspace({
   // Resolve the county parcel boundary (cached after first fetch) for the
   // reference overlay.
   const parcel = await ensurePropertyParcel(prop.id);
+
+  // Suggest an ownership company from the parcel owner-of-record + Apollo
+  // (cached; a suggestion the operator confirms, never auto-applied).
+  const ownerSuggestion = await ensurePropertyOwnerSuggestion(prop.id);
 
   // Recompute a breakdown for the calc-audit panel (cheap, pure; nothing stored).
   const cfgRow = await getActiveConfig(prop.company_id);
@@ -162,6 +174,19 @@ export default async function PropertyWorkspace({
             </p>
           )}
         </section>
+      </div>
+
+      {/* Ownership + free contact lookup */}
+      <div className="grid gap-8 lg:grid-cols-2">
+        <OwnerSuggestion
+          propertyId={prop.id}
+          ownerOrg={prop.owner_org}
+          suggestion={ownerSuggestion}
+        />
+        <ContactFinder
+          propertyId={prop.id}
+          suggestion={(prop.contact_suggestion as ContactSuggestion | null) ?? null}
+        />
       </div>
 
       {/* Sourcing grass pre-screen */}

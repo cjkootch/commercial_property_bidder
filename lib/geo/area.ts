@@ -78,8 +78,8 @@ function unionAll(features: Poly[]): Poly | null {
  */
 export function precedenceFor(countTreeGrass: boolean): (typeof AREA_KINDS)[number][] {
   return countTreeGrass
-    ? ["building", "bed", "turf", "sports_turf", "tree", "pavement", "other"]
-    : ["building", "bed", "tree", "turf", "sports_turf", "pavement", "other"];
+    ? ["building", "bed", "sports_turf", "turf", "tree", "pavement", "other"]
+    : ["building", "bed", "sports_turf", "tree", "turf", "pavement", "other"];
 }
 
 /**

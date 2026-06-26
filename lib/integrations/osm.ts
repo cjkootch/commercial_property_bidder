@@ -176,6 +176,50 @@ export async function fetchOsmFeaturesInParcel(
   return out;
 }
 
+export type OsmContact = {
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  operator: string | null;
+};
+
+/**
+ * Pull contact tags (phone/email/website/operator) from the most prominent named
+ * POI inside the parcel. Free, deterministic. Returns null if OSM has no POI with
+ * usable contact info there. Prefers a POI that actually has a phone/email/site.
+ */
+export async function fetchContactTagsInParcel(parcel: ParcelResult): Promise<OsmContact | null> {
+  const rings = parcelRings(parcel);
+  if (!rings.length) return null;
+  const [s, w, n, e] = bboxOf(rings);
+  const bb = `(${s},${w},${n},${e})`;
+  // Any named feature in the parcel that might carry contact info.
+  const query = `[out:json][timeout:25];(nwr["name"]${bb};);out center tags;`;
+
+  const elements = await overpassQuery(query);
+  const candidates: OsmContact[] = [];
+  for (const el of elements) {
+    const tags = el.tags;
+    if (!tags?.name) continue;
+    const lat = el.center?.lat ?? el.lat;
+    const lon = el.center?.lon ?? el.lon;
+    if (lat == null || lon == null) continue;
+    if (!pointInParcel([lon, lat], rings)) continue;
+    candidates.push({
+      name: tags.name?.trim() ?? null,
+      phone: (tags.phone ?? tags["contact:phone"] ?? null)?.trim() ?? null,
+      email: (tags.email ?? tags["contact:email"] ?? null)?.trim() ?? null,
+      website: (tags.website ?? tags["contact:website"] ?? null)?.trim() ?? null,
+      operator: tags.operator?.trim() ?? null,
+    });
+  }
+  if (!candidates.length) return null;
+  // Prefer a candidate that actually has reachable contact info.
+  const withContact = candidates.find((c) => c.phone || c.email || c.website);
+  return withContact ?? candidates[0];
+}
+
 function kindFromTags(tags?: Record<string, string>): "building" | "pavement" | "tree" | null {
   if (!tags) return null;
   if (tags.building) return "building";

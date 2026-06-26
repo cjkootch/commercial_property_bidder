@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { measurement, pricingResult, property } from "@/lib/db/schema";
+import { contact, measurement, pricingResult, property } from "@/lib/db/schema";
 import { getActiveConfig, getDefaultCompany, toEngineConfig } from "@/lib/db/queries";
 import { computePricing } from "@/lib/pricing/engine";
 import type { Confidence } from "@/lib/pricing/types";
@@ -22,6 +22,12 @@ import {
   type ServiceableEstimate,
 } from "@/lib/integrations/imagery";
 import { isGrassQualified, MIN_GRASS_FRACTION } from "@/lib/sourcing/criteria";
+import {
+  enrichCompanyByName,
+  parcelSuggestion,
+  type OwnerSuggestion,
+} from "@/lib/integrations/apollo";
+import { findContact, type ContactSuggestion } from "@/lib/integrations/contact";
 
 const ICP_VALUES = [
   "self_storage",
@@ -337,6 +343,122 @@ export async function screenProperty(propertyId: string): Promise<GrassScreenRes
     threshold: MIN_GRASS_FRACTION,
     parcel_area_sqft: estimate.parcel_area_sqft,
   };
+}
+
+/**
+ * Resolve the FREE ownership suggestion for a property: just the county parcel
+ * owner-of-record (no Apollo, no credit). Cached in property.owner_suggestion.
+ * A SUGGESTION only — never writes owner_org (build spec section 9). Safe to
+ * call during render (no revalidatePath). Apollo enrichment is a separate,
+ * explicit operator action (enrichOwnerWithApollo). Returns the suggestion or
+ * null.
+ */
+export async function ensurePropertyOwnerSuggestion(
+  propertyId: string
+): Promise<OwnerSuggestion | null> {
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) return null;
+  if (prop.owner_suggestion) return prop.owner_suggestion as OwnerSuggestion;
+
+  // Need the parcel owner-of-record to seed the suggestion (no Apollo here).
+  const parcel =
+    (prop.parcel_geojson as ParcelResult | null) ?? (await ensurePropertyParcel(propertyId));
+  const ownerName = parcel?.owner ?? null;
+  if (!ownerName) return null;
+
+  const suggestion = parcelSuggestion(ownerName);
+  await db
+    .update(property)
+    .set({ owner_suggestion: suggestion, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  return suggestion;
+}
+
+/**
+ * Explicit operator action: enrich the owner-of-record via Apollo (spends ~1
+ * Apollo credit on a match) and cache the canonical company. Never auto-runs —
+ * triggered by the operator clicking "Enrich via Apollo".
+ */
+export async function enrichOwnerWithApollo(
+  propertyId: string
+): Promise<OwnerSuggestion | null> {
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) return null;
+  const ownerName =
+    (prop.parcel_geojson as ParcelResult | null)?.owner ??
+    (prop.owner_suggestion as OwnerSuggestion | null)?.raw_owner ??
+    null;
+  if (!ownerName) return null;
+
+  const suggestion = await enrichCompanyByName(ownerName);
+  if (!suggestion) return null;
+  await db
+    .update(property)
+    .set({ owner_suggestion: suggestion, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  revalidatePath(`/properties/${propertyId}`);
+  return suggestion;
+}
+
+/**
+ * Operator confirms the suggested owner into owner_org (the operator-supplied
+ * truth used for outreach). This is the only path that writes owner_org from a
+ * suggestion — an explicit human action, satisfying the section 9 guardrail.
+ */
+export async function applyOwnerSuggestion(propertyId: string, name: string) {
+  const clean = name.trim();
+  if (!clean) return;
+  await db
+    .update(property)
+    .set({ owner_org: clean, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/dashboard");
+}
+
+/**
+ * Explicit operator action: resolve a free digital contact (OSM POI contact tags
+ * + website scrape) for the property and cache it. No paid APIs, no auto-send.
+ * The result is a suggestion the operator confirms via saveSuggestedContact.
+ */
+export async function findPropertyContact(
+  propertyId: string
+): Promise<ContactSuggestion | null> {
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) return null;
+  const parcel =
+    (prop.parcel_geojson as ParcelResult | null) ?? (await ensurePropertyParcel(propertyId));
+  const suggestion = await findContact(parcel);
+  await db
+    .update(property)
+    .set({ contact_suggestion: suggestion ?? null, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  revalidatePath(`/properties/${propertyId}`);
+  return suggestion;
+}
+
+/**
+ * Operator confirms a suggested contact into a real contact row (used by the
+ * outreach step). Requires at least an email or phone. full_name falls back to
+ * the owner org / a generic label since the table requires it.
+ */
+export async function saveSuggestedContact(
+  propertyId: string,
+  data: { name?: string | null; email?: string | null; phone?: string | null }
+) {
+  const email = data.email?.trim() || null;
+  const phone = data.phone?.trim() || null;
+  if (!email && !phone) return;
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  const full_name = data.name?.trim() || prop?.owner_org?.trim() || "Site contact";
+  await db.insert(contact).values({
+    property_id: propertyId,
+    full_name,
+    email,
+    phone,
+    source: "manual",
+  });
+  revalidatePath(`/properties/${propertyId}`);
 }
 
 /** Force a re-fetch of the parcel (e.g. after the operator moves the pin). */

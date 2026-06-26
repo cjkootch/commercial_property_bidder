@@ -1,0 +1,1 @@
+ALTER TABLE "property" ADD COLUMN "owner_suggestion" jsonb;
