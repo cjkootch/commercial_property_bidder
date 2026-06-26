@@ -6,6 +6,7 @@ import {
   pricingConfig,
   pricingResult,
   property,
+  proposal,
   type PricingConfigRow,
 } from "./schema";
 import type { PricingConfig, PricingFlags } from "../pricing/types";
@@ -131,6 +132,31 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
     });
   }
   return rows;
+}
+
+/** Everything the hosted proposal page needs, by slug. Null if not found. */
+export async function getProposalBySlug(slug: string) {
+  const [prop_] = await db.select().from(proposal).where(eq(proposal.slug, slug)).limit(1);
+  if (!prop_) return null;
+  const [prop] = await db.select().from(property).where(eq(property.id, prop_.property_id)).limit(1);
+  const [pr] = await db
+    .select()
+    .from(pricingResult)
+    .where(eq(pricingResult.id, prop_.pricing_result_id))
+    .limit(1);
+  const [co] = await db.select().from(company).where(eq(company.id, prop!.company_id)).limit(1);
+  return { proposal: prop_, property: prop ?? null, pricing: pr ?? null, company: co ?? null };
+}
+
+/** The current proposal for a property (most recent), or null. */
+export async function getPropertyProposal(propertyId: string) {
+  const [row] = await db
+    .select()
+    .from(proposal)
+    .where(eq(proposal.property_id, propertyId))
+    .orderBy(desc(proposal.created_at))
+    .limit(1);
+  return row ?? null;
 }
 
 /** Full detail for one property: latest measurement + latest pricing result. */

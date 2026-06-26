@@ -2,9 +2,21 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { contact, measurement, pricingResult, property } from "@/lib/db/schema";
+import {
+  contact,
+  measurement,
+  pricingResult,
+  property,
+  proposal,
+  proposalView,
+} from "@/lib/db/schema";
+import {
+  DEFAULT_SCOPE_ITEMS,
+  frequencyOptionsFromPricing,
+  makeProposalSlug,
+} from "@/lib/proposals";
 import { getActiveConfig, getDefaultCompany, toEngineConfig } from "@/lib/db/queries";
 import { computePricing } from "@/lib/pricing/engine";
 import type { Confidence } from "@/lib/pricing/types";
@@ -474,6 +486,94 @@ export async function refreshPropertyParcel(
     .where(eq(property.id, propertyId));
   revalidatePath(`/properties/${propertyId}`);
   return parcel;
+}
+
+/**
+ * Create (or refresh) the property's hosted proposal and return its slug. Links
+ * the latest pricing result and re-derives the frequency/pricing options, so a
+ * re-priced property's existing link shows the new numbers. Scope items persist
+ * across refreshes. Advances pipeline to proposal_ready.
+ */
+export async function createOrUpdateProposal(propertyId: string): Promise<string> {
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) throw new Error("Property not found.");
+
+  const [pr] = await db
+    .select()
+    .from(pricingResult)
+    .where(eq(pricingResult.property_id, propertyId))
+    .orderBy(desc(pricingResult.computed_at))
+    .limit(1);
+  if (!pr) throw new Error("Price the property before creating a proposal.");
+
+  const cfgRow = await getActiveConfig(prop.company_id);
+  const visits = cfgRow?.visits_per_year ?? 42;
+  const freq = frequencyOptionsFromPricing(pr, visits);
+
+  const [existing] = await db
+    .select()
+    .from(proposal)
+    .where(eq(proposal.property_id, propertyId))
+    .orderBy(desc(proposal.created_at))
+    .limit(1);
+
+  let slug: string;
+  if (existing) {
+    slug = existing.slug;
+    await db
+      .update(proposal)
+      .set({
+        pricing_result_id: pr.id,
+        frequency_options: freq,
+        updated_at: new Date(),
+      })
+      .where(eq(proposal.id, existing.id));
+  } else {
+    slug = makeProposalSlug(prop.name);
+    await db.insert(proposal).values({
+      property_id: propertyId,
+      pricing_result_id: pr.id,
+      slug,
+      frequency_options: freq,
+      scope_items: DEFAULT_SCOPE_ITEMS,
+      status: "draft",
+    });
+  }
+
+  if (prop.status === "sourced" || prop.status === "priced") {
+    await db
+      .update(property)
+      .set({ status: "proposal_ready", updated_at: new Date() })
+      .where(eq(property.id, propertyId));
+  }
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/dashboard");
+  return slug;
+}
+
+/**
+ * Record an open of a hosted proposal: bump the counter, stamp first/last view,
+ * mark viewed, and log a per-open row. Called from the public page on load; never
+ * throws (a tracking failure must not break the recipient's view).
+ */
+export async function recordProposalView(slug: string, userAgent: string | null) {
+  try {
+    const [p] = await db.select().from(proposal).where(eq(proposal.slug, slug)).limit(1);
+    if (!p) return;
+    await db
+      .update(proposal)
+      .set({
+        view_count: sql`${proposal.view_count} + 1`,
+        last_viewed_at: new Date(),
+        viewed_at: p.viewed_at ?? new Date(),
+        status: p.status === "draft" || p.status === "sent" ? "viewed" : p.status,
+        updated_at: new Date(),
+      })
+      .where(eq(proposal.id, p.id));
+    await db.insert(proposalView).values({ proposal_id: p.id, user_agent: userAgent });
+  } catch {
+    // tracking is best-effort
+  }
 }
 
 /** Operator-set buying signal: property is actively marketed / has a new PM. */

@@ -271,7 +271,23 @@ export const proposal = pgTable("proposal", {
   scope_items: jsonb("scope_items").notNull(),
   status: proposalStatusEnum("status").notNull().default("draft"),
   viewed_at: timestamp("viewed_at", { withTimezone: true }),
+  // Open tracking for the hosted link. last_viewed_at + view_count power the
+  // open-rate metric; per-open rows live in proposal_view.
+  view_count: integer("view_count").notNull().default(0),
+  last_viewed_at: timestamp("last_viewed_at", { withTimezone: true }),
   ...timestamps,
+});
+
+// --- proposal_view -------------------------------------------------------
+// One row per open of a hosted proposal link, for open-rate / recency.
+
+export const proposalView = pgTable("proposal_view", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  proposal_id: uuid("proposal_id")
+    .notNull()
+    .references(() => proposal.id),
+  user_agent: text("user_agent"),
+  viewed_at: timestamp("viewed_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // --- outreach ------------------------------------------------------------
