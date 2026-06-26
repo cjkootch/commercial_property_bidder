@@ -42,6 +42,27 @@ def parcel_mask(rings, b, W, H):
     return m
 
 
+def labeled_mask(fc, b, W, H):
+    """Rasterize the operator's already-drawn polygons (any kind) into a 'claimed'
+    mask. The predictor fills only where this is 0, so a partially-labeled
+    property gets the model's gap-fill without overwriting hand work."""
+    m = np.zeros((H, W), np.uint8)
+    for f in (fc or {}).get("features", []):
+        geom = f.get("geometry") or {}
+        if geom.get("type") != "Polygon":
+            continue
+        rings = geom.get("coordinates") or []
+        if not rings:
+            continue
+        pts = []
+        for lng, lat in rings[0]:
+            x = (lng - b["minLng"]) / (b["maxLng"] - b["minLng"]) * W
+            y = (b["maxLat"] - lat) / (b["maxLat"] - b["minLat"]) * H
+            pts.append([x, y])
+        cv2.fillPoly(m, [np.array(pts, np.int32)], 1)
+    return m
+
+
 def vectorize(mask, kind, b, W, H, min_area):
     """Turn a binary class mask into kind-tagged GeoJSON polygon features."""
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -85,12 +106,24 @@ def main():
         pmask = parcel_mask(it["parcel_rings"], b, W, H)
         pmask = cv2.dilate(pmask, np.ones((buf_px * 2 + 1, buf_px * 2 + 1), np.uint8))
 
+        # Gap-fill: where the operator already drew, leave it alone — the model
+        # only proposes labels for the un-drawn remainder. A few px of erosion
+        # lets gap-fill meet existing edges without a seam.
+        gap = None
+        existing = it.get("existing_labels")
+        if existing and existing.get("features"):
+            claimed = labeled_mask(existing, b, W, H)
+            claimed = cv2.dilate(claimed, np.ones((5, 5), np.uint8))
+            gap = (pmask > 0) & (claimed == 0)
+
         min_area = MIN_AREA_FRAC * W * H
         feats = []
         per_class = []
         for ci, kind in enumerate(classes):
             pred = (cv2.resize(prob[ci], (W, H), interpolation=cv2.INTER_LINEAR) > 0.5).astype(np.uint8)
             pred = pred & pmask
+            if gap is not None:
+                pred = pred & gap.astype(np.uint8)
             cf = vectorize(pred, kind, b, W, H, min_area)
             feats.extend(cf)
             per_class.append(f"{len(cf)} {kind}")
