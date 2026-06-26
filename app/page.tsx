@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { MarketingShell, type Brand } from "@/components/MarketingShell";
-import { HeroScene } from "@/components/HeroScene";
 import { InstantQuote } from "@/components/InstantQuote";
 
 // Homepage modeled on proven instant-quote landing-page structure (à la
@@ -22,10 +21,10 @@ export default async function Home() {
 
   return (
     <MarketingShell brand={brand}>
-      {/* Hero — address-first instant quote over an illustrated scene */}
-      <section id="estimate" className="relative overflow-hidden px-6 pt-16 pb-0" style={{ backgroundColor: `${accent}0d` }}>
-        <div className="relative z-10 mx-auto max-w-6xl">
-          <div className="max-w-2xl pb-12 md:pb-64">
+      {/* Hero — address-first instant quote beside the brand illustration */}
+      <section id="estimate" className="px-6 pt-16 pb-12" style={{ backgroundColor: `${accent}0d` }}>
+        <div className="mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-2">
+          <div>
             <h1 className="text-4xl font-bold leading-tight sm:text-5xl">
               Your lawn-care price, in seconds.
             </h1>
@@ -45,8 +44,15 @@ export default async function Home() {
               ))}
             </ul>
           </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/hero.webp"
+            alt={`${name} crew servicing a commercial property and a home`}
+            width={1600}
+            height={960}
+            className="hidden h-auto w-full lg:block"
+          />
         </div>
-        <HeroScene accent={accent} className="pointer-events-none absolute inset-x-0 bottom-0 z-0 hidden max-h-[360px] w-full md:block" />
       </section>
 
       {/* How it works */}
