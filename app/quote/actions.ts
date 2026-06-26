@@ -36,14 +36,42 @@ export type InstantEstimateInput = {
   startTiming?: string;
   email: string;
   name?: string;
+  /** Optional pre-resolved [lng, lat] from the preview geocode, to skip re-geocoding. */
+  coords?: [number, number];
 };
 
 export type InstantEstimateResult =
-  | { ok: true; measured: true; low: number; high: number; bookingUrl: string | null }
+  | {
+      ok: true;
+      measured: true;
+      // Default monthly range (weekly cadence) for headline display.
+      low: number;
+      high: number;
+      // Per-visit range so the client can show per-frequency estimates.
+      perVisitLow: number;
+      perVisitHigh: number;
+      bookingUrl: string | null;
+    }
   | { ok: true; measured: false; bookingUrl: string | null }
   | { ok: false; error: string };
 
 const roundTo = (n: number, step: number) => Math.max(step, Math.round(n / step) * step);
+
+/**
+ * Fast geocode for the instant-quote "measuring" screen: resolve the address to
+ * [lng, lat] up front so we can show the customer their actual property from
+ * above while the heavier auto-measure runs. Returns null if it can't be placed.
+ */
+export async function geocodeForEstimate(input: {
+  address: string;
+  city?: string;
+  zip?: string;
+}): Promise<{ lng: number; lat: number } | null> {
+  const address = input.address?.trim();
+  if (!address) return null;
+  const coords = await geocodeAddress([address, input.city, input.zip, "TX"].filter(Boolean).join(", "));
+  return coords ? { lng: coords[0], lat: coords[1] } : null;
+}
 
 /**
  * Instant on-site estimate from an address: geocode → county parcel →
@@ -68,7 +96,10 @@ export async function getInstantEstimate(
   const startNote = input.startTiming ? ` Start: ${input.startTiming}.` : "";
 
   // Geocode + parcel + auto-measure (best-effort; any miss → lead-only fallback).
-  const coords = await geocodeAddress([address, input.city, input.zip, "TX"].filter(Boolean).join(", "));
+  // Reuse the preview geocode if the client already resolved it.
+  const coords =
+    input.coords ??
+    (await geocodeAddress([address, input.city, input.zip, "TX"].filter(Boolean).join(", ")));
   const parcel = coords ? await fetchParcelAtPoint(coords[0], coords[1]) : null;
   const est = parcel ? await estimateServiceableArea(parcel as ParcelResult, getMapboxToken()) : null;
 
@@ -160,6 +191,8 @@ export async function getInstantEstimate(
   // model under-sees obstacles/complexity).
   const low = roundTo(result.monthly_price * 0.85, 5);
   const high = roundTo(result.monthly_price * 1.25, 5);
+  const perVisitLow = roundTo(result.price_per_visit * 0.85, 5);
+  const perVisitHigh = roundTo(result.price_per_visit * 1.25, 5);
 
   await sendEmail({
     to: email,
@@ -172,7 +205,7 @@ export async function getInstantEstimate(
       `<p>— ${co.name}</p>`,
   });
 
-  return { ok: true, measured: true, low, high, bookingUrl };
+  return { ok: true, measured: true, low, high, perVisitLow, perVisitHigh, bookingUrl };
 }
 
 /**

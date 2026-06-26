@@ -19,6 +19,7 @@ const PUBLIC_PREFIXES = [
   "/customer/verify",
   "/api/unsubscribe",
   "/api/webhooks",
+  "/api/property-preview",
 ];
 
 export function middleware(req: NextRequest) {
