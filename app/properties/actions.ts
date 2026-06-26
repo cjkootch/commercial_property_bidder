@@ -22,7 +22,11 @@ import {
   type ServiceableEstimate,
 } from "@/lib/integrations/imagery";
 import { isGrassQualified, MIN_GRASS_FRACTION } from "@/lib/sourcing/criteria";
-import { enrichCompanyByName, type OwnerSuggestion } from "@/lib/integrations/apollo";
+import {
+  enrichCompanyByName,
+  parcelSuggestion,
+  type OwnerSuggestion,
+} from "@/lib/integrations/apollo";
 
 const ICP_VALUES = [
   "self_storage",
@@ -341,11 +345,12 @@ export async function screenProperty(propertyId: string): Promise<GrassScreenRes
 }
 
 /**
- * Lazily resolve & cache a suggested ownership company for a property: take the
- * county parcel owner-of-record and enrich it via Apollo into a canonical
- * company. Cached in property.owner_suggestion. This is a SUGGESTION only — it
- * never writes owner_org (build spec section 9). Safe to call during render
- * (no revalidatePath). Returns the suggestion or null.
+ * Resolve the FREE ownership suggestion for a property: just the county parcel
+ * owner-of-record (no Apollo, no credit). Cached in property.owner_suggestion.
+ * A SUGGESTION only — never writes owner_org (build spec section 9). Safe to
+ * call during render (no revalidatePath). Apollo enrichment is a separate,
+ * explicit operator action (enrichOwnerWithApollo). Returns the suggestion or
+ * null.
  */
 export async function ensurePropertyOwnerSuggestion(
   propertyId: string
@@ -354,15 +359,13 @@ export async function ensurePropertyOwnerSuggestion(
   if (!prop) return null;
   if (prop.owner_suggestion) return prop.owner_suggestion as OwnerSuggestion;
 
-  // Need the parcel owner-of-record to seed the lookup.
+  // Need the parcel owner-of-record to seed the suggestion (no Apollo here).
   const parcel =
     (prop.parcel_geojson as ParcelResult | null) ?? (await ensurePropertyParcel(propertyId));
   const ownerName = parcel?.owner ?? null;
   if (!ownerName) return null;
 
-  const suggestion = await enrichCompanyByName(ownerName);
-  if (!suggestion) return null;
-
+  const suggestion = parcelSuggestion(ownerName);
   await db
     .update(property)
     .set({ owner_suggestion: suggestion, updated_at: new Date() })
@@ -370,17 +373,27 @@ export async function ensurePropertyOwnerSuggestion(
   return suggestion;
 }
 
-/** Re-run owner enrichment from scratch (e.g. after the parcel/owner changes). */
-export async function refreshOwnerSuggestion(
+/**
+ * Explicit operator action: enrich the owner-of-record via Apollo (spends ~1
+ * Apollo credit on a match) and cache the canonical company. Never auto-runs —
+ * triggered by the operator clicking "Enrich via Apollo".
+ */
+export async function enrichOwnerWithApollo(
   propertyId: string
 ): Promise<OwnerSuggestion | null> {
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
   if (!prop) return null;
-  const ownerName = (prop.parcel_geojson as ParcelResult | null)?.owner ?? null;
+  const ownerName =
+    (prop.parcel_geojson as ParcelResult | null)?.owner ??
+    (prop.owner_suggestion as OwnerSuggestion | null)?.raw_owner ??
+    null;
+  if (!ownerName) return null;
+
   const suggestion = await enrichCompanyByName(ownerName);
+  if (!suggestion) return null;
   await db
     .update(property)
-    .set({ owner_suggestion: suggestion ?? null, updated_at: new Date() })
+    .set({ owner_suggestion: suggestion, updated_at: new Date() })
     .where(eq(property.id, propertyId));
   revalidatePath(`/properties/${propertyId}`);
   return suggestion;

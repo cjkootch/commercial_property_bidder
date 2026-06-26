@@ -14,8 +14,9 @@ export type OwnerSuggestion = {
   name: string;
   domain: string | null;
   website: string | null;
-  industry: string | null;
-  employees: number | null;
+  /** Printed revenue, e.g. "3.4B" (Apollo's organization_revenue_printed). */
+  revenue: string | null;
+  linkedin: string | null;
   apollo_id: string | null;
   /** "apollo" when enriched, "parcel" when we only have the owner-of-record. */
   source: "apollo" | "parcel";
@@ -26,13 +27,27 @@ export function getApolloKey(): string | null {
   return process.env.APOLLO_API_KEY ?? process.env.APOLLO_API ?? null;
 }
 
+/** Free, no-credit suggestion from just the county owner-of-record name. */
+export function parcelSuggestion(ownerName: string): OwnerSuggestion {
+  return {
+    raw_owner: ownerName,
+    name: ownerName,
+    domain: null,
+    website: null,
+    revenue: null,
+    linkedin: null,
+    apollo_id: null,
+    source: "parcel",
+  };
+}
+
 type ApolloOrg = {
   id?: string;
   name?: string;
   primary_domain?: string;
   website_url?: string;
-  industry?: string;
-  estimated_num_employees?: number;
+  linkedin_url?: string;
+  organization_revenue_printed?: string;
 };
 
 /**
@@ -47,16 +62,7 @@ export async function enrichCompanyByName(
   const raw = ownerName?.trim();
   if (!raw) return null;
 
-  const parcelOnly: OwnerSuggestion = {
-    raw_owner: raw,
-    name: raw,
-    domain: null,
-    website: null,
-    industry: null,
-    employees: null,
-    apollo_id: null,
-    source: "parcel",
-  };
+  const parcelOnly = parcelSuggestion(raw);
 
   const key = getApolloKey();
   if (!key) return parcelOnly;
@@ -81,8 +87,8 @@ export async function enrichCompanyByName(
       name: org.name?.trim() || raw,
       domain: org.primary_domain ?? null,
       website: org.website_url ?? null,
-      industry: org.industry ?? null,
-      employees: typeof org.estimated_num_employees === "number" ? org.estimated_num_employees : null,
+      revenue: org.organization_revenue_printed ?? null,
+      linkedin: org.linkedin_url ?? null,
       apollo_id: org.id ?? null,
       source: "apollo",
     };

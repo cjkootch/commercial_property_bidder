@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { applyOwnerSuggestion, refreshOwnerSuggestion } from "@/app/properties/actions";
+import { applyOwnerSuggestion, enrichOwnerWithApollo } from "@/app/properties/actions";
 import type { OwnerSuggestion as Suggestion } from "@/lib/integrations/apollo";
 
 /**
@@ -47,11 +47,7 @@ export function OwnerSuggestion({
             <div className="text-sm">
               <div className="font-medium text-gray-900">{sug.name}</div>
               <div className="mt-0.5 text-xs text-gray-500">
-                {[
-                  sug.domain,
-                  sug.industry,
-                  sug.employees ? `${sug.employees.toLocaleString()} emp` : null,
-                ]
+                {[sug.domain, sug.revenue ? `rev ${sug.revenue}` : null]
                   .filter(Boolean)
                   .join(" · ") || "owner-of-record"}
                 {sug.source === "parcel" ? " · not yet enriched" : ""}
@@ -97,19 +93,25 @@ export function OwnerSuggestion({
         </p>
       )}
 
-      <button
-        type="button"
-        disabled={pending}
-        onClick={() =>
-          startTransition(async () => {
-            const next = await refreshOwnerSuggestion(propertyId);
-            setSug(next);
-          })
-        }
-        className="mt-3 text-xs text-gray-500 hover:text-brand disabled:opacity-50"
-      >
-        {pending ? "…" : "Re-run lookup"}
-      </button>
+      {sug ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            startTransition(async () => {
+              const next = await enrichOwnerWithApollo(propertyId);
+              if (next) setSug(next);
+            })
+          }
+          className="mt-3 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          {pending
+            ? "Enriching…"
+            : sug.source === "apollo"
+              ? "Re-enrich via Apollo (1 credit)"
+              : "Enrich via Apollo (1 credit)"}
+        </button>
+      ) : null}
     </section>
   );
 }
