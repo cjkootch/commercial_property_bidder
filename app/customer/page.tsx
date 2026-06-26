@@ -5,6 +5,7 @@ import { CUSTOMER_COOKIE, verifyToken } from "@/lib/customer-auth";
 import { getCustomerProposals, getDefaultCompany } from "@/lib/db/queries";
 import { acceptProposal, requestWalkthrough, customerLogout } from "./actions";
 import { usd } from "@/lib/format";
+import { Logo } from "@/components/Logo";
 
 // Customer portal (magic-link authenticated): view proposals, accept, or request
 // a walkthrough. Session is verified here; an invalid/expired cookie bounces to
@@ -23,8 +24,8 @@ export default async function CustomerPortal() {
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
-          <Link href="/" className="text-lg font-semibold" style={{ color: accent }}>
-            {co?.name ?? "Greenkeep"}
+          <Link href="/" aria-label={co?.name ?? "Greenkeep"}>
+            <Logo accent={accent} name={co?.name ?? "Greenkeep"} />
           </Link>
           <form action={customerLogout}>
             <button className="text-sm text-gray-500 hover:text-gray-800">Sign out</button>

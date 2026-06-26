@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Logo } from "@/components/Logo";
 
 export type Brand = {
   name: string;
@@ -26,8 +27,8 @@ export function MarketingShell({
     <div className="min-h-screen bg-white text-gray-900">
       <header className="border-b border-gray-100">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <Link href="/" className="text-xl font-semibold" style={{ color: accent }}>
-            {name}
+          <Link href="/" aria-label={name}>
+            <Logo accent={accent} name={name} />
           </Link>
           <nav className="flex items-center gap-5">
             <Link href="/residential" className={navLink("/residential", "Residential", "residential")}>

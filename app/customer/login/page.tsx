@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requestMagicLink } from "../actions";
+import { Logo } from "@/components/Logo";
 
 // Public: customers request a passwordless magic link. We never reveal whether
 // an email exists (anti-enumeration) — always show the same "check your inbox".
@@ -13,8 +14,8 @@ export default function CustomerLogin({
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-6">
       <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-8">
-        <Link href="/" className="text-lg font-semibold text-brand">
-          Greenkeep
+        <Link href="/" aria-label="Greenkeep">
+          <Logo name="Greenkeep" />
         </Link>
         <h1 className="mt-4 text-xl font-semibold">Customer sign-in</h1>
         <p className="mt-1 text-sm text-gray-500">
