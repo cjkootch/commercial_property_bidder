@@ -4,6 +4,7 @@ import {
   getActiveConfig,
   getPropertyDetail,
   getPropertyProposal,
+  getPropertyOutreach,
   toEngineConfig,
 } from "@/lib/db/queries";
 import {
@@ -61,6 +62,18 @@ export default async function PropertyWorkspace({
         status: proposalRow.status,
         view_count: proposalRow.view_count,
         last_viewed_at: proposalRow.last_viewed_at?.toISOString() ?? null,
+      }
+    : null;
+
+  const outreachRow = await getPropertyOutreach(prop.id);
+  const outreachInfo = outreachRow
+    ? {
+        status: outreachRow.status,
+        sent_at: outreachRow.sent_at?.toISOString() ?? null,
+        delivered_at: outreachRow.delivered_at?.toISOString() ?? null,
+        opened_at: outreachRow.opened_at?.toISOString() ?? null,
+        open_count: outreachRow.open_count,
+        click_count: outreachRow.click_count,
       }
     : null;
 
@@ -209,7 +222,12 @@ export default async function PropertyWorkspace({
       </div>
 
       {/* Hosted proposal link + open tracking */}
-      <ProposalCard propertyId={prop.id} initial={proposalInfo} hasPricing={!!pricing} />
+      <ProposalCard
+        propertyId={prop.id}
+        initial={proposalInfo}
+        hasPricing={!!pricing}
+        outreach={outreachInfo}
+      />
 
       {/* Sourcing grass pre-screen */}
       <GrassScreen

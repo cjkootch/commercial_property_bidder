@@ -1,13 +1,22 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { createOrUpdateProposal } from "@/app/properties/actions";
+import { createOrUpdateProposal, sendProposalEmail } from "@/app/properties/actions";
 
 type ProposalInfo = {
   slug: string;
   status: string;
   view_count: number;
   last_viewed_at: string | null;
+} | null;
+
+export type OutreachInfo = {
+  status: string;
+  sent_at: string | null;
+  delivered_at: string | null;
+  opened_at: string | null;
+  open_count: number;
+  click_count: number;
 } | null;
 
 /**
@@ -19,15 +28,19 @@ export function ProposalCard({
   propertyId,
   initial,
   hasPricing,
+  outreach,
 }: {
   propertyId: string;
   initial: ProposalInfo;
   hasPricing: boolean;
+  outreach: OutreachInfo;
 }) {
   const [pending, startTransition] = useTransition();
   const [info, setInfo] = useState<ProposalInfo>(initial);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mail, setMail] = useState<OutreachInfo>(outreach);
+  const [sendMsg, setSendMsg] = useState<string | null>(null);
 
   const url =
     info && typeof window !== "undefined"
@@ -126,6 +139,70 @@ export function ProposalCard({
               </dd>
             </div>
           </dl>
+
+          {/* Email send + Resend open tracking */}
+          <div className="border-t border-gray-100 pt-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-700">Email proposal</span>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  startTransition(async () => {
+                    setSendMsg(null);
+                    const res = await sendProposalEmail(propertyId);
+                    if (res.ok) {
+                      setSendMsg(`Sent to ${res.to}`);
+                      setMail({
+                        status: "sent",
+                        sent_at: new Date().toISOString(),
+                        delivered_at: null,
+                        opened_at: null,
+                        open_count: 0,
+                        click_count: 0,
+                      });
+                    } else {
+                      setSendMsg(res.error);
+                    }
+                  })
+                }
+                className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
+              >
+                {pending ? "Sending…" : mail?.sent_at ? "Resend" : "Send via email"}
+              </button>
+            </div>
+            {mail?.sent_at ? (
+              <dl className="mt-2 flex gap-6 text-sm">
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-gray-500">Email</dt>
+                  <dd className="font-medium text-gray-900">
+                    {mail.opened_at ? (
+                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                        Opened
+                      </span>
+                    ) : mail.delivered_at ? (
+                      "Delivered"
+                    ) : (
+                      "Sent"
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-gray-500">Email opens</dt>
+                  <dd className="font-medium tabular-nums text-gray-900">{mail.open_count}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs uppercase tracking-wide text-gray-500">Clicks</dt>
+                  <dd className="font-medium tabular-nums text-gray-900">{mail.click_count}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="mt-1 text-xs text-gray-400">
+                Sends the link to the saved contact (needs Resend + a contact email).
+              </p>
+            )}
+            {sendMsg ? <p className="mt-2 text-sm text-gray-600">{sendMsg}</p> : null}
+          </div>
         </div>
       ) : (
         <p className="mt-4 text-sm text-gray-400">No proposal yet.</p>

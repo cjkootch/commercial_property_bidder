@@ -307,6 +307,13 @@ export const outreach = pgTable("outreach", {
   resend_message_id: text("resend_message_id"),
   sent_at: timestamp("sent_at", { withTimezone: true }),
   replied_at: timestamp("replied_at", { withTimezone: true }),
+  // Resend webhook tracking (email.delivered/opened/clicked/bounced/complained).
+  delivered_at: timestamp("delivered_at", { withTimezone: true }),
+  opened_at: timestamp("opened_at", { withTimezone: true }),
+  clicked_at: timestamp("clicked_at", { withTimezone: true }),
+  open_count: integer("open_count").notNull().default(0),
+  click_count: integer("click_count").notNull().default(0),
+  last_event: text("last_event"),
   ...timestamps,
 });
 

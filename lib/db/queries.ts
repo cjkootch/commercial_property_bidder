@@ -7,6 +7,7 @@ import {
   pricingResult,
   property,
   proposal,
+  outreach,
   type PricingConfigRow,
 } from "./schema";
 import type { PricingConfig, PricingFlags } from "../pricing/types";
@@ -146,6 +147,17 @@ export async function getProposalBySlug(slug: string) {
     .limit(1);
   const [co] = await db.select().from(company).where(eq(company.id, prop!.company_id)).limit(1);
   return { proposal: prop_, property: prop ?? null, pricing: pr ?? null, company: co ?? null };
+}
+
+/** Latest outreach (email) for a property, for send + open-rate display. */
+export async function getPropertyOutreach(propertyId: string) {
+  const [row] = await db
+    .select()
+    .from(outreach)
+    .where(eq(outreach.property_id, propertyId))
+    .orderBy(desc(outreach.created_at))
+    .limit(1);
+  return row ?? null;
 }
 
 /** The current proposal for a property (most recent), or null. */

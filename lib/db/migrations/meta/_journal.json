@@ -71,6 +71,13 @@
       "when": 1782478352152,
       "tag": "0009_fast_gorilla_man",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782478775096,
+      "tag": "0010_low_mephistopheles",
+      "breakpoints": true
     }
   ]
 }

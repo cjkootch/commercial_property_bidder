@@ -5,13 +5,17 @@ import { revalidatePath } from "next/cache";
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  company,
   contact,
   measurement,
+  outreach,
   pricingResult,
   property,
   proposal,
   proposalView,
+  suppression,
 } from "@/lib/db/schema";
+import { sendEmail, getResendKey } from "@/lib/integrations/resend";
 import {
   DEFAULT_SCOPE_ITEMS,
   frequencyOptionsFromPricing,
@@ -574,6 +578,83 @@ export async function recordProposalView(slug: string, userAgent: string | null)
   } catch {
     // tracking is best-effort
   }
+}
+
+export type SendProposalResult =
+  | { ok: true; to: string }
+  | { ok: false; error: string };
+
+/**
+ * Send the hosted proposal link to the property's saved contact via Resend
+ * (open/click tracking on). EXPLICIT operator action = the send approval (build
+ * spec section 9). Guards: needs a proposal, a contact with email, the email not
+ * suppressed, and Resend configured. Records an outreach row keyed by the Resend
+ * message id so the webhook can attribute opens.
+ */
+export async function sendProposalEmail(propertyId: string): Promise<SendProposalResult> {
+  if (!getResendKey()) return { ok: false, error: "Resend not configured (RESEND_API_KEY)." };
+
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) return { ok: false, error: "Property not found." };
+
+  const [prop_] = await db
+    .select()
+    .from(proposal)
+    .where(eq(proposal.property_id, propertyId))
+    .orderBy(desc(proposal.created_at))
+    .limit(1);
+  if (!prop_) return { ok: false, error: "Create a proposal link first." };
+
+  const [ct] = await db
+    .select()
+    .from(contact)
+    .where(eq(contact.property_id, propertyId))
+    .orderBy(desc(contact.created_at))
+    .limit(1);
+  const to = ct?.email?.trim();
+  if (!ct || !to) return { ok: false, error: "Save a contact with an email first." };
+
+  const [supp] = await db.select().from(suppression).where(eq(suppression.email, to)).limit(1);
+  if (supp) return { ok: false, error: `${to} is on the suppression list.` };
+
+  const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "";
+  const link = `${base}/proposals/${prop_.slug}`;
+  const [co] = await db.select().from(company).where(eq(company.id, prop.company_id)).limit(1);
+  const subject = `Grounds maintenance proposal — ${prop.name}`;
+  const html =
+    `<p>Hi${ct.full_name ? ` ${ct.full_name.split(" ")[0]}` : ""},</p>` +
+    `<p>We put together a grounds-maintenance proposal for <strong>${prop.name}</strong>. ` +
+    `You can review it here:</p>` +
+    `<p><a href="${link}">${link}</a></p>` +
+    `<p>Happy to walk the property at your convenience.</p>` +
+    (co?.name ? `<p>— ${co.name}</p>` : "") +
+    (co?.physical_mailing_address
+      ? `<hr/><p style="font-size:12px;color:#888">${co.name} · ${co.physical_mailing_address}</p>`
+      : "");
+
+  // Create the outreach row first so we can attach the message id after send.
+  const [row] = await db
+    .insert(outreach)
+    .values({ property_id: propertyId, contact_id: ct.id, proposal_id: prop_.id, subject, body: html, status: "approved" })
+    .returning();
+
+  const sent = await sendEmail({ to, subject, html, tags: { outreach_id: row.id } });
+  if (!sent.ok) {
+    await db.update(outreach).set({ status: "draft", last_event: `send_failed: ${sent.error}`, updated_at: new Date() }).where(eq(outreach.id, row.id));
+    return { ok: false, error: sent.error };
+  }
+
+  await db
+    .update(outreach)
+    .set({ status: "sent", resend_message_id: sent.id, sent_at: new Date(), updated_at: new Date() })
+    .where(eq(outreach.id, row.id));
+  await db.update(proposal).set({ status: "sent", updated_at: new Date() }).where(eq(proposal.id, prop_.id));
+  if (prop.status === "proposal_ready" || prop.status === "priced" || prop.status === "sourced") {
+    await db.update(property).set({ status: "sent", updated_at: new Date() }).where(eq(property.id, propertyId));
+  }
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/dashboard");
+  return { ok: true, to };
 }
 
 /** Operator-set buying signal: property is actively marketed / has a new PM. */
