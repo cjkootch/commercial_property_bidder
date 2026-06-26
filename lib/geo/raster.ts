@@ -1,5 +1,5 @@
 import { AREA_KINDS, type ServiceAreaCollection } from "./types";
-import { normalizeKind } from "./area";
+import { normalizeKind, precedenceFor } from "./area";
 
 type UiKind = (typeof AREA_KINDS)[number];
 
@@ -53,9 +53,11 @@ function pointInPolygon(x: number, y: number, coords: number[][][]): boolean {
   return true;
 }
 
-// Paint order: later kinds override earlier where polygons overlap (e.g. a
-// building drawn over turf wins). Hard surfaces and beds sit on top of turf/tree.
-const PAINT_ORDER: UiKind[] = ["turf", "tree", "bed", "pavement", "other", "building"];
+// Paint order: later kinds override earlier where polygons overlap, so this is
+// the overlap precedence (area.ts) reversed — lowest priority first, highest
+// last. Critically, turf outranks pavement: a parking lot dropped over grass
+// medians leaves the medians as turf in the mask, matching the priced area.
+const PAINT_ORDER: UiKind[] = [...precedenceFor(false)].reverse();
 
 /**
  * Rasterize labeled service-area polygons into a class-index mask aligned to a

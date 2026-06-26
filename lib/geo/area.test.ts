@@ -7,6 +7,7 @@ import {
   isAreaKind,
   normalizeKind,
   computeEffectiveTurf,
+  computeNetAreas,
 } from "./area";
 import type { ServiceAreaCollection } from "./types";
 
@@ -82,8 +83,10 @@ describe("geo/area", () => {
     expect(normalizeKind("sidewalk")).toBe("pavement");
   });
 
-  it("computeEffectiveTurf subtracts overlapping building/pavement from turf", () => {
-    // 3x3 turf with a 1x1 building and a 1x1 pavement inside -> 9 - 1 - 1 = 7 units².
+  it("computeEffectiveTurf subtracts building but NOT pavement (turf outranks pavement)", () => {
+    // 3x3 turf with a 1x1 building and a 1x1 pavement inside. Building outranks
+    // turf (carved out) but turf outranks pavement (medians stay turf):
+    // 9 - 1 = 8 units².
     const fc: ServiceAreaCollection = {
       type: "FeatureCollection",
       features: [
@@ -100,9 +103,30 @@ describe("geo/area", () => {
       } as GeoJSON.Feature)
     );
     const mowable = computeEffectiveTurf(fc, false);
-    // ~7/9 of the full turf (small spherical variance).
-    expect(mowable / full).toBeGreaterThan(0.74);
-    expect(mowable / full).toBeLessThan(0.79);
+    // ~8/9 of the full turf (small spherical variance).
+    expect(mowable / full).toBeGreaterThan(0.86);
+    expect(mowable / full).toBeLessThan(0.90);
+  });
+
+  it("computeNetAreas: a parking lot dropped over a grass median doesn't double-count", () => {
+    // 3x3 pavement with a 1x1 turf median inside. Turf outranks pavement, so the
+    // median stays turf and pavement is the rest — together they tile the 3x3
+    // footprint exactly (no double count).
+    const fc: ServiceAreaCollection = {
+      type: "FeatureCollection",
+      features: [box("pavement", 0, 0, 3), box("turf", 1, 1, 1)],
+    };
+    const net = computeNetAreas(fc, false);
+    const ratio = net.turf / (net.turf + net.pavement);
+    // turf is 1 of the 9 units; pavement is the other 8.
+    expect(ratio).toBeGreaterThan(0.10);
+    expect(ratio).toBeLessThan(0.12);
+    // pavement net is ~8/9 of its drawn footprint (the median is removed).
+    const pavementFull = sqftFromM2(
+      area(box("pavement", 0, 0, 3) as unknown as GeoJSON.Feature)
+    );
+    expect(net.pavement / pavementFull).toBeGreaterThan(0.86);
+    expect(net.pavement / pavementFull).toBeLessThan(0.90);
   });
 
   it("computeEffectiveTurf keeps tree area when grass-under-trees is on", () => {
