@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "./index";
 import {
   company,
@@ -8,6 +8,7 @@ import {
   property,
   proposal,
   outreach,
+  contact,
   type PricingConfigRow,
 } from "./schema";
 import type { PricingConfig, PricingFlags } from "../pricing/types";
@@ -147,6 +148,71 @@ export async function getProposalBySlug(slug: string) {
     .limit(1);
   const [co] = await db.select().from(company).where(eq(company.id, prop!.company_id)).limit(1);
   return { proposal: prop_, property: prop ?? null, pricing: pr ?? null, company: co ?? null };
+}
+
+export type CustomerProposal = {
+  slug: string;
+  property_name: string;
+  status: string;
+  monthly_price: number | null;
+  annual_price: number | null;
+  accepted_at: string | null;
+  walkthrough_requested_at: string | null;
+};
+
+/**
+ * Proposals visible to a customer: any property where they're a saved contact
+ * (matched by email, case-insensitive) that has a proposal. Powers the
+ * magic-link customer portal.
+ */
+export async function getCustomerProposals(email: string): Promise<CustomerProposal[]> {
+  const e = email.toLowerCase().trim();
+  const rows = await db
+    .select({
+      slug: proposal.slug,
+      property_name: property.name,
+      status: proposal.status,
+      monthly_price: pricingResult.monthly_price,
+      annual_price: pricingResult.annual_price,
+      accepted_at: proposal.accepted_at,
+      walkthrough_requested_at: proposal.walkthrough_requested_at,
+    })
+    .from(contact)
+    .innerJoin(property, eq(contact.property_id, property.id))
+    .innerJoin(proposal, eq(proposal.property_id, property.id))
+    .leftJoin(pricingResult, eq(proposal.pricing_result_id, pricingResult.id))
+    .where(sql`lower(${contact.email}) = ${e}`)
+    .orderBy(desc(proposal.created_at));
+
+  // De-dupe to the most recent proposal per property.
+  const seen = new Set<string>();
+  const out: CustomerProposal[] = [];
+  for (const r of rows) {
+    if (seen.has(r.property_name)) continue;
+    seen.add(r.property_name);
+    out.push({
+      slug: r.slug,
+      property_name: r.property_name,
+      status: r.status,
+      monthly_price: r.monthly_price ?? null,
+      annual_price: r.annual_price ?? null,
+      accepted_at: r.accepted_at?.toISOString() ?? null,
+      walkthrough_requested_at: r.walkthrough_requested_at?.toISOString() ?? null,
+    });
+  }
+  return out;
+}
+
+/** Is this email a contact on the property behind this proposal slug? (authz) */
+export async function customerOwnsProposal(email: string, slug: string): Promise<boolean> {
+  const e = email.toLowerCase().trim();
+  const [row] = await db
+    .select({ id: proposal.id })
+    .from(proposal)
+    .innerJoin(contact, eq(contact.property_id, proposal.property_id))
+    .where(and(eq(proposal.slug, slug), sql`lower(${contact.email}) = ${e}`))
+    .limit(1);
+  return !!row;
 }
 
 /** Latest outreach (email) for a property, for send + open-rate display. */
