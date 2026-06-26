@@ -97,7 +97,7 @@ export function InstantQuote({ accent }: { accent: string }) {
             className="w-full rounded-lg px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
             style={{ backgroundColor: accent }}
           >
-            Get my instant estimate →
+            See my price →
           </button>
         </div>
       ) : null}
