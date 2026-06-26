@@ -5,7 +5,7 @@ import { mkdir, writeFile, appendFile, rm } from "node:fs/promises";
 import { PNG } from "pngjs";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
 import * as schema from "../lib/db/schema";
 import { fetchParcelTile } from "../lib/integrations/imagery";
 import { rasterizeMask, classPixelCounts, CLASS_NAMES } from "../lib/geo/raster";
@@ -61,7 +61,10 @@ async function main() {
     })
     .from(schema.measurement)
     .innerJoin(schema.property, eq(schema.measurement.property_id, schema.property.id))
-    .where(isNotNull(schema.measurement.service_areas))
+    // Only human-verified labels — never train on the model's own ml_pred drafts.
+    .where(
+      and(isNotNull(schema.measurement.service_areas), ne(schema.measurement.source, "ml_pred"))
+    )
     .orderBy(desc(schema.measurement.measured_at));
 
   // One sample per property: keep only the latest measurement (re-saves create

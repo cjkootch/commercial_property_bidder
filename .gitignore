@@ -30,3 +30,9 @@ next-env.d.ts
 
 # ML training export (large; regenerated)
 /training-data
+
+# ML pipeline artifacts (regenerated)
+/ml/predict_in
+/ml/to_predict.json
+/ml/predictions.json
+/ml/__pycache__

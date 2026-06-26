@@ -21,3 +21,10 @@ Install (CPU): `pip install torch torchvision --index-url https://download.pytor
   turf cases; (b) move to a pretrained backbone (e.g. SegFormer) fine-tuned on
   GPU (Hugging Face); (c) serve inference via an endpoint and feed predictions
   into the map's audit view for correction (active learning).
+
+## Self-training / active-learning loop (pre-label new properties)
+1. `npm run ml:dump`            # TS: fetch tiles for unlabeled properties -> ml/predict_in + ml/to_predict.json
+2. `python3 ml/predict_turf.py` # model -> clip to buffered parcel -> vectorize -> ml/predictions.json
+3. `npm run ml:seed-pred`       # TS: insert predictions as editable 'ml_pred' drafts
+4. Operator opens each property -> corrects the predicted turf -> Save (becomes a clean human label).
+5. `npm run export:training` (excludes ml_pred) -> retrain. Each round the drafts get closer.
