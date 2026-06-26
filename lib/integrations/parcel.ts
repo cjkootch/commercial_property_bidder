@@ -23,6 +23,8 @@ type CountyService = {
     parcel_id: string | null;
     address: string | null;
     acres: number | null;
+    last_sale_date?: string | null;
+    market_value?: number | null;
   };
 };
 
@@ -34,6 +36,13 @@ function str(v: unknown): string | null {
 function numOrNull(v: unknown): number | null {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+/** ArcGIS epoch-millis (or a date string) -> ISO date (YYYY-MM-DD), or null. */
+function dateOrNull(v: unknown): string | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  const d = Number.isFinite(n) ? new Date(n) : new Date(String(v));
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
 const COUNTY_SERVICES: CountyService[] = [
@@ -51,6 +60,8 @@ const COUNTY_SERVICES: CountyService[] = [
             .join(" ")
         )),
       acres: numOrNull(p.Acreage),
+      last_sale_date: dateOrNull(p.new_owner_date),
+      market_value: numOrNull(p.total_market_val),
     }),
   },
   {

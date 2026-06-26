@@ -34,3 +34,28 @@ export function grassPercentLabel(fraction: number | null | undefined): string {
   if (typeof fraction !== "number" || !Number.isFinite(fraction)) return "—";
   return `${Math.round(fraction * 100)}%`;
 }
+
+/**
+ * A recent ownership change is a buying-intent trigger: new owners commonly
+ * re-bid grounds vendors. Within this many months counts as "recent".
+ */
+export const RECENT_OWNER_MONTHS = 24;
+
+/** Whole months between an ISO date and now (>= 0), or null if unparseable. */
+export function monthsSince(iso: string | null | undefined, asOf: Date = new Date()): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const months =
+    (asOf.getFullYear() - d.getFullYear()) * 12 + (asOf.getMonth() - d.getMonth());
+  return Math.max(0, months);
+}
+
+/** Did ownership change within RECENT_OWNER_MONTHS? (false when date unknown.) */
+export function isRecentOwnerChange(
+  iso: string | null | undefined,
+  asOf: Date = new Date()
+): boolean {
+  const m = monthsSince(iso, asOf);
+  return m !== null && m <= RECENT_OWNER_MONTHS;
+}
