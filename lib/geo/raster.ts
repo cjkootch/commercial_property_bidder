@@ -11,6 +11,7 @@ export const CLASS_INDEX: Record<(typeof AREA_KINDS)[number], number> = {
   building: 4,
   pavement: 5,
   other: 6,
+  sports_turf: 7,
 };
 
 export const CLASS_NAMES = [
@@ -21,6 +22,7 @@ export const CLASS_NAMES = [
   "building",
   "pavement",
   "other",
+  "sports_turf",
 ] as const;
 
 export type RasterBounds = {

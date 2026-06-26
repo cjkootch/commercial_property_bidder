@@ -78,8 +78,8 @@ function unionAll(features: Poly[]): Poly | null {
  */
 export function precedenceFor(countTreeGrass: boolean): (typeof AREA_KINDS)[number][] {
   return countTreeGrass
-    ? ["building", "bed", "turf", "tree", "pavement", "other"]
-    : ["building", "bed", "tree", "turf", "pavement", "other"];
+    ? ["building", "bed", "turf", "sports_turf", "tree", "pavement", "other"]
+    : ["building", "bed", "tree", "turf", "sports_turf", "pavement", "other"];
 }
 
 /**
@@ -137,6 +137,7 @@ export function computeEffectiveTurf(
 
 const KIND_COLORS: Record<(typeof AREA_KINDS)[number], string> = {
   turf: "#3fae5a", // green
+  sports_turf: "#16a34a", // vivid field green
   bed: "#b9763f", // mulch brown
   tree: "#1f7a3d", // dark canopy green
   building: "#d1495b", // red
@@ -146,6 +147,7 @@ const KIND_COLORS: Record<(typeof AREA_KINDS)[number], string> = {
 
 const KIND_LABELS: Record<(typeof AREA_KINDS)[number], string> = {
   turf: "Turf",
+  sports_turf: "Sports turf",
   bed: "Bed",
   tree: "Tree canopy",
   building: "Building",
