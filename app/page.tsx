@@ -28,11 +28,12 @@ export default async function Home() {
         <div className="relative mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-2">
           <div>
             <h1 className="text-4xl font-bold leading-tight sm:text-5xl">
-              See your lawn-care price in seconds.
+              Your lawn-care price, in seconds.
             </h1>
             <p className="mt-4 text-lg text-gray-600">
-              {name} keeps homes and commercial properties sharp year-round. Enter your address for a
-              free instant estimate — no phone call, no contracts.
+              {name} keeps homes, offices, and commercial grounds sharp year-round. Enter your
+              address for a free instant estimate — no phone call, no contract, no waiting on a
+              salesperson.
             </p>
             <ul className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-700">
               {["Licensed & insured", "No long-term contracts", "Free instant estimate", "Satisfaction guarantee"].map((t) => (
@@ -64,10 +65,10 @@ export default async function Home() {
         <div className="mx-auto max-w-5xl">
           <h2 className="text-center text-2xl font-semibold">Why {name}</h2>
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            <Value accent={accent} title="No contracts" body="Skip, reschedule, or cancel anytime. We earn the next visit." />
-            <Value accent={accent} title="Licensed & insured" body="General liability coverage, with COI provided on request." />
-            <Value accent={accent} title="Transparent pricing" body="Quotes built from measured turf & beds — not vague guesses." />
-            <Value accent={accent} title="Local crews" body="Dependable, vetted crews who treat your property like the neighbors are watching." />
+            <Value accent={accent} title="No contracts" body="Skip, reschedule, or cancel anytime. We earn every visit." />
+            <Value accent={accent} title="Licensed & insured" body="General liability coverage, with a certificate of insurance on request." />
+            <Value accent={accent} title="Pricing you can see" body="Quotes built from measured turf and beds — not a windshield guess." />
+            <Value accent={accent} title="Reliable crews" body="Vetted local crews who show up on schedule and leave the property sharp." />
           </div>
         </div>
       </section>
@@ -104,10 +105,11 @@ export default async function Home() {
 
       {/* Reviews — honest placeholder; swap in real testimonials as earned */}
       <section className="mx-auto max-w-3xl px-6 py-16 text-center">
-        <h2 className="text-2xl font-semibold">Building a reputation, one property at a time</h2>
+        <h2 className="text-2xl font-semibold">Earning our reputation, one property at a time</h2>
         <p className="mt-3 text-gray-600">
-          We&apos;re a growing local company — every job is backed by our satisfaction guarantee: if it&apos;s
-          not right, we make it right. Real customer reviews will live here as we earn them.
+          We&apos;re a growing local company, and every job is backed by our satisfaction guarantee:
+          if it&apos;s not right, we make it right — no argument. Customer reviews will live here as
+          we earn them.
         </p>
       </section>
 
@@ -127,7 +129,7 @@ export default async function Home() {
       {/* Repeated CTA */}
       <section className="px-6 py-16 text-center" style={{ backgroundColor: `${accent}0d` }}>
         <h2 className="text-2xl font-semibold">Ready for a sharper property?</h2>
-        <p className="mt-2 text-gray-600">Get your free instant estimate in seconds.</p>
+        <p className="mt-2 text-gray-600">Enter your address and get your free estimate in seconds.</p>
         <a href="#estimate" className="mt-6 inline-block rounded-lg px-6 py-3 text-sm font-semibold text-white" style={{ backgroundColor: accent }}>
           See my price →
         </a>
