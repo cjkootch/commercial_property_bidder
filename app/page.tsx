@@ -46,9 +46,11 @@ export default async function Home() {
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/hero.svg"
+            src="/hero.webp"
             alt={`${name} crew servicing a commercial property and a home`}
-            className="hidden w-full rounded-2xl lg:block"
+            width={1600}
+            height={960}
+            className="hidden h-auto w-full lg:block"
           />
         </div>
       </section>
