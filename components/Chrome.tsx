@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Logo } from "@/components/Logo";
 
 // Operator chrome (nav + centered main) for internal pages. Public, customer-
 // facing proposal pages render bare — no internal nav or width constraint.
@@ -23,8 +24,11 @@ export function Chrome({ children }: { children: React.ReactNode }) {
     <>
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <Link href="/dashboard" className="text-lg font-semibold text-brand">
-            Grounds Acquisition Engine
+          <Link href="/dashboard" aria-label="Greenkeep" className="flex items-center gap-2">
+            <Logo name="Greenkeep" />
+            <span className="hidden text-xs font-medium uppercase tracking-wide text-gray-400 sm:inline">
+              Operator
+            </span>
           </Link>
           <nav className="flex items-center gap-4 text-sm text-gray-600">
             <Link href="/dashboard" className="hover:text-brand">

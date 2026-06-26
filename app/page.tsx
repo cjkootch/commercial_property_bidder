@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { MarketingShell, type Brand } from "@/components/MarketingShell";
+import { BrandStripes } from "@/components/BrandStripes";
 
 // Public homepage: a clear audience fork. Two distinct journeys — homeowners go
 // to /residential, businesses/property managers go to /commercial — each with
@@ -20,8 +21,9 @@ export default async function Home() {
   return (
     <MarketingShell brand={brand}>
       {/* Hero */}
-      <section className="px-6 pt-16 pb-8 text-center" style={{ backgroundColor: `${accent}0d` }}>
-        <div className="mx-auto max-w-3xl">
+      <section className="relative px-6 pt-16 pb-8 text-center" style={{ backgroundColor: `${accent}0d` }}>
+        <BrandStripes accent={accent} />
+        <div className="relative mx-auto max-w-3xl">
           <h1 className="text-4xl font-bold sm:text-5xl">
             Grounds maintenance you never have to think about.
           </h1>
