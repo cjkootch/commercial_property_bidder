@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { MarketingShell, type Brand } from "@/components/MarketingShell";
 import { BrandStripes } from "@/components/BrandStripes";
+import { InstantQuote } from "@/components/InstantQuote";
 
 // Public homepage: a clear audience fork. Two distinct journeys — homeowners go
 // to /residential, businesses/property managers go to /commercial — each with
@@ -30,6 +31,12 @@ export default async function Home() {
           <p className="mt-5 text-lg text-gray-600">
             {name} keeps properties sharp year-round with dependable crews and clear pricing.
             Tell us which one you are — we&apos;ll take it from there.
+          </p>
+          <div className="mx-auto mt-8 max-w-md">
+            <InstantQuote accent={accent} />
+          </div>
+          <p className="mt-3 text-xs text-gray-500">
+            Free instant estimate from satellite imagery — no phone call required.
           </p>
         </div>
       </section>
