@@ -8,6 +8,7 @@ import { getActiveConfig, getDefaultCompany, toEngineConfig } from "@/lib/db/que
 import { geocodeAddress, getMapboxToken, suggestAddresses, type AddressSuggestion } from "@/lib/integrations/geocoding";
 import { fetchParcelAtPoint } from "@/lib/integrations/parcel";
 import { estimateServiceableArea } from "@/lib/integrations/imagery";
+import { estimateResidentialArea } from "@/lib/integrations/residential";
 import { computePricing } from "@/lib/pricing/engine";
 import { sendEmail } from "@/lib/integrations/resend";
 import type { ParcelResult } from "@/lib/geo/types";
@@ -106,7 +107,23 @@ export async function getInstantEstimate(
     input.coords ??
     (await geocodeAddress([address, input.city, input.zip, "TX"].filter(Boolean).join(", ")));
   const parcel = coords ? await fetchParcelAtPoint(coords[0], coords[1]) : null;
-  const est = parcel ? await estimateServiceableArea(parcel as ParcelResult, getMapboxToken()) : null;
+
+  // Residential is priced from PROPERTY SQUARE FOOTAGE (lot − building − drive),
+  // not imagery — heavy tree canopy makes grass segmentation unreliable on homes.
+  // Commercial uses the RGB vegetation estimate.
+  let turfEst = 0;
+  let grassFrac: number | null = null;
+  if (parcel) {
+    if (input.type === "residential") {
+      turfEst = (await estimateResidentialArea(parcel as ParcelResult)).turf_sqft;
+    } else {
+      const veg = await estimateServiceableArea(parcel as ParcelResult, getMapboxToken());
+      if (veg) {
+        turfEst = veg.turf_sqft;
+        grassFrac = veg.vegetation_fraction;
+      }
+    }
+  }
 
   // Always create the inbound lead.
   const [prop] = await db
@@ -126,7 +143,7 @@ export async function getInstantEstimate(
       source: "inbound",
       status: "sourced",
       parcel_geojson: (parcel as ParcelResult) ?? null,
-      grass_fraction: est?.vegetation_fraction ?? null,
+      grass_fraction: grassFrac,
       notes: `Instant ${input.type} quote request.${startNote}`,
     })
     .returning();
@@ -139,7 +156,7 @@ export async function getInstantEstimate(
   });
 
   // No measurement possible → capture only, email a follow-up.
-  if (!est || est.turf_sqft <= 0) {
+  if (turfEst <= 0) {
     await sendEmail({
       to: email,
       subject: `Your ${co.name} quote request`,
@@ -155,7 +172,7 @@ export async function getInstantEstimate(
   // Price the auto-measured turf and persist a measurement + pricing snapshot.
   const cfgRow = await getActiveConfig(co.id);
   if (!cfgRow) return { ok: true, measured: false, bookingUrl };
-  const turf = Math.round(est.turf_sqft);
+  const turf = Math.round(turfEst);
   const [meas] = await db
     .insert(measurement)
     .values({

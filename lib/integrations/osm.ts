@@ -78,7 +78,7 @@ export type PoiCandidate = {
   name: string;
   lng: number;
   lat: number;
-  icp_type: "church" | "daycare" | "office_park" | "medical" | "other";
+  icp_type: "church" | "daycare" | "office_park" | "medical" | "residential" | "other";
   osm: string;
 };
 
@@ -129,6 +129,51 @@ export async function searchCommercialPois(
     if (seenNames.has(key)) continue;
     seenNames.add(key);
     out.push({ name: tags.name.trim(), lng: lon, lat, icp_type: icp, osm: `${el.type}` });
+  }
+  return out;
+}
+
+/**
+ * Discover individual residential homes (with a street address) within a bbox,
+ * for building up fine-detail residential training labels. Returns addressed
+ * houses; the caller resolves parcels and grass-screens. Use a TIGHT bbox (a
+ * neighborhood) — `building=house` is dense. bbox is [south, west, north, east].
+ */
+export async function searchResidentialPois(
+  bbox: [number, number, number, number]
+): Promise<PoiCandidate[]> {
+  const [s, w, n, e] = bbox;
+  const bb = `(${s},${w},${n},${e})`;
+  // Residential building footprints. Houston suburbs are largely mapped as
+  // generic building=yes (Microsoft import) with no addr, so accept those too —
+  // a tight bbox over a subdivision keeps this to homes. Name from addr if
+  // present, else coordinates (unique).
+  // Cap the output — dense subdivisions have thousands of footprints and an
+  // unbounded query times out on every mirror. A sample is plenty for sourcing.
+  const query =
+    `[out:json][timeout:40];(` +
+    `way["building"~"^(house|detached|semidetached_house|residential|bungalow|yes)$"]${bb};` +
+    `);out center tags 800;`;
+
+  const elements = await overpassQuery(query);
+  const out: PoiCandidate[] = [];
+  const seenNames = new Set<string>();
+  for (const el of elements) {
+    const tags = el.tags;
+    if (!tags) continue;
+    // Skip obviously non-residential generic buildings.
+    if (tags.amenity || tags.shop || tags.office || tags.leisure || tags.tourism) continue;
+    const lat = el.center?.lat ?? el.lat;
+    const lon = el.center?.lon ?? el.lon;
+    if (lat == null || lon == null) continue;
+    const num = tags["addr:housenumber"]?.trim();
+    const street = tags["addr:street"]?.trim();
+    const name =
+      num && street ? `${num} ${street}` : `Home @${lat.toFixed(4)},${lon.toFixed(4)}`;
+    const key = name.toLowerCase();
+    if (seenNames.has(key)) continue;
+    seenNames.add(key);
+    out.push({ name, lng: lon, lat, icp_type: "residential", osm: `${el.type}` });
   }
   return out;
 }

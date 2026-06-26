@@ -14,6 +14,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "source": "tsx scripts/source-candidates.ts",
     "source:sports": "tsx scripts/source-sports.ts",
+    "source:residential": "tsx scripts/source-residential.ts",
     "screen": "tsx scripts/screen-properties.ts",
     "export:training": "tsx scripts/export-training-data.ts",
     "ml:dump": "tsx scripts/dump-unlabeled.ts",
