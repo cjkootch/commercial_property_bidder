@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { MarketingShell, type Brand } from "@/components/MarketingShell";
-import { BrandStripes } from "@/components/BrandStripes";
+import { HeroScene } from "@/components/HeroScene";
 import { InstantQuote } from "@/components/InstantQuote";
 
 // Homepage modeled on proven instant-quote landing-page structure (à la
@@ -22,19 +22,20 @@ export default async function Home() {
 
   return (
     <MarketingShell brand={brand}>
-      {/* Hero — address-first instant quote */}
-      <section id="estimate" className="relative px-6 pt-16 pb-10" style={{ backgroundColor: `${accent}0d` }}>
-        <BrandStripes accent={accent} />
-        <div className="relative mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-2">
-          <div>
+      {/* Hero — address-first instant quote over an illustrated scene */}
+      <section id="estimate" className="relative overflow-hidden px-6 pt-16 pb-0" style={{ backgroundColor: `${accent}0d` }}>
+        <div className="relative z-10 mx-auto max-w-6xl">
+          <div className="max-w-2xl pb-12 md:pb-64">
             <h1 className="text-4xl font-bold leading-tight sm:text-5xl">
               Your lawn-care price, in seconds.
             </h1>
-            <p className="mt-4 text-lg text-gray-600">
-              {name} keeps homes, offices, and commercial grounds sharp year-round. Enter your
-              address for a free instant estimate — no phone call, no contract, no waiting on a
-              salesperson.
+            <p className="mt-4 max-w-xl text-lg text-gray-600">
+              {name} keeps Houston-area homes, offices, and commercial grounds sharp year-round —
+              get a free instant estimate online, no phone call required.
             </p>
+            <div className="mt-8 max-w-xl">
+              <InstantQuote accent={accent} />
+            </div>
             <ul className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-700">
               {["Licensed & insured", "No long-term contracts", "Free instant estimate", "Satisfaction guarantee"].map((t) => (
                 <li key={t} className="flex items-center gap-1.5">
@@ -44,10 +45,8 @@ export default async function Home() {
               ))}
             </ul>
           </div>
-          <div className="mx-auto w-full max-w-md">
-            <InstantQuote accent={accent} />
-          </div>
         </div>
+        <HeroScene accent={accent} className="pointer-events-none absolute inset-x-0 bottom-0 hidden w-full md:block" />
       </section>
 
       {/* How it works */}
