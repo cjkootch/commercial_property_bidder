@@ -30,8 +30,6 @@ export function InstantQuote({ accent }: { accent: string }) {
   const [coords, setCoords] = useState<{ lng: number; lat: number } | null>(null);
 
   const [address, setAddress] = useState("");
-  const [city, setCity] = useState("");
-  const [zip, setZip] = useState("");
   const [type, setType] = useState<"residential" | "commercial">("residential");
   const [startTiming, setStartTiming] = useState("As soon as possible");
   const [email, setEmail] = useState("");
@@ -42,12 +40,10 @@ export function InstantQuote({ accent }: { accent: string }) {
     setMeasuring(true);
     startTransition(async () => {
       // Resolve coords first so the measuring screen can show the property.
-      const geo = await geocodeForEstimate({ address, city, zip });
+      const geo = await geocodeForEstimate({ address });
       setCoords(geo);
       const res = await getInstantEstimate({
         address,
-        city,
-        zip,
         type,
         startTiming,
         email,
@@ -202,34 +198,50 @@ export function InstantQuote({ accent }: { accent: string }) {
     );
   }
 
-  return (
-    <div className={card}>
-      {step === 0 ? (
-        <div className="space-y-3 text-left">
-          <label className="text-sm font-medium text-gray-700">Get an instant estimate</label>
+  // Step 0 — single low-friction address bar (no card chrome).
+  if (step === 0) {
+    return (
+      <div className="w-full">
+        <div className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: accent }}>
+          Get a quick and easy price
+          <span aria-hidden>↘</span>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (address.trim()) setStep(1);
+          }}
+          className="mt-2 flex flex-col gap-2 sm:flex-row"
+        >
           <input
             autoFocus
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder="Property address"
-            className="input"
+            placeholder="Enter your street address"
+            className="flex-1 rounded-full border border-gray-300 bg-white px-5 py-3.5 text-sm shadow-sm focus:border-gray-400 focus:outline-none"
           />
-          <div className="grid grid-cols-2 gap-3">
-            <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="City" className="input" />
-            <input value={zip} onChange={(e) => setZip(e.target.value)} placeholder="ZIP" className="input" />
-          </div>
           <button
-            type="button"
+            type="submit"
             disabled={!address.trim()}
-            onClick={() => setStep(1)}
-            className="w-full rounded-lg px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded-full px-7 py-3.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
             style={{ backgroundColor: accent }}
           >
             See my price →
           </button>
-        </div>
-      ) : null}
+        </form>
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-500">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <rect x="4" y="11" width="16" height="9" rx="2" />
+            <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+          </svg>
+          Your information is secure.
+        </p>
+      </div>
+    );
+  }
 
+  return (
+    <div className={card}>
       {step === 1 ? (
         <div className="space-y-4 text-left">
           <div>
