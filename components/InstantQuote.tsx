@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import {
   getInstantEstimate,
   geocodeForEstimate,
+  suggestAddressInput,
   type InstantEstimateResult,
 } from "@/app/quote/actions";
+import type { AddressSuggestion } from "@/lib/integrations/geocoding";
 
 // Big homepage CTA: address → 2 quick questions → email → an aerial "measuring"
 // screen of the customer's actual property → an instant quote page (frequency
@@ -30,17 +32,40 @@ export function InstantQuote({ accent }: { accent: string }) {
   const [coords, setCoords] = useState<{ lng: number; lat: number } | null>(null);
 
   const [address, setAddress] = useState("");
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [showSug, setShowSug] = useState(false);
+  const [picked, setPicked] = useState<AddressSuggestion | null>(null);
   const [type, setType] = useState<"residential" | "commercial">("residential");
   const [startTiming, setStartTiming] = useState("As soon as possible");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [freq, setFreq] = useState<(typeof FREQUENCIES)[number]["key"]>("weekly");
 
+  // Debounced address autocomplete (step 0 only).
+  useEffect(() => {
+    if (step !== 0) return;
+    const q = address.trim();
+    if (picked && picked.label === q) return; // don't re-suggest a chosen address
+    if (q.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      const res = await suggestAddressInput(q);
+      setSuggestions(res);
+      setShowSug(true);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [address, step, picked]);
+
   function submit() {
     setMeasuring(true);
     startTransition(async () => {
-      // Resolve coords first so the measuring screen can show the property.
-      const geo = await geocodeForEstimate({ address });
+      // Reuse the picked suggestion's coords when available; else geocode.
+      const geo =
+        picked && picked.label === address.trim()
+          ? { lng: picked.lng, lat: picked.lat }
+          : await geocodeForEstimate({ address });
       setCoords(geo);
       const res = await getInstantEstimate({
         address,
@@ -213,13 +238,42 @@ export function InstantQuote({ accent }: { accent: string }) {
           }}
           className="mt-2 flex flex-col gap-2 sm:flex-row"
         >
-          <input
-            autoFocus
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder="Enter your street address"
-            className="flex-1 rounded-full border border-gray-300 bg-white px-5 py-3.5 text-sm shadow-sm focus:border-gray-400 focus:outline-none"
-          />
+          <div className="relative flex-1">
+            <input
+              autoFocus
+              value={address}
+              onChange={(e) => {
+                setAddress(e.target.value);
+                setPicked(null);
+              }}
+              onFocus={() => suggestions.length > 0 && setShowSug(true)}
+              onBlur={() => setTimeout(() => setShowSug(false), 150)}
+              placeholder="Enter your street address"
+              autoComplete="off"
+              className="w-full rounded-full border border-gray-300 bg-white px-5 py-3.5 text-sm shadow-sm focus:border-gray-400 focus:outline-none"
+            />
+            {showSug && suggestions.length > 0 ? (
+              <ul className="absolute z-20 mt-1 w-full overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-lg">
+                {suggestions.map((s) => (
+                  <li key={s.label}>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setAddress(s.label);
+                        setPicked(s);
+                        setShowSug(false);
+                        setSuggestions([]);
+                      }}
+                      className="block w-full px-5 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      {s.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
           <button
             type="submit"
             disabled={!address.trim()}

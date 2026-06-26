@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { contact, measurement, pricingResult, property } from "@/lib/db/schema";
 import { getActiveConfig, getDefaultCompany, toEngineConfig } from "@/lib/db/queries";
-import { geocodeAddress, getMapboxToken } from "@/lib/integrations/geocoding";
+import { geocodeAddress, getMapboxToken, suggestAddresses, type AddressSuggestion } from "@/lib/integrations/geocoding";
 import { fetchParcelAtPoint } from "@/lib/integrations/parcel";
 import { estimateServiceableArea } from "@/lib/integrations/imagery";
 import { computePricing } from "@/lib/pricing/engine";
@@ -56,6 +56,11 @@ export type InstantEstimateResult =
   | { ok: false; error: string };
 
 const roundTo = (n: number, step: number) => Math.max(step, Math.round(n / step) * step);
+
+/** Address autocomplete for the instant-quote bar (server-side; keeps the token hidden). */
+export async function suggestAddressInput(query: string): Promise<AddressSuggestion[]> {
+  return suggestAddresses(query);
+}
 
 /**
  * Fast geocode for the instant-quote "measuring" screen: resolve the address to
