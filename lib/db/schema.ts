@@ -170,6 +170,9 @@ export const property = pgTable("property", {
   // A SUGGESTION only — the operator confirms it into owner_org; never
   // auto-applied (build spec section 9). See lib/integrations/apollo.ts.
   owner_suggestion: jsonb("owner_suggestion"),
+  // Suggested digital contact (free OSM tags + website scrape): phone/email/
+  // website. A SUGGESTION the operator confirms into a contact before any send.
+  contact_suggestion: jsonb("contact_suggestion"),
   notes: text("notes"),
   ...timestamps,
 });

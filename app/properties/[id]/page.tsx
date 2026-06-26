@@ -10,6 +10,8 @@ import {
 import { AckReviewToggle } from "@/components/AckReviewToggle";
 import { GrassScreen } from "@/components/GrassScreen";
 import { OwnerSuggestion } from "@/components/OwnerSuggestion";
+import { ContactFinder } from "@/components/ContactFinder";
+import type { ContactSuggestion } from "@/lib/integrations/contact";
 import { MeasureMapLoader } from "@/components/MeasureMapLoader";
 import { CalcBreakdown } from "@/components/CalcBreakdown";
 import { MIN_GRASS_FRACTION } from "@/lib/sourcing/criteria";
@@ -174,12 +176,18 @@ export default async function PropertyWorkspace({
         </section>
       </div>
 
-      {/* Ownership suggestion (parcel owner-of-record + Apollo) */}
-      <OwnerSuggestion
-        propertyId={prop.id}
-        ownerOrg={prop.owner_org}
-        suggestion={ownerSuggestion}
-      />
+      {/* Ownership + free contact lookup */}
+      <div className="grid gap-8 lg:grid-cols-2">
+        <OwnerSuggestion
+          propertyId={prop.id}
+          ownerOrg={prop.owner_org}
+          suggestion={ownerSuggestion}
+        />
+        <ContactFinder
+          propertyId={prop.id}
+          suggestion={(prop.contact_suggestion as ContactSuggestion | null) ?? null}
+        />
+      </div>
 
       {/* Sourcing grass pre-screen */}
       <GrassScreen

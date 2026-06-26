@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { measurement, pricingResult, property } from "@/lib/db/schema";
+import { contact, measurement, pricingResult, property } from "@/lib/db/schema";
 import { getActiveConfig, getDefaultCompany, toEngineConfig } from "@/lib/db/queries";
 import { computePricing } from "@/lib/pricing/engine";
 import type { Confidence } from "@/lib/pricing/types";
@@ -27,6 +27,7 @@ import {
   parcelSuggestion,
   type OwnerSuggestion,
 } from "@/lib/integrations/apollo";
+import { findContact, type ContactSuggestion } from "@/lib/integrations/contact";
 
 const ICP_VALUES = [
   "self_storage",
@@ -413,6 +414,51 @@ export async function applyOwnerSuggestion(propertyId: string, name: string) {
     .where(eq(property.id, propertyId));
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath("/dashboard");
+}
+
+/**
+ * Explicit operator action: resolve a free digital contact (OSM POI contact tags
+ * + website scrape) for the property and cache it. No paid APIs, no auto-send.
+ * The result is a suggestion the operator confirms via saveSuggestedContact.
+ */
+export async function findPropertyContact(
+  propertyId: string
+): Promise<ContactSuggestion | null> {
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) return null;
+  const parcel =
+    (prop.parcel_geojson as ParcelResult | null) ?? (await ensurePropertyParcel(propertyId));
+  const suggestion = await findContact(parcel);
+  await db
+    .update(property)
+    .set({ contact_suggestion: suggestion ?? null, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  revalidatePath(`/properties/${propertyId}`);
+  return suggestion;
+}
+
+/**
+ * Operator confirms a suggested contact into a real contact row (used by the
+ * outreach step). Requires at least an email or phone. full_name falls back to
+ * the owner org / a generic label since the table requires it.
+ */
+export async function saveSuggestedContact(
+  propertyId: string,
+  data: { name?: string | null; email?: string | null; phone?: string | null }
+) {
+  const email = data.email?.trim() || null;
+  const phone = data.phone?.trim() || null;
+  if (!email && !phone) return;
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  const full_name = data.name?.trim() || prop?.owner_org?.trim() || "Site contact";
+  await db.insert(contact).values({
+    property_id: propertyId,
+    full_name,
+    email,
+    phone,
+    source: "manual",
+  });
+  revalidatePath(`/properties/${propertyId}`);
 }
 
 /** Force a re-fetch of the parcel (e.g. after the operator moves the pin). */
