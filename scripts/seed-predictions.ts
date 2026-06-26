@@ -30,13 +30,18 @@ type Prediction = {
 async function main() {
   const preds: Prediction[] = JSON.parse(await readFile("ml/predictions.json", "utf8"));
 
+  // Skip only properties with a HUMAN label (non-ml_pred). Properties that have
+  // only a prior model draft are re-seeded, so re-running with a newer model
+  // refreshes stale drafts (the latest measurement wins in the workspace).
   const alreadyLabeled = new Set(
     (
       await db
-        .select({ pid: schema.measurement.property_id })
+        .select({ pid: schema.measurement.property_id, source: schema.measurement.source })
         .from(schema.measurement)
         .where(isNotNull(schema.measurement.service_areas))
-    ).map((r) => r.pid)
+    )
+      .filter((r) => r.source !== "ml_pred")
+      .map((r) => r.pid)
   );
 
   let n = 0;

@@ -116,11 +116,13 @@ def main():
     n_params = sum(p.numel() for p in model.parameters())
 
     # Per-class positive weight so each minority class isn't drowned by BCE.
+    # Cap is generous (40) because very rare classes (e.g. building ~1.7% of
+    # pixels) otherwise collapse to zero, especially at higher input resolution.
     pos_weight = torch.empty(len(CLASSES))
     for ci in range(len(CLASSES)):
         pos = Y[:, ci].sum().item()
         neg = Y[:, ci].numel() - pos
-        pos_weight[ci] = min(neg / max(pos, 1), 10.0)
+        pos_weight[ci] = min(neg / max(pos, 1), 40.0)
     pw_view = pos_weight.view(1, -1, 1, 1)
     print(f"\nU-Net params: {n_params/1e6:.2f}M | classes {CLASSES} | "
           f"pos_weight {[round(w,2) for w in pos_weight.tolist()]} | {EPOCHS} epochs CPU\n")
