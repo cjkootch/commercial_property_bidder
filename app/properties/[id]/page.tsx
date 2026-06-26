@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { getActiveConfig, getPropertyDetail, toEngineConfig } from "@/lib/db/queries";
 import { saveMeasurement, ensurePropertyGeocoded, ensurePropertyParcel } from "../actions";
 import { AckReviewToggle } from "@/components/AckReviewToggle";
+import { GrassScreen } from "@/components/GrassScreen";
 import { MeasureMapLoader } from "@/components/MeasureMapLoader";
 import { CalcBreakdown } from "@/components/CalcBreakdown";
+import { MIN_GRASS_FRACTION } from "@/lib/sourcing/criteria";
 import { computePricing } from "@/lib/pricing/engine";
 import { getMapboxToken, DEFAULT_CENTER, DEFAULT_ZOOM } from "@/lib/integrations/geocoding";
 import { usd, pct, titleCase } from "@/lib/format";
@@ -161,6 +163,13 @@ export default async function PropertyWorkspace({
           )}
         </section>
       </div>
+
+      {/* Sourcing grass pre-screen */}
+      <GrassScreen
+        propertyId={prop.id}
+        initialFraction={prop.grass_fraction ?? null}
+        threshold={MIN_GRASS_FRACTION}
+      />
 
       {/* Aerial measure & audit */}
       <MeasureMapLoader

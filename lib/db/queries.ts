@@ -59,6 +59,7 @@ export type DashboardRow = {
   status: string;
   owner_org: string | null;
   acknowledged_review: boolean;
+  grass_fraction: number | null;
   annual_price: number | null;
   monthly_price: number | null;
   cole_annual_cut: number | null;
@@ -89,6 +90,7 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
       status: p.status,
       owner_org: p.owner_org,
       acknowledged_review: p.acknowledged_review,
+      grass_fraction: p.grass_fraction ?? null,
       annual_price: pr?.annual_price ?? null,
       monthly_price: pr?.monthly_price ?? null,
       cole_annual_cut: pr?.cole_annual_cut ?? null,
