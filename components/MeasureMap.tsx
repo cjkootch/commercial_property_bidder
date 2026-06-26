@@ -364,14 +364,24 @@ export function MeasureMap({
           );
         }
       }
-    } else if (drawRef.current) {
-      const off = map.off.bind(map) as (t: string, cb: (...a: unknown[]) => void) => void;
-      off("draw.create", onDrawCreate as (...a: unknown[]) => void);
-      off("draw.update", refreshFromDraw);
-      off("draw.delete", refreshFromDraw);
-      map.removeControl(drawRef.current);
-      drawRef.current = null;
-      if (areas) addReadonlyLayers(map, areas);
+    } else {
+      // Leaving edit mode: tear down the draw session if one exists.
+      if (drawRef.current) {
+        const off = map.off.bind(map) as (t: string, cb: (...a: unknown[]) => void) => void;
+        off("draw.create", onDrawCreate as (...a: unknown[]) => void);
+        off("draw.update", refreshFromDraw);
+        off("draw.delete", refreshFromDraw);
+        map.removeControl(drawRef.current);
+        drawRef.current = null;
+      }
+      // Render the read-only overlay of saved/predicted polygons. This also runs
+      // on initial load (no draw session was ever created), so saved areas show
+      // immediately without first clicking "Edit areas". removeReadonlyLayers
+      // keeps it idempotent across re-runs.
+      if (areas) {
+        removeReadonlyLayers(map);
+        addReadonlyLayers(map, areas);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady, editing]);
