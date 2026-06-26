@@ -67,7 +67,70 @@ type OverpassWay = {
   type: string;
   tags?: Record<string, string>;
   geometry?: Array<{ lat: number; lon: number }>;
+  /** Present on ways/relations when queried with `out center`. */
+  center?: { lat: number; lon: number };
+  lat?: number;
+  lon?: number;
 };
+
+export type PoiCandidate = {
+  name: string;
+  lng: number;
+  lat: number;
+  icp_type: "church" | "daycare" | "office_park" | "medical" | "other";
+  osm: string;
+};
+
+/** Map an OSM amenity tag to one of our ICP types (grass-likely commercial). */
+function icpFromAmenity(tags: Record<string, string>): PoiCandidate["icp_type"] | null {
+  const a = tags.amenity;
+  if (a === "place_of_worship") return "church";
+  if (a === "kindergarten" || a === "childcare") return "daycare";
+  if (a === "school" || a === "college") return "other";
+  if (a === "community_centre") return "other";
+  if (tags.office) return "office_park";
+  if (a === "clinic" || a === "hospital" || tags.healthcare) return "medical";
+  return null;
+}
+
+/**
+ * Discover candidate commercial properties (grass-likely ICP types: churches,
+ * schools, daycares, community centres, offices, clinics) within a bbox, for the
+ * sourcing pipeline. bbox is [south, west, north, east]. Returns named POIs with
+ * a representative point; the caller resolves parcels and screens grass coverage.
+ */
+export async function searchCommercialPois(
+  bbox: [number, number, number, number]
+): Promise<PoiCandidate[]> {
+  const [s, w, n, e] = bbox;
+  const bb = `(${s},${w},${n},${e})`;
+  const query =
+    `[out:json][timeout:60];(` +
+    `nwr["amenity"="place_of_worship"]${bb};` +
+    `nwr["amenity"="school"]${bb};` +
+    `nwr["amenity"="kindergarten"]${bb};` +
+    `nwr["amenity"="community_centre"]${bb};` +
+    `nwr["amenity"="clinic"]${bb};` +
+    `);out center tags;`;
+
+  const elements = await overpassQuery(query);
+  const out: PoiCandidate[] = [];
+  const seenNames = new Set<string>();
+  for (const el of elements) {
+    const tags = el.tags;
+    if (!tags?.name) continue;
+    const icp = icpFromAmenity(tags);
+    if (!icp) continue;
+    const lat = el.center?.lat ?? el.lat;
+    const lon = el.center?.lon ?? el.lon;
+    if (lat == null || lon == null) continue;
+    const key = tags.name.trim().toLowerCase();
+    if (seenNames.has(key)) continue;
+    seenNames.add(key);
+    out.push({ name: tags.name.trim(), lng: lon, lat, icp_type: icp, osm: `${el.type}` });
+  }
+  return out;
+}
 
 /**
  * Fetch OSM building & parking polygons whose centroid falls within the parcel.
