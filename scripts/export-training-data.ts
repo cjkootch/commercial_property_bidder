@@ -5,7 +5,7 @@ import { mkdir, writeFile, appendFile, rm } from "node:fs/promises";
 import { PNG } from "pngjs";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { eq, isNotNull } from "drizzle-orm";
+import { desc, eq, isNotNull } from "drizzle-orm";
 import * as schema from "../lib/db/schema";
 import { fetchParcelTile } from "../lib/integrations/imagery";
 import { rasterizeMask, classPixelCounts, CLASS_NAMES } from "../lib/geo/raster";
@@ -49,9 +49,11 @@ async function main() {
     JSON.stringify({ classes: CLASS_NAMES }, null, 2)
   );
 
-  const rows = await db
+  const allRows = await db
     .select({
       measurement_id: schema.measurement.id,
+      property_id: schema.measurement.property_id,
+      measured_at: schema.measurement.measured_at,
       service_areas: schema.measurement.service_areas,
       name: schema.property.name,
       icp_type: schema.property.icp_type,
@@ -59,7 +61,17 @@ async function main() {
     })
     .from(schema.measurement)
     .innerJoin(schema.property, eq(schema.measurement.property_id, schema.property.id))
-    .where(isNotNull(schema.measurement.service_areas));
+    .where(isNotNull(schema.measurement.service_areas))
+    .orderBy(desc(schema.measurement.measured_at));
+
+  // One sample per property: keep only the latest measurement (re-saves create
+  // multiple rows; we don't want near-duplicate training samples).
+  const seen = new Set<string>();
+  const rows = allRows.filter((r) => {
+    if (seen.has(r.property_id)) return false;
+    seen.add(r.property_id);
+    return true;
+  });
 
   if (!rows.length) {
     console.log(
