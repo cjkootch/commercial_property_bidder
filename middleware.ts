@@ -11,6 +11,9 @@ import { OPERATOR_COOKIE, isValidOperatorCookie } from "./lib/auth";
 const CUSTOMER_COOKIE = "gk_customer";
 const PUBLIC_PREFIXES = [
   "/login",
+  "/residential",
+  "/commercial",
+  "/quote",
   "/proposals",
   "/customer/login",
   "/customer/verify",

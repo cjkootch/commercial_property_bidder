@@ -11,6 +11,9 @@ export function Chrome({ children }: { children: React.ReactNode }) {
   // operator app gets the internal nav chrome.
   const bare =
     pathname === "/" ||
+    pathname?.startsWith("/residential") ||
+    pathname?.startsWith("/commercial") ||
+    pathname?.startsWith("/quote") ||
     pathname?.startsWith("/proposals") ||
     pathname?.startsWith("/customer") ||
     pathname?.startsWith("/login");

@@ -7,6 +7,9 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['"Roboto Flex"', "ui-sans-serif", "system-ui", "sans-serif"],
+      },
       colors: {
         brand: {
           DEFAULT: "#2f6f4e",
