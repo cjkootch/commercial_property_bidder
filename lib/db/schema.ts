@@ -162,6 +162,10 @@ export const property = pgTable("property", {
   // Cached OSM-detected features (buildings/parking/tree canopy) within the
   // parcel — suggestions the operator adjusts on the map.
   osm_features: jsonb("osm_features"),
+  // Cheap RGB pre-screen: vegetated (≈ grass) share of the parcel in [0, 1],
+  // computed before the full measure pass. Null until screened. Drives the
+  // sourcing "qualified" gate (see lib/sourcing/criteria.ts).
+  grass_fraction: doublePrecision("grass_fraction"),
   notes: text("notes"),
   ...timestamps,
 });

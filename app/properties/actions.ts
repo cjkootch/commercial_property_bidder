@@ -21,6 +21,7 @@ import {
   estimateServiceableArea as estimateServiceableAreaImpl,
   type ServiceableEstimate,
 } from "@/lib/integrations/imagery";
+import { isGrassQualified, MIN_GRASS_FRACTION } from "@/lib/sourcing/criteria";
 
 const ICP_VALUES = [
   "self_storage",
@@ -295,6 +296,47 @@ export async function estimateServiceableArea(
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
   if (!prop?.parcel_geojson) return null;
   return estimateServiceableAreaImpl(prop.parcel_geojson as ParcelResult, getMapboxToken());
+}
+
+export type GrassScreenResult = {
+  grass_fraction: number;
+  qualified: boolean;
+  threshold: number;
+  parcel_area_sqft: number;
+};
+
+/**
+ * Sourcing pre-screen: cheaply estimate the parcel's vegetated (≈ grass) share
+ * via RGB satellite detection, persist it to property.grass_fraction, and report
+ * whether the property clears the MIN_GRASS_FRACTION gate. Geocodes + fetches the
+ * parcel lazily if needed. Returns null if it can't be screened (no
+ * address/coords/parcel/token). Cheap enough to batch-run over many candidates
+ * before committing to a full measure pass.
+ */
+export async function screenProperty(propertyId: string): Promise<GrassScreenResult | null> {
+  // Make sure we have coordinates and a parcel to screen within.
+  await ensurePropertyGeocoded(propertyId);
+  const parcel = await ensurePropertyParcel(propertyId);
+  if (!parcel) return null;
+
+  const estimate = await estimateServiceableAreaImpl(parcel, getMapboxToken());
+  if (!estimate) return null;
+
+  const fraction = estimate.vegetation_fraction;
+  await db
+    .update(property)
+    .set({ grass_fraction: fraction, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/dashboard");
+
+  return {
+    grass_fraction: fraction,
+    qualified: isGrassQualified(fraction),
+    threshold: MIN_GRASS_FRACTION,
+    parcel_area_sqft: estimate.parcel_area_sqft,
+  };
 }
 
 /** Force a re-fetch of the parcel (e.g. after the operator moves the pin). */

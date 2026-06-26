@@ -65,40 +65,74 @@ function unionAll(features: Poly[]): Poly | null {
 }
 
 /**
- * Mowable turf area (sqft) = the turf polygons MINUS the building/pavement/bed
- * polygons that overlap them, computed geometrically so it's correct whether
- * turf was drawn as the whole parcel or just the grass. Tree canopy is also
- * subtracted unless `countTreeGrass` (mowable grass under trees) is true.
- * Falls back to the raw turf area if the geometry op fails.
+ * Overlap precedence, highest priority first. Where polygons overlap, the
+ * region is counted toward the HIGHER-priority kind only — so a single large
+ * `pavement` dropped over already-drawn turf/building/canopy doesn't
+ * double-count: the precise feature wins and pavement fills only what's left
+ * (the small grassy medians stay turf). This is what lets you trace the precise
+ * features, then coarsely block in the parking lot.
+ *
+ * Tree vs. turf flips with `countTreeGrass`: when grass-under-trees counts as
+ * mowable, turf outranks tree (canopy area stays priced); otherwise tree
+ * outranks turf (canopy is carved out of the mowable area).
+ */
+export function precedenceFor(countTreeGrass: boolean): (typeof AREA_KINDS)[number][] {
+  return countTreeGrass
+    ? ["building", "bed", "turf", "tree", "pavement", "other"]
+    : ["building", "bed", "tree", "turf", "pavement", "other"];
+}
+
+/**
+ * Net (non-overlapping) area in sqft for every kind, resolving overlaps by
+ * precedence: each kind's area excludes anything already claimed by a
+ * higher-priority kind. Overlapping polygons of the SAME kind are also merged
+ * (no double count). Falls back to the raw per-feature sums if a geometry op
+ * fails, so it never blocks pricing.
+ */
+export function computeNetAreas(
+  fc: ServiceAreaCollection | null | undefined,
+  countTreeGrass: boolean
+): AreaTotals["byKind"] {
+  const polysByKind = new Map<string, Poly[]>();
+  for (const f of fc?.features ?? []) {
+    if (f.geometry?.type !== "Polygon" && f.geometry?.type !== "MultiPolygon") continue;
+    const k = normalizeKind(f.properties?.kind);
+    (polysByKind.get(k) ?? polysByKind.set(k, []).get(k)!).push(asPoly(f));
+  }
+
+  const net = Object.fromEntries(AREA_KINDS.map((k) => [k, 0])) as AreaTotals["byKind"];
+  try {
+    // Descend the precedence list, accumulating the union of everything already
+    // claimed; each kind's net area is its own union minus that.
+    let claimed: Poly | null = null;
+    for (const kind of precedenceFor(countTreeGrass)) {
+      const u = unionAll(polysByKind.get(kind) ?? []);
+      if (!u) continue;
+      const visible = claimed
+        ? ((difference(featureCollection([u, claimed])) as Poly | null) ?? null)
+        : u;
+      net[kind] = visible ? sqftFromM2(area(visible)) : 0;
+      claimed = claimed ? ((union(featureCollection([claimed, u])) as Poly | null) ?? claimed) : u;
+    }
+    return net;
+  } catch {
+    // Geometry op failed (e.g. self-intersecting polygon) — fall back to raw
+    // per-feature sums so we never block pricing.
+    return sumByKind(fc).byKind;
+  }
+}
+
+/**
+ * Mowable turf area (sqft) = the net turf area after overlap resolution: turf
+ * minus any higher-priority building/bed (and tree canopy unless
+ * `countTreeGrass`). Pavement does NOT subtract from turf — turf outranks it —
+ * so a parking lot dropped over grass medians leaves the medians as turf.
  */
 export function computeEffectiveTurf(
   fc: ServiceAreaCollection | null | undefined,
   countTreeGrass: boolean
 ): number {
-  const byKind = new Map<string, Poly[]>();
-  for (const f of fc?.features ?? []) {
-    if (f.geometry?.type !== "Polygon" && f.geometry?.type !== "MultiPolygon") continue;
-    const k = normalizeKind(f.properties?.kind);
-    (byKind.get(k) ?? byKind.set(k, []).get(k)!).push(asPoly(f));
-  }
-  const turfFeats = byKind.get("turf") ?? [];
-  if (!turfFeats.length) return 0;
-
-  const subtractKinds = ["building", "pavement", "bed", ...(countTreeGrass ? [] : ["tree"])];
-  const subFeats = subtractKinds.flatMap((k) => byKind.get(k) ?? []);
-
-  try {
-    const turfUnion = unionAll(turfFeats);
-    if (!turfUnion) return 0;
-    const subUnion = unionAll(subFeats);
-    if (!subUnion) return sqftFromM2(area(turfUnion));
-    const mowable = difference(featureCollection([turfUnion, subUnion])) as Poly | null;
-    return mowable ? sqftFromM2(area(mowable)) : 0;
-  } catch {
-    // Geometry op failed (e.g. self-intersecting polygon) — fall back to the
-    // simple sum so we never block pricing.
-    return sqftFromM2(turfFeats.reduce((s, f) => s + area(f), 0));
-  }
+  return computeNetAreas(fc, countTreeGrass).turf;
 }
 
 const KIND_COLORS: Record<(typeof AREA_KINDS)[number], string> = {

@@ -14,11 +14,11 @@ import {
 import {
   colorForKind,
   computeEffectiveTurf,
+  computeNetAreas,
   labelForKind,
   normalizeKind,
   roundSqft,
   sqftFromM2,
-  sumByKind,
 } from "@/lib/geo/area";
 import {
   AREA_KINDS,
@@ -133,7 +133,9 @@ export function MeasureMap({
   const [countTreeGrass, setCountTreeGrass] = useState(initialCountTreeGrass);
   const countTreeGrassRef = useRef(initialCountTreeGrass);
 
-  const totals = sumByKind(areas);
+  // Net areas resolve overlaps by precedence (e.g. grass medians inside a dropped
+  // parking lot stay turf, not double-counted) — used for the totals strip.
+  const netAreas = computeNetAreas(areas, countTreeGrass);
 
   // --- Recompute totals from the current draw features ---
   const refreshFromDraw = useCallback(() => {
@@ -141,11 +143,12 @@ export function MeasureMap({
     if (!draw) return;
     const fc = toCollection(draw.getAll() as GeoJSON.FeatureCollection);
     setAreas(fc);
-    const t = sumByKind(fc);
-    // Priced turf = turf minus overlapping building/pavement/bed (and trees
-    // unless grass-under-trees is on), computed geometrically.
-    setTurfSqft(roundSqft(computeEffectiveTurf(fc, countTreeGrassRef.current)));
-    setBedSqft(t.bed_sqft);
+    // Priced areas use net (overlap-resolved) geometry: turf minus overlapping
+    // building/bed (and tree canopy unless grass-under-trees is on); pavement
+    // does not subtract from turf.
+    const net = computeNetAreas(fc, countTreeGrassRef.current);
+    setTurfSqft(roundSqft(net.turf));
+    setBedSqft(roundSqft(net.bed));
     setSaved(false);
   }, []);
 
@@ -522,19 +525,21 @@ export function MeasureMap({
           <Total
             key={k}
             label={k === "turf" ? "Turf (mowable)" : labelForKind(k)}
-            value={`${(k === "turf" ? Math.round(turfSqft) : totals.byKind[k]).toLocaleString()} sf`}
+            value={`${Math.round(k === "turf" ? turfSqft : netAreas[k]).toLocaleString()} sf`}
             kind={k}
             priced={k === "turf" || k === "bed"}
           />
         ))}
       </div>
       <p className="mt-1 text-xs text-gray-400">
-        Priced <span className="font-medium text-gray-500">Turf</span> = drawn turf minus any{" "}
+        Overlaps resolve by precedence, so areas never double-count: precise
+        features (<span className="font-medium text-gray-500">Turf</span>,{" "}
         <span className="font-medium text-gray-500">Building</span>,{" "}
-        <span className="font-medium text-gray-500">Pavement</span> &amp;{" "}
-        <span className="font-medium text-gray-500">Bed</span> inside it (and tree canopy, unless the
-        toggle below is on). So you can trace the whole lot as turf, then mark the hard surfaces to
-        carve out the mowable area.
+        <span className="font-medium text-gray-500">Bed</span>,{" "}
+        <span className="font-medium text-gray-500">Tree</span>) win over a coarsely-dropped{" "}
+        <span className="font-medium text-gray-500">Pavement</span> — e.g. grass medians inside a
+        parking lot stay Turf. Priced Turf = net turf minus any Building/Bed inside it (and tree
+        canopy, unless the toggle below is on).
       </p>
       {vegPct !== null ? (
         <p className="mt-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
@@ -546,7 +551,7 @@ export function MeasureMap({
 
       {editing ? (
         <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
-          {totals.byKind.tree > 0 ? (
+          {netAreas.tree > 0 ? (
             <label className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
               <input
                 type="checkbox"
@@ -558,7 +563,7 @@ export function MeasureMap({
                 Count grass under tree canopy as mowable turf
                 <span className="text-gray-400">
                   {" "}
-                  (+{totals.byKind.tree.toLocaleString()} sf)
+                  (+{Math.round(netAreas.tree).toLocaleString()} sf)
                 </span>
               </span>
             </label>

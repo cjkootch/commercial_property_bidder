@@ -12,9 +12,13 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx scripts/seed.ts",
+    "source": "tsx scripts/source-candidates.ts",
+    "screen": "tsx scripts/screen-properties.ts",
     "export:training": "tsx scripts/export-training-data.ts",
     "ml:dump": "tsx scripts/dump-unlabeled.ts",
-    "ml:seed-pred": "tsx scripts/seed-predictions.ts"
+    "ml:dump-one": "tsx scripts/dump-one.ts",
+    "ml:seed-pred": "tsx scripts/seed-predictions.ts",
+    "ml:complete": "tsx scripts/complete-property.ts"
   },
   "dependencies": {
     "@mapbox/mapbox-gl-draw": "^1.5.1",

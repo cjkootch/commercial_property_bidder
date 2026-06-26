@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getDefaultCompany, listDashboard, type DashboardRow } from "@/lib/db/queries";
 import { usd, titleCase } from "@/lib/format";
+import { isGrassQualified, grassPercentLabel, MIN_GRASS_FRACTION } from "@/lib/sourcing/criteria";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,7 @@ export default async function DashboardPage() {
   const live = rows.filter((r) => r.status !== "lost");
   const totalAnnual = live.reduce((s, r) => s + (r.annual_price ?? 0), 0);
   const needsReview = rows.filter((r) => r.needs_review).length;
+  const grassQualified = rows.filter((r) => isGrassQualified(r.grass_fraction)).length;
 
   const byStatus = new Map<string, DashboardRow[]>();
   for (const r of rows) {
@@ -55,9 +57,10 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <Metric label="Properties" value={String(rows.length)} />
         <Metric label="Annual pipeline" value={usd(totalAnnual, { cents: false })} />
+        <Metric label={`Grass-qualified (≥${Math.round(MIN_GRASS_FRACTION * 100)}%)`} value={String(grassQualified)} />
         <Metric label="Needs review" value={String(needsReview)} accent={needsReview > 0} />
       </div>
 
@@ -81,6 +84,7 @@ export default async function DashboardPage() {
                       <th className="px-4 py-2 font-medium">Property</th>
                       <th className="px-4 py-2 font-medium">Type</th>
                       <th className="px-4 py-2 font-medium">Owner</th>
+                      <th className="px-4 py-2 font-medium">Grass</th>
                       <th className="px-4 py-2 text-right font-medium">Monthly</th>
                       <th className="px-4 py-2 text-right font-medium">Annual</th>
                       <th className="px-4 py-2 font-medium"></th>
@@ -97,6 +101,21 @@ export default async function DashboardPage() {
                         </td>
                         <td className="px-4 py-2.5 text-gray-600">{titleCase(r.icp_type)}</td>
                         <td className="px-4 py-2.5 text-gray-600">{r.owner_org ?? "—"}</td>
+                        <td className="px-4 py-2.5">
+                          {r.grass_fraction == null ? (
+                            <span className="text-gray-400">—</span>
+                          ) : (
+                            <span
+                              className={
+                                isGrassQualified(r.grass_fraction)
+                                  ? "rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800"
+                                  : "rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-600"
+                              }
+                            >
+                              {grassPercentLabel(r.grass_fraction)}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 text-right tabular-nums">{usd(r.monthly_price)}</td>
                         <td className="px-4 py-2.5 text-right tabular-nums">{usd(r.annual_price)}</td>
                         <td className="px-4 py-2.5">

@@ -36,3 +36,7 @@ next-env.d.ts
 /ml/to_predict.json
 /ml/predictions.json
 /ml/__pycache__
+
+# python bytecode (anywhere)
+__pycache__/
+*.pyc

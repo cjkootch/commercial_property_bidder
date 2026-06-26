@@ -1,0 +1,1 @@
+ALTER TABLE "property" ADD COLUMN "grass_fraction" double precision;

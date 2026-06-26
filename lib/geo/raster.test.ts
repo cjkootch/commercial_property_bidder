@@ -39,6 +39,20 @@ describe("geo/raster", () => {
     expect(counts[0]).toBe(0);
   });
 
+  it("turf wins over a pavement dropped on top (grass median in a parking lot)", () => {
+    const fc: ServiceAreaCollection = {
+      type: "FeatureCollection",
+      features: [
+        poly("pavement", [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]), // whole tile
+        poly("turf", [[0, 0], [0.5, 0], [0.5, 1], [0, 1], [0, 0]]), // left-half median
+      ],
+    };
+    const counts = classPixelCounts(rasterizeMask(fc, bounds));
+    expect(counts[CLASS_INDEX.turf]).toBe(50); // median preserved as turf
+    expect(counts[CLASS_INDEX.pavement]).toBe(50); // pavement fills the rest
+    expect(counts[0]).toBe(0);
+  });
+
   it("empty input yields all background", () => {
     const counts = classPixelCounts(rasterizeMask(null, bounds));
     expect(counts[0]).toBe(100);
