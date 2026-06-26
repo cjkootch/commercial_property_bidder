@@ -70,7 +70,7 @@ def vectorize(mask, kind, b, W, H, min_area):
     for c in contours:
         if cv2.contourArea(c) < min_area:
             continue
-        eps = 0.004 * cv2.arcLength(c, True)
+        eps = 0.0022 * cv2.arcLength(c, True)  # less rounding -> tighter polygons
         poly = cv2.approxPolyDP(c, eps, True)[:, 0, :]
         if len(poly) < 3:
             continue

@@ -10,6 +10,7 @@
  */
 export type AreaKind =
   | "turf"
+  | "sports_turf"
   | "bed"
   | "tree"
   | "building"
@@ -24,6 +25,7 @@ export type AreaKind =
 /** Kinds offered in the UI. */
 export const AREA_KINDS = [
   "turf",
+  "sports_turf",
   "bed",
   "tree",
   "building",

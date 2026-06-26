@@ -515,7 +515,7 @@ export function MeasureMap({
 
       <div
         ref={mapContainer}
-        className="mt-3 h-[460px] w-full overflow-hidden rounded-md bg-gray-100"
+        className="mt-3 h-[80vh] min-h-[560px] w-full overflow-hidden rounded-md bg-gray-100"
       />
 
       {/* Totals strip — service areas (priced) then other categories. Turf shows

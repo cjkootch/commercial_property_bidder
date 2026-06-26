@@ -33,14 +33,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "training-data")
-SIZE = 256
+SIZE = 512  # higher input res -> sharper mask edges (slower on CPU)
 EPOCHS = 250
 SEED = 0
 
 # Classes the model predicts, in output-channel order, mapped to the class-index
 # the exporter writes into the mask (lib/geo/raster CLASS_INDEX).
-CLASSES = ["turf", "tree", "building", "pavement"]
-CLASS_IDS = {"turf": 1, "bed": 2, "tree": 3, "building": 4, "pavement": 5, "other": 6}
+CLASSES = ["turf", "sports_turf", "tree", "building", "pavement"]
+CLASS_IDS = {"turf": 1, "bed": 2, "tree": 3, "building": 4, "pavement": 5, "other": 6, "sports_turf": 7}
 # Back-compat alias (older predict scripts imported TURF_CLASS).
 TURF_CLASS = CLASS_IDS["turf"]
 

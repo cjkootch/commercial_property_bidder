@@ -7,8 +7,9 @@ import torch
 from train_turf import UNet, load_samples, SIZE, ROOT, CLASSES
 
 # Overlay color per class (RGB).
-COLORS = {"turf": (0, 153, 60), "tree": (230, 126, 34), "bed": (155, 89, 182),
-          "building": (149, 165, 166), "pavement": (90, 90, 90), "other": (52, 152, 219)}
+COLORS = {"turf": (0, 153, 60), "sports_turf": (22, 200, 80), "tree": (230, 126, 34),
+          "bed": (155, 89, 182), "building": (149, 165, 166), "pavement": (90, 90, 90),
+          "other": (52, 152, 219)}
 
 
 def main():
