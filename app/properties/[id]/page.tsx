@@ -1,6 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getActiveConfig, getPropertyDetail, toEngineConfig } from "@/lib/db/queries";
+import {
+  getActiveConfig,
+  getPropertyDetail,
+  getPropertyProposal,
+  getPropertyOutreach,
+  toEngineConfig,
+} from "@/lib/db/queries";
 import {
   saveMeasurement,
   ensurePropertyGeocoded,
@@ -11,6 +17,7 @@ import { AckReviewToggle } from "@/components/AckReviewToggle";
 import { GrassScreen } from "@/components/GrassScreen";
 import { OwnerSuggestion } from "@/components/OwnerSuggestion";
 import { ContactFinder } from "@/components/ContactFinder";
+import { ProposalCard } from "@/components/ProposalCard";
 import type { ContactSuggestion } from "@/lib/integrations/contact";
 import { MeasureMapLoader } from "@/components/MeasureMapLoader";
 import { CalcBreakdown } from "@/components/CalcBreakdown";
@@ -46,6 +53,29 @@ export default async function PropertyWorkspace({
   // Suggest an ownership company from the parcel owner-of-record + Apollo
   // (cached; a suggestion the operator confirms, never auto-applied).
   const ownerSuggestion = await ensurePropertyOwnerSuggestion(prop.id);
+
+  // Current hosted proposal (if any), for the shareable-link card.
+  const proposalRow = await getPropertyProposal(prop.id);
+  const proposalInfo = proposalRow
+    ? {
+        slug: proposalRow.slug,
+        status: proposalRow.status,
+        view_count: proposalRow.view_count,
+        last_viewed_at: proposalRow.last_viewed_at?.toISOString() ?? null,
+      }
+    : null;
+
+  const outreachRow = await getPropertyOutreach(prop.id);
+  const outreachInfo = outreachRow
+    ? {
+        status: outreachRow.status,
+        sent_at: outreachRow.sent_at?.toISOString() ?? null,
+        delivered_at: outreachRow.delivered_at?.toISOString() ?? null,
+        opened_at: outreachRow.opened_at?.toISOString() ?? null,
+        open_count: outreachRow.open_count,
+        click_count: outreachRow.click_count,
+      }
+    : null;
 
   // Recompute a breakdown for the calc-audit panel (cheap, pure; nothing stored).
   const cfgRow = await getActiveConfig(prop.company_id);
@@ -190,6 +220,14 @@ export default async function PropertyWorkspace({
           suggestion={(prop.contact_suggestion as ContactSuggestion | null) ?? null}
         />
       </div>
+
+      {/* Hosted proposal link + open tracking */}
+      <ProposalCard
+        propertyId={prop.id}
+        initial={proposalInfo}
+        hasPricing={!!pricing}
+        outreach={outreachInfo}
+      />
 
       {/* Sourcing grass pre-screen */}
       <GrassScreen

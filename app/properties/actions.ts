@@ -2,9 +2,25 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { contact, measurement, pricingResult, property } from "@/lib/db/schema";
+import {
+  company,
+  contact,
+  measurement,
+  outreach,
+  pricingResult,
+  property,
+  proposal,
+  proposalView,
+  suppression,
+} from "@/lib/db/schema";
+import { sendEmail, getResendKey } from "@/lib/integrations/resend";
+import {
+  DEFAULT_SCOPE_ITEMS,
+  frequencyOptionsFromPricing,
+  makeProposalSlug,
+} from "@/lib/proposals";
 import { getActiveConfig, getDefaultCompany, toEngineConfig } from "@/lib/db/queries";
 import { computePricing } from "@/lib/pricing/engine";
 import type { Confidence } from "@/lib/pricing/types";
@@ -474,6 +490,171 @@ export async function refreshPropertyParcel(
     .where(eq(property.id, propertyId));
   revalidatePath(`/properties/${propertyId}`);
   return parcel;
+}
+
+/**
+ * Create (or refresh) the property's hosted proposal and return its slug. Links
+ * the latest pricing result and re-derives the frequency/pricing options, so a
+ * re-priced property's existing link shows the new numbers. Scope items persist
+ * across refreshes. Advances pipeline to proposal_ready.
+ */
+export async function createOrUpdateProposal(propertyId: string): Promise<string> {
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) throw new Error("Property not found.");
+
+  const [pr] = await db
+    .select()
+    .from(pricingResult)
+    .where(eq(pricingResult.property_id, propertyId))
+    .orderBy(desc(pricingResult.computed_at))
+    .limit(1);
+  if (!pr) throw new Error("Price the property before creating a proposal.");
+
+  const cfgRow = await getActiveConfig(prop.company_id);
+  const visits = cfgRow?.visits_per_year ?? 42;
+  const freq = frequencyOptionsFromPricing(pr, visits);
+
+  const [existing] = await db
+    .select()
+    .from(proposal)
+    .where(eq(proposal.property_id, propertyId))
+    .orderBy(desc(proposal.created_at))
+    .limit(1);
+
+  let slug: string;
+  if (existing) {
+    slug = existing.slug;
+    await db
+      .update(proposal)
+      .set({
+        pricing_result_id: pr.id,
+        frequency_options: freq,
+        updated_at: new Date(),
+      })
+      .where(eq(proposal.id, existing.id));
+  } else {
+    slug = makeProposalSlug(prop.name);
+    await db.insert(proposal).values({
+      property_id: propertyId,
+      pricing_result_id: pr.id,
+      slug,
+      frequency_options: freq,
+      scope_items: DEFAULT_SCOPE_ITEMS,
+      status: "draft",
+    });
+  }
+
+  if (prop.status === "sourced" || prop.status === "priced") {
+    await db
+      .update(property)
+      .set({ status: "proposal_ready", updated_at: new Date() })
+      .where(eq(property.id, propertyId));
+  }
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/dashboard");
+  return slug;
+}
+
+/**
+ * Record an open of a hosted proposal: bump the counter, stamp first/last view,
+ * mark viewed, and log a per-open row. Called from the public page on load; never
+ * throws (a tracking failure must not break the recipient's view).
+ */
+export async function recordProposalView(slug: string, userAgent: string | null) {
+  try {
+    const [p] = await db.select().from(proposal).where(eq(proposal.slug, slug)).limit(1);
+    if (!p) return;
+    await db
+      .update(proposal)
+      .set({
+        view_count: sql`${proposal.view_count} + 1`,
+        last_viewed_at: new Date(),
+        viewed_at: p.viewed_at ?? new Date(),
+        status: p.status === "draft" || p.status === "sent" ? "viewed" : p.status,
+        updated_at: new Date(),
+      })
+      .where(eq(proposal.id, p.id));
+    await db.insert(proposalView).values({ proposal_id: p.id, user_agent: userAgent });
+  } catch {
+    // tracking is best-effort
+  }
+}
+
+export type SendProposalResult =
+  | { ok: true; to: string }
+  | { ok: false; error: string };
+
+/**
+ * Send the hosted proposal link to the property's saved contact via Resend
+ * (open/click tracking on). EXPLICIT operator action = the send approval (build
+ * spec section 9). Guards: needs a proposal, a contact with email, the email not
+ * suppressed, and Resend configured. Records an outreach row keyed by the Resend
+ * message id so the webhook can attribute opens.
+ */
+export async function sendProposalEmail(propertyId: string): Promise<SendProposalResult> {
+  if (!getResendKey()) return { ok: false, error: "Resend not configured (RESEND_API_KEY)." };
+
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) return { ok: false, error: "Property not found." };
+
+  const [prop_] = await db
+    .select()
+    .from(proposal)
+    .where(eq(proposal.property_id, propertyId))
+    .orderBy(desc(proposal.created_at))
+    .limit(1);
+  if (!prop_) return { ok: false, error: "Create a proposal link first." };
+
+  const [ct] = await db
+    .select()
+    .from(contact)
+    .where(eq(contact.property_id, propertyId))
+    .orderBy(desc(contact.created_at))
+    .limit(1);
+  const to = ct?.email?.trim();
+  if (!ct || !to) return { ok: false, error: "Save a contact with an email first." };
+
+  const [supp] = await db.select().from(suppression).where(eq(suppression.email, to)).limit(1);
+  if (supp) return { ok: false, error: `${to} is on the suppression list.` };
+
+  const base = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "";
+  const link = `${base}/proposals/${prop_.slug}`;
+  const [co] = await db.select().from(company).where(eq(company.id, prop.company_id)).limit(1);
+  const subject = `Grounds maintenance proposal — ${prop.name}`;
+  const html =
+    `<p>Hi${ct.full_name ? ` ${ct.full_name.split(" ")[0]}` : ""},</p>` +
+    `<p>We put together a grounds-maintenance proposal for <strong>${prop.name}</strong>. ` +
+    `You can review it here:</p>` +
+    `<p><a href="${link}">${link}</a></p>` +
+    `<p>Happy to walk the property at your convenience.</p>` +
+    (co?.name ? `<p>— ${co.name}</p>` : "") +
+    (co?.physical_mailing_address
+      ? `<hr/><p style="font-size:12px;color:#888">${co.name} · ${co.physical_mailing_address}</p>`
+      : "");
+
+  // Create the outreach row first so we can attach the message id after send.
+  const [row] = await db
+    .insert(outreach)
+    .values({ property_id: propertyId, contact_id: ct.id, proposal_id: prop_.id, subject, body: html, status: "approved" })
+    .returning();
+
+  const sent = await sendEmail({ to, subject, html, tags: { outreach_id: row.id } });
+  if (!sent.ok) {
+    await db.update(outreach).set({ status: "draft", last_event: `send_failed: ${sent.error}`, updated_at: new Date() }).where(eq(outreach.id, row.id));
+    return { ok: false, error: sent.error };
+  }
+
+  await db
+    .update(outreach)
+    .set({ status: "sent", resend_message_id: sent.id, sent_at: new Date(), updated_at: new Date() })
+    .where(eq(outreach.id, row.id));
+  await db.update(proposal).set({ status: "sent", updated_at: new Date() }).where(eq(proposal.id, prop_.id));
+  if (prop.status === "proposal_ready" || prop.status === "priced" || prop.status === "sourced") {
+    await db.update(property).set({ status: "sent", updated_at: new Date() }).where(eq(property.id, propertyId));
+  }
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/dashboard");
+  return { ok: true, to };
 }
 
 /** Operator-set buying signal: property is actively marketed / has a new PM. */
