@@ -4,6 +4,7 @@
 // adjusts on the map — and become labeled data for the future ML step.
 
 import type { ParcelResult, ServiceAreaFeature } from "../geo/types";
+import { orthogonalizeRing } from "../geo/orthogonalize";
 
 // Multiple Overpass mirrors — the main endpoint frequently rate-limits (429 /
 // HTML error pages). Try them in order until one returns JSON.
@@ -241,10 +242,13 @@ export async function fetchOsmFeaturesInParcel(
     if (!pointInParcel(ringCentroid(ring), rings)) continue;
     const kind = kindFromTags(el.tags);
     if (!kind) continue;
+    // Snap building footprints to clean right angles; leave organic shapes
+    // (parking lots, tree canopy) as traced.
+    const coordinates = kind === "building" ? [orthogonalizeRing(ring)] : [ring];
     out.push({
       type: "Feature",
       properties: { kind, area_sqft: 0 },
-      geometry: { type: "Polygon", coordinates: [ring] },
+      geometry: { type: "Polygon", coordinates },
     });
   }
   return out;
