@@ -46,7 +46,7 @@ export default async function Home() {
             </ul>
           </div>
         </div>
-        <HeroScene accent={accent} className="pointer-events-none absolute inset-x-0 bottom-0 hidden w-full md:block" />
+        <HeroScene accent={accent} className="pointer-events-none absolute inset-x-0 bottom-0 z-0 hidden max-h-[360px] w-full md:block" />
       </section>
 
       {/* How it works */}

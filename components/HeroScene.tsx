@@ -15,7 +15,7 @@ export function HeroScene({ accent, className = "" }: { accent: string; classNam
       viewBox="0 0 1200 340"
       fill="none"
       aria-hidden="true"
-      preserveAspectRatio="xMidYMax meet"
+      preserveAspectRatio="xMidYMax slice"
     >
       {/* Faint ground hill */}
       <path d="M0 295 C 320 245, 760 240, 1200 215 L1200 340 L0 340 Z" fill={`${accent}1f`} />
@@ -37,9 +37,9 @@ export function HeroScene({ accent, className = "" }: { accent: string; classNam
         );
       })}
 
-      {/* Left tree */}
-      <line x1="360" y1={ground} x2="360" y2="232" stroke={line} strokeWidth="6" strokeLinecap="round" />
-      <circle cx="360" cy="222" r="48" fill={accent} />
+      {/* Tree (right cluster, kept clear of the hero text on the left) */}
+      <line x1="852" y1={ground} x2="852" y2="252" stroke={line} strokeWidth="6" strokeLinecap="round" />
+      <circle cx="852" cy="246" r="44" fill={accent} />
 
       {/* Push mower */}
       <g stroke={line} strokeWidth={sw} fill="#ffffff" strokeLinecap="round" strokeLinejoin="round">
