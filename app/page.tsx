@@ -118,8 +118,12 @@ export default async function Home() {
         <div className="mx-auto max-w-3xl">
           <h2 className="text-center text-2xl font-semibold">Questions, answered</h2>
           <div className="mt-8 space-y-5">
+            <Faq q="What's included?" a="A standard visit covers mowing, trimming and edging along walkways and beds, and blowing clippings off hard surfaces so the property looks sharp. We tailor the full scope to your property at the walkthrough." />
             <Faq q="How does the instant estimate work?" a="We locate your property, measure the lawn and beds from current aerial imagery, and apply our standard pricing — all in a few seconds." />
             <Faq q="Is the instant price exact?" a="It's a close estimate. We confirm the exact price at a quick, free walkthrough so there are no surprises either way." />
+            <Faq q="Who will be servicing my property?" a="Vetted, insured local crews — not a rotating cast of strangers. The same team gets to know your property and keeps it consistent visit to visit." />
+            <Faq q="How soon can you start?" a="After your free walkthrough we can typically begin within a few days, working around your schedule and ours." />
+            <Faq q="Do I have to be home for service?" a="No. For recurring service you don't need to be home — just let us know about gates, pets, or anything else we should watch for." />
             <Faq q="Are there contracts?" a="No long-term contracts. Skip, reschedule, or cancel anytime." />
             <Faq q="Are you insured?" a="Yes — we carry general liability coverage and provide a certificate of insurance on request, which matters for commercial properties." />
           </div>
