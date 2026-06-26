@@ -27,7 +27,7 @@ export default async function Residential() {
             long-term contracts, no surprises.
           </p>
           <div className="mt-7">
-            <CtaButton href="#contact" accent={accent}>Get my free quote</CtaButton>
+            <CtaButton href="/quote?type=residential" accent={accent}>Get my free quote</CtaButton>
           </div>
         </div>
       </section>
@@ -51,7 +51,7 @@ export default async function Residential() {
             <Card accent={accent} title="Yard care add-ons" points={["Bed weeding & fresh mulch", "Shrub & hedge trimming", "Spring / fall cleanups"]} />
           </div>
           <div className="mt-8 text-center">
-            <CtaButton href="#contact" accent={accent}>Get my free quote</CtaButton>
+            <CtaButton href="/quote?type=residential" accent={accent}>Get my free quote</CtaButton>
           </div>
         </div>
       </section>

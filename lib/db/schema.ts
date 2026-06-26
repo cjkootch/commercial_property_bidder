@@ -36,10 +36,11 @@ export const icpTypeEnum = pgEnum("icp_type", [
   "daycare",
   "retail_strip",
   "industrial",
+  "residential",
   "other",
 ]);
 
-export const propertySourceEnum = pgEnum("property_source", ["manual", "places"]);
+export const propertySourceEnum = pgEnum("property_source", ["manual", "places", "inbound"]);
 
 // Ordered pipeline (build spec section 4).
 export const propertyStatusEnum = pgEnum("property_status", [

@@ -28,7 +28,7 @@ export default async function Commercial() {
             property measurements — so the scope and price are clear before you ever sign.
           </p>
           <div className="mt-7 flex justify-center gap-3">
-            <CtaButton href="#contact" accent={accent}>Request a proposal</CtaButton>
+            <CtaButton href="/quote?type=commercial" accent={accent}>Request a proposal</CtaButton>
             <a
               href={co?.booking_url || "#contact"}
               className="rounded-lg border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -59,7 +59,7 @@ export default async function Commercial() {
             <Card accent={accent} title="Account management" points={["Itemized, online proposals", "COI & insurance documentation", "Multi-site scheduling", "Responsive single point of contact"]} />
           </div>
           <div className="mt-8">
-            <CtaButton href="#contact" accent={accent}>Request a proposal</CtaButton>
+            <CtaButton href="/quote?type=commercial" accent={accent}>Request a proposal</CtaButton>
           </div>
         </div>
       </section>

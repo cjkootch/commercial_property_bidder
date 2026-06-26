@@ -13,6 +13,7 @@ export function Chrome({ children }: { children: React.ReactNode }) {
     pathname === "/" ||
     pathname?.startsWith("/residential") ||
     pathname?.startsWith("/commercial") ||
+    pathname?.startsWith("/quote") ||
     pathname?.startsWith("/proposals") ||
     pathname?.startsWith("/customer") ||
     pathname?.startsWith("/login");

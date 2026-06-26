@@ -13,6 +13,7 @@ const PUBLIC_PREFIXES = [
   "/login",
   "/residential",
   "/commercial",
+  "/quote",
   "/proposals",
   "/customer/login",
   "/customer/verify",
