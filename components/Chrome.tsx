@@ -7,7 +7,14 @@ import { usePathname } from "next/navigation";
 // facing proposal pages render bare — no internal nav or width constraint.
 export function Chrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  if (pathname?.startsWith("/proposals")) return <>{children}</>;
+  // Public / customer-facing routes render bare (their own headers); only the
+  // operator app gets the internal nav chrome.
+  const bare =
+    pathname === "/" ||
+    pathname?.startsWith("/proposals") ||
+    pathname?.startsWith("/customer") ||
+    pathname?.startsWith("/login");
+  if (bare) return <>{children}</>;
 
   return (
     <>

@@ -70,6 +70,7 @@ export const proposalStatusEnum = pgEnum("proposal_status", [
   "draft",
   "sent",
   "viewed",
+  "accepted",
 ]);
 
 export const outreachStatusEnum = pgEnum("outreach_status", [
@@ -275,6 +276,9 @@ export const proposal = pgTable("proposal", {
   // open-rate metric; per-open rows live in proposal_view.
   view_count: integer("view_count").notNull().default(0),
   last_viewed_at: timestamp("last_viewed_at", { withTimezone: true }),
+  // Customer actions from the portal (magic-link authenticated).
+  accepted_at: timestamp("accepted_at", { withTimezone: true }),
+  walkthrough_requested_at: timestamp("walkthrough_requested_at", { withTimezone: true }),
   ...timestamps,
 });
 
