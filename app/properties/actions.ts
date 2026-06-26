@@ -22,6 +22,7 @@ import {
   type ServiceableEstimate,
 } from "@/lib/integrations/imagery";
 import { isGrassQualified, MIN_GRASS_FRACTION } from "@/lib/sourcing/criteria";
+import { enrichCompanyByName, type OwnerSuggestion } from "@/lib/integrations/apollo";
 
 const ICP_VALUES = [
   "self_storage",
@@ -337,6 +338,68 @@ export async function screenProperty(propertyId: string): Promise<GrassScreenRes
     threshold: MIN_GRASS_FRACTION,
     parcel_area_sqft: estimate.parcel_area_sqft,
   };
+}
+
+/**
+ * Lazily resolve & cache a suggested ownership company for a property: take the
+ * county parcel owner-of-record and enrich it via Apollo into a canonical
+ * company. Cached in property.owner_suggestion. This is a SUGGESTION only — it
+ * never writes owner_org (build spec section 9). Safe to call during render
+ * (no revalidatePath). Returns the suggestion or null.
+ */
+export async function ensurePropertyOwnerSuggestion(
+  propertyId: string
+): Promise<OwnerSuggestion | null> {
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) return null;
+  if (prop.owner_suggestion) return prop.owner_suggestion as OwnerSuggestion;
+
+  // Need the parcel owner-of-record to seed the lookup.
+  const parcel =
+    (prop.parcel_geojson as ParcelResult | null) ?? (await ensurePropertyParcel(propertyId));
+  const ownerName = parcel?.owner ?? null;
+  if (!ownerName) return null;
+
+  const suggestion = await enrichCompanyByName(ownerName);
+  if (!suggestion) return null;
+
+  await db
+    .update(property)
+    .set({ owner_suggestion: suggestion, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  return suggestion;
+}
+
+/** Re-run owner enrichment from scratch (e.g. after the parcel/owner changes). */
+export async function refreshOwnerSuggestion(
+  propertyId: string
+): Promise<OwnerSuggestion | null> {
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) return null;
+  const ownerName = (prop.parcel_geojson as ParcelResult | null)?.owner ?? null;
+  const suggestion = await enrichCompanyByName(ownerName);
+  await db
+    .update(property)
+    .set({ owner_suggestion: suggestion ?? null, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  revalidatePath(`/properties/${propertyId}`);
+  return suggestion;
+}
+
+/**
+ * Operator confirms the suggested owner into owner_org (the operator-supplied
+ * truth used for outreach). This is the only path that writes owner_org from a
+ * suggestion — an explicit human action, satisfying the section 9 guardrail.
+ */
+export async function applyOwnerSuggestion(propertyId: string, name: string) {
+  const clean = name.trim();
+  if (!clean) return;
+  await db
+    .update(property)
+    .set({ owner_org: clean, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/dashboard");
 }
 
 /** Force a re-fetch of the parcel (e.g. after the operator moves the pin). */

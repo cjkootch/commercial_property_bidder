@@ -166,6 +166,10 @@ export const property = pgTable("property", {
   // computed before the full measure pass. Null until screened. Drives the
   // sourcing "qualified" gate (see lib/sourcing/criteria.ts).
   grass_fraction: doublePrecision("grass_fraction"),
+  // Suggested ownership company (parcel owner-of-record seed + Apollo enrichment).
+  // A SUGGESTION only — the operator confirms it into owner_org; never
+  // auto-applied (build spec section 9). See lib/integrations/apollo.ts.
+  owner_suggestion: jsonb("owner_suggestion"),
   notes: text("notes"),
   ...timestamps,
 });

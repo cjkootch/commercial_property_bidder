@@ -1,9 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getActiveConfig, getPropertyDetail, toEngineConfig } from "@/lib/db/queries";
-import { saveMeasurement, ensurePropertyGeocoded, ensurePropertyParcel } from "../actions";
+import {
+  saveMeasurement,
+  ensurePropertyGeocoded,
+  ensurePropertyParcel,
+  ensurePropertyOwnerSuggestion,
+} from "../actions";
 import { AckReviewToggle } from "@/components/AckReviewToggle";
 import { GrassScreen } from "@/components/GrassScreen";
+import { OwnerSuggestion } from "@/components/OwnerSuggestion";
 import { MeasureMapLoader } from "@/components/MeasureMapLoader";
 import { CalcBreakdown } from "@/components/CalcBreakdown";
 import { MIN_GRASS_FRACTION } from "@/lib/sourcing/criteria";
@@ -34,6 +40,10 @@ export default async function PropertyWorkspace({
   // Resolve the county parcel boundary (cached after first fetch) for the
   // reference overlay.
   const parcel = await ensurePropertyParcel(prop.id);
+
+  // Suggest an ownership company from the parcel owner-of-record + Apollo
+  // (cached; a suggestion the operator confirms, never auto-applied).
+  const ownerSuggestion = await ensurePropertyOwnerSuggestion(prop.id);
 
   // Recompute a breakdown for the calc-audit panel (cheap, pure; nothing stored).
   const cfgRow = await getActiveConfig(prop.company_id);
@@ -163,6 +173,13 @@ export default async function PropertyWorkspace({
           )}
         </section>
       </div>
+
+      {/* Ownership suggestion (parcel owner-of-record + Apollo) */}
+      <OwnerSuggestion
+        propertyId={prop.id}
+        ownerOrg={prop.owner_org}
+        suggestion={ownerSuggestion}
+      />
 
       {/* Sourcing grass pre-screen */}
       <GrassScreen
