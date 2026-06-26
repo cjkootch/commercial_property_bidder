@@ -1,0 +1,1 @@
+ALTER TABLE "property" ADD COLUMN "actively_leasing" boolean DEFAULT false NOT NULL;

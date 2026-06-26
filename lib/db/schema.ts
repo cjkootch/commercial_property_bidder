@@ -173,6 +173,10 @@ export const property = pgTable("property", {
   // Suggested digital contact (free OSM tags + website scrape): phone/email/
   // website. A SUGGESTION the operator confirms into a contact before any send.
   contact_suggestion: jsonb("contact_suggestion"),
+  // Operator-set buying signal: the property is actively marketed for lease / has
+  // a new property manager (spotted via a sign or listing). No reliable free API
+  // for this, so it's a manual flag.
+  actively_leasing: boolean("actively_leasing").notNull().default(false),
   notes: text("notes"),
   ...timestamps,
 });

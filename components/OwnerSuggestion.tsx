@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { applyOwnerSuggestion, enrichOwnerWithApollo } from "@/app/properties/actions";
+import { applyOwnerSuggestion, enrichOwnerWithApollo, setActivelyLeasing } from "@/app/properties/actions";
 import type { OwnerSuggestion as Suggestion } from "@/lib/integrations/apollo";
 import { isRecentOwnerChange, monthsSince, RECENT_OWNER_MONTHS } from "@/lib/sourcing/criteria";
 
@@ -16,14 +16,17 @@ export function OwnerSuggestion({
   ownerOrg,
   suggestion,
   lastSaleDate,
+  activelyLeasing,
 }: {
   propertyId: string;
   ownerOrg: string | null;
   suggestion: Suggestion | null;
   lastSaleDate?: string | null;
+  activelyLeasing?: boolean;
 }) {
   const recentChange = isRecentOwnerChange(lastSaleDate);
   const months = monthsSince(lastSaleDate);
+  const [leasing, setLeasing] = useState(!!activelyLeasing);
   const [pending, startTransition] = useTransition();
   const [sug, setSug] = useState<Suggestion | null>(suggestion);
   const [applied, setApplied] = useState<string | null>(null);
@@ -113,6 +116,24 @@ export function OwnerSuggestion({
           No owner-of-record found yet (needs a resolved county parcel).
         </p>
       )}
+
+      <label className="mt-4 flex items-center gap-2 border-t border-gray-100 pt-3 text-sm">
+        <input
+          type="checkbox"
+          checked={leasing}
+          disabled={pending}
+          onChange={(e) => {
+            const v = e.target.checked;
+            setLeasing(v);
+            startTransition(() => setActivelyLeasing(propertyId, v));
+          }}
+          className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+        />
+        <span className="text-gray-700">
+          Actively leasing / new property manager
+          <span className="text-gray-400"> — buying signal</span>
+        </span>
+      </label>
 
       {sug ? (
         <button

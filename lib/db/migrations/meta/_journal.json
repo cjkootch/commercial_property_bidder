@@ -57,6 +57,13 @@
       "when": 1782448349245,
       "tag": "0007_nice_morgan_stark",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782449839133,
+      "tag": "0008_last_stick",
+      "breakpoints": true
     }
   ]
 }

@@ -476,6 +476,16 @@ export async function refreshPropertyParcel(
   return parcel;
 }
 
+/** Operator-set buying signal: property is actively marketed / has a new PM. */
+export async function setActivelyLeasing(propertyId: string, value: boolean) {
+  await db
+    .update(property)
+    .set({ actively_leasing: value, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/dashboard");
+}
+
 /** Operator acknowledges the review flags (send gate, build spec section 6.2). */
 export async function setAcknowledgedReview(propertyId: string, acknowledged: boolean) {
   await db
