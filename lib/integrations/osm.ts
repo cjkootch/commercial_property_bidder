@@ -132,6 +132,80 @@ export async function searchCommercialPois(
   return out;
 }
 
+/** Title-case an OSM tag value like "american_football" → "American Football". */
+function prettySport(v?: string): string | null {
+  if (!v) return null;
+  return v
+    .split(/[_;]/)[0]
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Discover candidate properties that are LIKELY TO CONTAIN SPORTS TURF (athletic
+ * fields) within a bbox — for building up `sports_turf` training labels. Targets
+ * leisure=pitch / stadium / sports_centre / track and parks. Unnamed pitches get
+ * a synthesized, coordinate-unique name so the sourcing dedup still works.
+ * bbox is [south, west, north, east].
+ */
+export async function searchSportsPois(
+  bbox: [number, number, number, number]
+): Promise<PoiCandidate[]> {
+  const [s, w, n, e] = bbox;
+  const bb = `(${s},${w},${n},${e})`;
+  const query =
+    `[out:json][timeout:60];(` +
+    `nwr["leisure"="pitch"]${bb};` +
+    `nwr["leisure"="stadium"]${bb};` +
+    `nwr["leisure"="sports_centre"]${bb};` +
+    `nwr["leisure"="track"]${bb};` +
+    `nwr["leisure"="park"]["sport"]${bb};` +
+    `);out center tags;`;
+
+  // Natural-grass field sports (mowable turf); court/sand/hard sports excluded.
+  const GRASS_SPORTS = new Set([
+    "soccer", "football", "american_football", "baseball", "softball", "rugby",
+    "rugby_union", "rugby_league", "field_hockey", "lacrosse", "cricket",
+    "australian_football", "gaelic_games", "multi",
+  ]);
+  const HARD_SURFACES = new Set([
+    "clay", "asphalt", "concrete", "hard", "sand", "acrylic", "tartan",
+    "paving_stones", "artificial_turf", "rubber", "dirt",
+  ]);
+
+  const elements = await overpassQuery(query);
+  const out: PoiCandidate[] = [];
+  const seenNames = new Set<string>();
+  for (const el of elements) {
+    const tags = el.tags;
+    if (!tags) continue;
+    const lat = el.center?.lat ?? el.lat;
+    const lon = el.center?.lon ?? el.lon;
+    if (lat == null || lon == null) continue;
+    // Keep only natural-grass field sports: grass surface, OR a known grass sport
+    // that isn't tagged with a hard/sand surface. Stadiums/sports centres pass
+    // (mixed venues) for the operator to judge.
+    const surface = (tags.surface ?? "").toLowerCase();
+    const sportRaw = (tags.sport ?? "").split(/[_;]/)[0].toLowerCase();
+    const isVenue = tags.leisure === "stadium" || tags.leisure === "sports_centre";
+    const grassy =
+      surface === "grass" ||
+      (GRASS_SPORTS.has(sportRaw) && !HARD_SURFACES.has(surface)) ||
+      (isVenue && !HARD_SURFACES.has(surface));
+    if (!grassy) continue;
+    // Prefer a real name; otherwise synthesize "<Sport> Field @lat,lng" so reruns
+    // dedup and unnamed pitches still flow through the pipeline.
+    const sport = prettySport(tags.sport);
+    const name =
+      tags.name?.trim() ||
+      `${sport ?? "Sports"} Field @${lat.toFixed(4)},${lon.toFixed(4)}`;
+    const key = name.toLowerCase();
+    if (seenNames.has(key)) continue;
+    seenNames.add(key);
+    out.push({ name, lng: lon, lat, icp_type: "other", osm: `${el.type}` });
+  }
+  return out;
+}
+
 /**
  * Fetch OSM building & parking polygons whose centroid falls within the parcel.
  * Returns ServiceAreaFeatures tagged building|parking (area_sqft is filled by
