@@ -82,6 +82,7 @@ export default async function DashboardPage() {
                   <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
                     <tr>
                       <th className="px-4 py-2 font-medium">Property</th>
+                      <th className="px-4 py-2 font-medium">Lead</th>
                       <th className="px-4 py-2 font-medium">Type</th>
                       <th className="px-4 py-2 font-medium">Owner</th>
                       <th className="px-4 py-2 font-medium">Grass</th>
@@ -91,13 +92,32 @@ export default async function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {byStatus.get(status)!.map((r) => (
+                    {byStatus
+                      .get(status)!
+                      .slice()
+                      .sort((a, b) => b.lead_score - a.lead_score)
+                      .map((r) => (
                       <tr key={r.id} className="hover:bg-gray-50">
                         <td className="px-4 py-2.5">
                           <Link href={`/properties/${r.id}`} className="font-medium text-brand hover:underline">
                             {r.name}
                           </Link>
                           {r.city ? <span className="ml-1 text-gray-400">· {r.city}</span> : null}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span
+                            title={r.lead_reasons.join(", ") || "no strong signals"}
+                            className={
+                              "rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums " +
+                              (r.lead_score >= 60
+                                ? "bg-green-100 text-green-800"
+                                : r.lead_score >= 40
+                                  ? "bg-amber-100 text-amber-800"
+                                  : "bg-gray-200 text-gray-600")
+                            }
+                          >
+                            {r.lead_score}
+                          </span>
                         </td>
                         <td className="px-4 py-2.5 text-gray-600">{titleCase(r.icp_type)}</td>
                         <td className="px-4 py-2.5 text-gray-600">{r.owner_org ?? "—"}</td>

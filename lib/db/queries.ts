@@ -9,7 +9,13 @@ import {
   type PricingConfigRow,
 } from "./schema";
 import type { PricingConfig, PricingFlags } from "../pricing/types";
-import type { MapView, ServiceAreaCollection } from "../geo/types";
+import type { MapView, ParcelResult, ServiceAreaCollection } from "../geo/types";
+import {
+  computeLeadScore,
+  haversineMiles,
+  isRecentOwnerChange,
+  ROUTE_RADIUS_MILES,
+} from "../sourcing/criteria";
 
 /** Map a pricing_config DB row to the engine's PricingConfig shape. */
 export function toEngineConfig(row: PricingConfigRow): PricingConfig {
@@ -64,6 +70,9 @@ export type DashboardRow = {
   monthly_price: number | null;
   cole_annual_cut: number | null;
   needs_review: boolean;
+  /** Composite 0–100 prospect score + the signals that drove it. */
+  lead_score: number;
+  lead_reasons: string[];
 };
 
 /** All properties with their most recent pricing result, for the dashboard. */
@@ -74,6 +83,18 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
     .where(eq(property.company_id, companyId))
     .orderBy(desc(property.created_at));
 
+  // Coordinates of every property, for route-density scoring.
+  const coords = props
+    .filter((p) => p.lng != null && p.lat != null)
+    .map((p) => ({ id: p.id, pt: [p.lng as number, p.lat as number] as [number, number] }));
+  const neighborsNearby = (p: (typeof props)[number]): number => {
+    if (p.lng == null || p.lat == null) return 0;
+    const here: [number, number] = [p.lng, p.lat];
+    return coords.filter(
+      (c) => c.id !== p.id && haversineMiles(here, c.pt) <= ROUTE_RADIUS_MILES
+    ).length;
+  };
+
   const rows: DashboardRow[] = [];
   for (const p of props) {
     const [pr] = await db
@@ -82,6 +103,16 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
       .where(eq(pricingResult.property_id, p.id))
       .orderBy(desc(pricingResult.computed_at))
       .limit(1);
+
+    const lastSale = (p.parcel_geojson as ParcelResult | null)?.last_sale_date ?? null;
+    const { score, reasons } = computeLeadScore({
+      grassFraction: p.grass_fraction,
+      recentOwnerChange: isRecentOwnerChange(lastSale),
+      activelyLeasing: p.actively_leasing,
+      grossMarginPct: pr?.gross_margin_pct ?? null,
+      neighborsNearby: neighborsNearby(p),
+    });
+
     rows.push({
       id: p.id,
       name: p.name,
@@ -95,6 +126,8 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
       monthly_price: pr?.monthly_price ?? null,
       cole_annual_cut: pr?.cole_annual_cut ?? null,
       needs_review: pr?.needs_review ?? false,
+      lead_score: score,
+      lead_reasons: reasons,
     });
   }
   return rows;

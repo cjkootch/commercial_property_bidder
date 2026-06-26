@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { applyOwnerSuggestion, enrichOwnerWithApollo } from "@/app/properties/actions";
+import { applyOwnerSuggestion, enrichOwnerWithApollo, setActivelyLeasing } from "@/app/properties/actions";
 import type { OwnerSuggestion as Suggestion } from "@/lib/integrations/apollo";
+import { isRecentOwnerChange, monthsSince, RECENT_OWNER_MONTHS } from "@/lib/sourcing/criteria";
 
 /**
  * Shows the suggested ownership company (parcel owner-of-record + Apollo
@@ -14,11 +15,18 @@ export function OwnerSuggestion({
   propertyId,
   ownerOrg,
   suggestion,
+  lastSaleDate,
+  activelyLeasing,
 }: {
   propertyId: string;
   ownerOrg: string | null;
   suggestion: Suggestion | null;
+  lastSaleDate?: string | null;
+  activelyLeasing?: boolean;
 }) {
+  const recentChange = isRecentOwnerChange(lastSaleDate);
+  const months = monthsSince(lastSaleDate);
+  const [leasing, setLeasing] = useState(!!activelyLeasing);
   const [pending, startTransition] = useTransition();
   const [sug, setSug] = useState<Suggestion | null>(suggestion);
   const [applied, setApplied] = useState<string | null>(null);
@@ -39,6 +47,22 @@ export function OwnerSuggestion({
           <dt className="w-28 shrink-0 text-gray-500">Owner (org)</dt>
           <dd className="font-medium text-gray-900">{currentOwner ?? "—"}</dd>
         </div>
+        {lastSaleDate ? (
+          <div className="flex items-center gap-2">
+            <dt className="w-28 shrink-0 text-gray-500">Owner since</dt>
+            <dd className="text-gray-900">
+              {lastSaleDate}
+              {recentChange ? (
+                <span
+                  className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                  title={`Ownership changed within ${RECENT_OWNER_MONTHS} months — new owners often re-bid grounds vendors`}
+                >
+                  Recent owner change{months != null ? ` · ${months} mo` : ""}
+                </span>
+              ) : null}
+            </dd>
+          </div>
+        ) : null}
       </dl>
 
       {sug ? (
@@ -92,6 +116,24 @@ export function OwnerSuggestion({
           No owner-of-record found yet (needs a resolved county parcel).
         </p>
       )}
+
+      <label className="mt-4 flex items-center gap-2 border-t border-gray-100 pt-3 text-sm">
+        <input
+          type="checkbox"
+          checked={leasing}
+          disabled={pending}
+          onChange={(e) => {
+            const v = e.target.checked;
+            setLeasing(v);
+            startTransition(() => setActivelyLeasing(propertyId, v));
+          }}
+          className="h-4 w-4 rounded border-gray-300 text-brand focus:ring-brand"
+        />
+        <span className="text-gray-700">
+          Actively leasing / new property manager
+          <span className="text-gray-400"> — buying signal</span>
+        </span>
+      </label>
 
       {sug ? (
         <button

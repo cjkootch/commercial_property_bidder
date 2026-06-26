@@ -182,6 +182,8 @@ export default async function PropertyWorkspace({
           propertyId={prop.id}
           ownerOrg={prop.owner_org}
           suggestion={ownerSuggestion}
+          lastSaleDate={parcel?.last_sale_date ?? null}
+          activelyLeasing={prop.actively_leasing}
         />
         <ContactFinder
           propertyId={prop.id}

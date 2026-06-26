@@ -96,6 +96,12 @@ export interface ParcelResult {
   parcel_id: string | null;
   address: string | null;
   acres: number | null;
+  /** Most recent ownership-change date (ISO), when the county exposes it (HCAD
+   *  new_owner_date). A recent change is a buying-intent trigger (new owner
+   *  re-bids vendors). Null where unavailable (e.g. Montgomery). */
+  last_sale_date?: string | null;
+  /** County total market value, for lead context/sizing. Null if unavailable. */
+  market_value?: number | null;
   /** GeoJSON Polygon/MultiPolygon ring(s), [lng,lat]. */
   geometry: {
     type: "Polygon" | "MultiPolygon";
