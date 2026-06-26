@@ -33,7 +33,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "training-data")
-SIZE = 256
+SIZE = 512  # higher input res -> sharper mask edges (slower on CPU)
 EPOCHS = 250
 SEED = 0
 
