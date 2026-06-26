@@ -34,6 +34,72 @@ const SATELLITE_STYLE = "mapbox://styles/mapbox/satellite-streets-v12";
 const READONLY_SRC = "saved-areas";
 const PARCEL_SRC = "parcel-boundary";
 
+// Color a draw feature by its kind (MapboxDraw exposes user props as `user_*`),
+// incl. legacy aliases, so polygons are distinguishable WHILE editing — not only
+// after save. Falls back to the "other" color for unknown/unset kinds.
+const KIND_COLOR_MATCH: unknown[] = [
+  "match",
+  ["get", "user_kind"],
+  ...AREA_KINDS.flatMap((k) => [k, colorForKind(k)] as [string, string]),
+  "parking",
+  colorForKind("pavement"),
+  "sidewalk",
+  colorForKind("pavement"),
+  "exclude",
+  colorForKind("other"),
+  colorForKind("other"),
+];
+
+// Custom MapboxDraw theme: inactive polygons filled/outlined by kind; the
+// selected (active) polygon keeps a bright dashed outline so you can tell what
+// you're editing, plus vertex/midpoint handles.
+const DRAW_STYLES: object[] = [
+  {
+    id: "gl-draw-polygon-fill-inactive",
+    type: "fill",
+    filter: ["all", ["==", "active", "false"], ["==", "$type", "Polygon"], ["!=", "mode", "static"]],
+    paint: { "fill-color": KIND_COLOR_MATCH, "fill-opacity": 0.3 },
+  },
+  {
+    id: "gl-draw-polygon-stroke-inactive",
+    type: "line",
+    filter: ["all", ["==", "active", "false"], ["==", "$type", "Polygon"], ["!=", "mode", "static"]],
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": KIND_COLOR_MATCH, "line-width": 2 },
+  },
+  {
+    id: "gl-draw-polygon-fill-active",
+    type: "fill",
+    filter: ["all", ["==", "active", "true"], ["==", "$type", "Polygon"]],
+    paint: { "fill-color": KIND_COLOR_MATCH, "fill-opacity": 0.45 },
+  },
+  {
+    id: "gl-draw-polygon-stroke-active",
+    type: "line",
+    filter: ["all", ["==", "active", "true"], ["==", "$type", "Polygon"]],
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#fbb03b", "line-dasharray": [0.2, 2], "line-width": 3 },
+  },
+  {
+    id: "gl-draw-polygon-midpoint",
+    type: "circle",
+    filter: ["all", ["==", "$type", "Point"], ["==", "meta", "midpoint"]],
+    paint: { "circle-radius": 3, "circle-color": "#fbb03b" },
+  },
+  {
+    id: "gl-draw-polygon-and-line-vertex-halo-active",
+    type: "circle",
+    filter: ["all", ["==", "meta", "vertex"], ["==", "$type", "Point"], ["!=", "mode", "static"]],
+    paint: { "circle-radius": 5, "circle-color": "#ffffff" },
+  },
+  {
+    id: "gl-draw-polygon-and-line-vertex-active",
+    type: "circle",
+    filter: ["all", ["==", "meta", "vertex"], ["==", "$type", "Point"], ["!=", "mode", "static"]],
+    paint: { "circle-radius": 3, "circle-color": "#fbb03b" },
+  },
+];
+
 type Props = {
   token: string | null;
   propertyId: string;
@@ -276,6 +342,8 @@ export function MeasureMap({
           const draw = new MapboxDraw({
             displayControlsDefault: false,
             controls: { trash: true },
+            styles: DRAW_STYLES,
+            userProperties: true, // expose `kind` as `user_kind` to the styles
           });
           drawRef.current = draw;
           map.addControl(draw);
