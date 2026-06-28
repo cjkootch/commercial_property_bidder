@@ -33,8 +33,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "training-data")
-SIZE = 512  # higher input res -> sharper mask edges (slower on CPU)
-EPOCHS = 250
+# SIZE / EPOCHS are env-overridable so you can iterate fast while labeling and
+# only do the long, high-res run for a "final" model. Defaults are the proven
+# high-quality settings; for a ~3-4x faster loop use e.g.:
+#   FAST=1 python3 ml/train_turf.py            (≈ SIZE=384, EPOCHS=80)
+#   SIZE=384 EPOCHS=80 python3 ml/train_turf.py
+FAST = os.environ.get("FAST", "") not in ("", "0", "false")
+SIZE = int(os.environ.get("SIZE", "384" if FAST else "512"))
+EPOCHS = int(os.environ.get("EPOCHS", "80" if FAST else "250"))
 SEED = 0
 
 # Classes the model predicts, in output-channel order, mapped to the class-index
@@ -125,7 +131,8 @@ def main():
         pos_weight[ci] = min(neg / max(pos, 1), 40.0)
     pw_view = pos_weight.view(1, -1, 1, 1)
     print(f"\nU-Net params: {n_params/1e6:.2f}M | classes {CLASSES} | "
-          f"pos_weight {[round(w,2) for w in pos_weight.tolist()]} | {EPOCHS} epochs CPU\n")
+          f"pos_weight {[round(w,2) for w in pos_weight.tolist()]} | "
+          f"SIZE {SIZE} | {EPOCHS} epochs CPU{' (FAST)' if FAST else ''}\n")
 
     for ep in range(1, EPOCHS + 1):
         model.train()

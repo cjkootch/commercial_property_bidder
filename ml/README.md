@@ -24,6 +24,12 @@ for the "grass under trees" pricing toggle and for a cleaner grass pre-screen
 
 Install (CPU): `pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`
 
+**Fast iteration vs. final run.** `SIZE` and `EPOCHS` are env-overridable. While
+labeling, iterate quickly; only do the long high-res run for a "final" model:
+- `FAST=1 python3 ml/train_turf.py` → SIZE 384 / 80 epochs (~3–4× faster).
+- `SIZE=384 EPOCHS=80 python3 ml/train_turf.py` → explicit override.
+- `python3 ml/train_turf.py` → defaults SIZE 512 / 250 epochs (slowest, sharpest).
+
 ## Status / next steps
 - This is a DEMO on a handful of labels — it proves the data + loop learn turf
   and tree, not a production model. A class with no labels is reported as
