@@ -48,6 +48,7 @@ export type LeadRow = {
   monthly_value: number;
   annual_value: number;
   owner_of_record: string | null;
+  owner_mailing_address: string | null;
   contact_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
@@ -116,6 +117,7 @@ export async function buildLeadRows(scope: "unexported" | "all" = "unexported"):
       monthly_value: Math.round(pr.monthly_price),
       annual_value: Math.round(pr.annual_price),
       owner_of_record: parcel?.owner ?? p.owner_org ?? null,
+      owner_mailing_address: parcel?.owner_mailing_address ?? null,
       contact_name: ct?.full_name ?? null,
       contact_email: ct?.email ?? null,
       contact_phone: ct?.phone ?? null,
@@ -133,7 +135,7 @@ export async function buildLeadRows(scope: "unexported" | "all" = "unexported"):
 const CSV_COLUMNS: (keyof LeadRow)[] = [
   "name", "address", "city", "zip", "county", "icp_type", "lot_acres",
   "grass_pct", "turf_sqft", "tier", "monthly_value", "annual_value",
-  "owner_of_record", "contact_name", "contact_email", "contact_phone",
+  "owner_of_record", "owner_mailing_address", "contact_name", "contact_email", "contact_phone",
   "proposal_views", "lat", "lng",
 ];
 

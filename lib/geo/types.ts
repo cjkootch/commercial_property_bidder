@@ -102,6 +102,10 @@ export interface ParcelResult {
   last_sale_date?: string | null;
   /** County total market value, for lead context/sizing. Null if unavailable. */
   market_value?: number | null;
+  /** Owner-of-record MAILING address (public county record) — the reliable
+   *  reach-the-owner channel when no digital contact exists, and what makes a
+   *  sold lead contactable by its buyer. */
+  owner_mailing_address?: string | null;
   /** GeoJSON Polygon/MultiPolygon ring(s), [lng,lat]. */
   geometry: {
     type: "Polygon" | "MultiPolygon";

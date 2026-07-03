@@ -25,6 +25,7 @@ type CountyService = {
     acres: number | null;
     last_sale_date?: string | null;
     market_value?: number | null;
+    owner_mailing_address?: string | null;
   };
 };
 
@@ -62,6 +63,15 @@ const COUNTY_SERVICES: CountyService[] = [
       acres: numOrNull(p.Acreage),
       last_sale_date: dateOrNull(p.new_owner_date),
       market_value: numOrNull(p.total_market_val),
+      owner_mailing_address: str(
+        [
+          [str(p.mail_addr_1), str(p.mail_addr_2)].filter(Boolean).join(" "),
+          str(p.mail_city),
+          [str(p.mail_state), str(p.mail_zip)].filter(Boolean).join(" "),
+        ]
+          .filter(Boolean)
+          .join(", ")
+      ),
     }),
   },
   {
@@ -72,6 +82,8 @@ const COUNTY_SERVICES: CountyService[] = [
       parcel_id: str(p.PropertyNumber) ?? str(p.PIN),
       address: str(p.PropertyAddress),
       acres: numOrNull(p.Acres),
+      // Multi-line "street \n suite \n city, st zip" -> single line.
+      owner_mailing_address: str(String(p.PartyAddress ?? "").replace(/\s*\n\s*/g, ", ")),
     }),
   },
 ];
