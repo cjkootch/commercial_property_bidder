@@ -103,8 +103,8 @@ def main():
         # Parcel clip mask (shared by every class), dilated by the buffer.
         mpp = ((b["maxLng"] - b["minLng"]) * 111320 * np.cos(np.radians((b["minLat"] + b["maxLat"]) / 2))) / W
         buf_px = int(max(3, min(40, BUFFER_M / max(mpp, 1e-6))))
-        pmask = parcel_mask(it["parcel_rings"], b, W, H)
-        pmask = cv2.dilate(pmask, np.ones((buf_px * 2 + 1, buf_px * 2 + 1), np.uint8))
+        pmask_raw = parcel_mask(it["parcel_rings"], b, W, H)
+        pmask = cv2.dilate(pmask_raw, np.ones((buf_px * 2 + 1, buf_px * 2 + 1), np.uint8))
 
         # Gap-fill: where the operator already drew, leave it alone — the model
         # only proposes labels for the un-drawn remainder. A few px of erosion
@@ -116,27 +116,48 @@ def main():
             claimed = cv2.dilate(claimed, np.ones((5, 5), np.uint8))
             gap = (pmask > 0) & (claimed == 0)
 
+        # Confidence over the (undilated) parcel: how far each class's sigmoid
+        # sits from the 0.5 decision boundary (0 = coin-flip, 1 = certain), plus
+        # the model's vegetation fraction so the seeder can cross-check it
+        # against the independent RGB grass_fraction. Note: an uncalibrated
+        # margin can be confidently WRONG — that's why the seeder requires
+        # agreement with the RGB signal before upgrading a draft's confidence.
+        inside = pmask_raw > 0
+        n_in = max(int(inside.sum()), 1)
+        margins = {}
+        veg = np.zeros((H, W), bool)
         min_area = MIN_AREA_FRAC * W * H
         feats = []
         per_class = []
         for ci, kind in enumerate(classes):
-            pred = (cv2.resize(prob[ci], (W, H), interpolation=cv2.INTER_LINEAR) > 0.5).astype(np.uint8)
+            pr = cv2.resize(prob[ci], (W, H), interpolation=cv2.INTER_LINEAR)
+            margins[kind] = float(np.abs(2 * pr[inside] - 1).mean())
+            if kind in ("turf", "sports_turf", "tree"):
+                veg |= pr > 0.5
+            pred = (pr > 0.5).astype(np.uint8)
             pred = pred & pmask
             if gap is not None:
                 pred = pred & gap.astype(np.uint8)
             cf = vectorize(pred, kind, b, W, H, min_area)
             feats.extend(cf)
             per_class.append(f"{len(cf)} {kind}")
+        confidence = {
+            "turf_margin": margins.get("turf", 0.0),
+            "mean_margin": float(np.mean(list(margins.values()))) if margins else 0.0,
+            "veg_frac": float((veg & inside).sum() / n_in),
+        }
         out.append({
             "property_id": pid,
             "name": name,
             "service_areas": {"type": "FeatureCollection", "features": feats},
+            "confidence": confidence,
             "map_view": {
                 "center": [(b["minLng"] + b["maxLng"]) / 2, (b["minLat"] + b["maxLat"]) / 2],
                 "zoom": 17,
             },
         })
-        print(f"  {name:34s} " + ", ".join(per_class))
+        print(f"  {name:34s} " + ", ".join(per_class) +
+              f"  | margin {confidence['turf_margin']:.2f}  veg {confidence['veg_frac']:.0%}")
 
     json.dump(out, open(os.path.join(HERE, "predictions.json"), "w"))
     print(f"\nwrote {len(out)} predictions -> ml/predictions.json")

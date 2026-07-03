@@ -24,11 +24,30 @@ for the "grass under trees" pricing toggle and for a cleaner grass pre-screen
 
 Install (CPU): `pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`
 
-**Fast iteration vs. final run.** `SIZE` and `EPOCHS` are env-overridable. While
-labeling, iterate quickly; only do the long high-res run for a "final" model:
-- `FAST=1 python3 ml/train_turf.py` → SIZE 384 / 80 epochs (~3–4× faster).
-- `SIZE=384 EPOCHS=80 python3 ml/train_turf.py` → explicit override.
-- `python3 ml/train_turf.py` → defaults SIZE 512 / 250 epochs (slowest, sharpest).
+## Training rigor (v2)
+- **Pretrained ResNet18 encoder** (ImageNet) fine-tuned with a gentler LR than
+  the fresh decoder; per-sample flip/rotate augmentation; mini-batch training.
+- **Deterministic train/val split** (~20% by property-name hash). The reported
+  **VAL IoU is the honest number** — train IoU measures memorization. The split
+  is stable across runs, so numbers are comparable as labels accumulate.
+- **Best-checkpoint saving**: `seg_unet.pt` is the epoch with the best mean val
+  IoU (not the last epoch). `seg_classes.json` records the val metrics per run.
+
+**Fast iteration vs. final run.** `SIZE`/`EPOCHS`/`BATCH` are env-overridable.
+An "epoch" is a full mini-batched pass (several optimizer steps), so far fewer
+epochs are needed than the old one-step-per-epoch trainer:
+- `FAST=1 python3 ml/train_turf.py` → SIZE 384 / 30 epochs (iterate while labeling).
+- `python3 ml/train_turf.py` → defaults SIZE 512 / 60 epochs (final model).
+
+## Confidence gate (autonomy)
+`predict_turf.py` scores each property: sigmoid **margin** inside the parcel
+(0 = coin-flip, 1 = certain) + the model's vegetation fraction.
+`seed-predictions.ts` upgrades a draft to **Med** confidence only when the model
+is decisive (margin ≥ 0.75) **and** agrees with the independent RGB vegetation
+fraction (±15%); otherwise the draft stays **Low**, which sets `needs_review` in
+the pricing engine. "High" is reserved for human labels. This is the gate that
+lets confident measurements flow toward autonomous quoting while routing the
+rest to a human.
 
 ## Status / next steps
 - This is a DEMO on a handful of labels — it proves the data + loop learn turf

@@ -24,8 +24,30 @@ type Prediction = {
   property_id: string;
   name: string;
   service_areas: ServiceAreaCollection;
+  /** Model self-assessment (predict_turf.py): sigmoid margin inside the parcel
+   *  (0 = coin-flip, 1 = certain) + the model's vegetation fraction. */
+  confidence?: { turf_margin: number; mean_margin: number; veg_frac: number };
   map_view: MapView;
 };
+
+/**
+ * Gate a model draft's measurement confidence. "Med" requires BOTH a decisive
+ * model (high margin) AND agreement with the independent RGB vegetation
+ * fraction — an uncalibrated margin alone can be confidently wrong. Anything
+ * else stays "Low" (needs review). "High" is reserved for human labels.
+ */
+function draftConfidence(
+  conf: Prediction["confidence"],
+  rgbVegFrac: number | null
+): { level: "Med" | "Low"; why: string } {
+  if (!conf) return { level: "Low", why: "no confidence data" };
+  const margin = conf.turf_margin;
+  if (rgbVegFrac == null) return { level: "Low", why: `margin ${margin.toFixed(2)}, no RGB cross-check` };
+  const disagree = Math.abs(conf.veg_frac - rgbVegFrac);
+  const why = `margin ${margin.toFixed(2)}, veg model ${(conf.veg_frac * 100).toFixed(0)}% vs RGB ${(rgbVegFrac * 100).toFixed(0)}%`;
+  if (margin >= 0.75 && disagree <= 0.15) return { level: "Med", why };
+  return { level: "Low", why };
+}
 
 async function main() {
   const preds: Prediction[] = JSON.parse(await readFile("ml/predictions.json", "utf8"));
@@ -59,6 +81,9 @@ async function main() {
     const cfgRow = await getActiveConfig(prop.company_id);
     if (!cfgRow) continue;
 
+    const rgbVeg = prop.grass_fraction != null ? Number(prop.grass_fraction) : null;
+    const { level, why } = draftConfidence(p.confidence, rgbVeg);
+
     const turf_sqft = roundSqft(computeEffectiveTurf(p.service_areas, false));
     const [meas] = await db
       .insert(schema.measurement)
@@ -67,7 +92,7 @@ async function main() {
         turf_sqft,
         bed_sqft: 0,
         complexity: "1.00",
-        confidence: "Low", // it's a model draft
+        confidence: level,
         source: "ml_pred",
         service_areas: p.service_areas,
         map_view: p.map_view,
@@ -75,7 +100,7 @@ async function main() {
       .returning();
 
     const result = computePricing(
-      { turf_sqft, bed_sqft: 0, complexity: 1.0, confidence: "Low" },
+      { turf_sqft, bed_sqft: 0, complexity: 1.0, confidence: level },
       toEngineConfig(cfgRow)
     );
     await db.insert(schema.pricingResult).values({
@@ -97,7 +122,10 @@ async function main() {
       needs_review: result.needs_review,
     });
     n++;
-    console.log(`  drafted: ${p.name} — turf ${turf_sqft.toLocaleString()} sf (${p.service_areas.features.length} polys)`);
+    console.log(
+      `  drafted: ${p.name} — turf ${turf_sqft.toLocaleString()} sf ` +
+        `(${p.service_areas.features.length} polys) [${level}: ${why}]`
+    );
   }
   console.log(`\nDone. Seeded ${n} ml_pred draft(s). Open them, correct the turf, and Save.`);
 }
