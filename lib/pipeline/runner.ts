@@ -36,6 +36,7 @@ import {
   frequencyOptionsFromPricing,
   makeProposalSlug,
 } from "../proposals";
+import { pruneUsageCounters } from "../ratelimit";
 import type { ParcelResult } from "../geo/types";
 
 // NW-Houston corridor: Tomball / Cypress / Spring / Magnolia. [S, W, N, E]
@@ -87,6 +88,9 @@ export async function runPipeline(caps: PipelineCaps = CRON_CAPS): Promise<Pipel
     out.errors.push("no company row — run db:seed");
     return out;
   }
+
+  // Housekeeping: drop rate-limit windows older than 2 days.
+  await pruneUsageCounters();
 
   // ---- 1. SOURCE ----------------------------------------------------------
   if (caps.sourceNew > 0 && token) {

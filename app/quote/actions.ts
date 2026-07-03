@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { contact, measurement, pricingResult, property } from "@/lib/db/schema";
 import { getActiveConfig, toEngineConfig } from "@/lib/db/queries";
 import { resolveTenant } from "@/lib/tenant";
+import { rateLimit, clientIp, LIMITS } from "@/lib/ratelimit";
 import { geocodeAddress, getMapboxToken, suggestAddresses, type AddressSuggestion } from "@/lib/integrations/geocoding";
 import { fetchParcelAtPoint } from "@/lib/integrations/parcel";
 import { estimateServiceableArea } from "@/lib/integrations/imagery";
@@ -40,6 +41,8 @@ export type InstantEstimateInput = {
   name?: string;
   /** Optional pre-resolved [lng, lat] from the preview geocode, to skip re-geocoding. */
   coords?: [number, number];
+  /** Honeypot — hidden field real users never fill. */
+  website_hp?: string;
 };
 
 export type InstantEstimateResult =
@@ -61,6 +64,8 @@ const roundTo = (n: number, step: number) => Math.max(step, Math.round(n / step)
 
 /** Address autocomplete for the instant-quote bar (server-side; keeps the token hidden). */
 export async function suggestAddressInput(query: string): Promise<AddressSuggestion[]> {
+  const rl = await rateLimit(`suggest:ip:${clientIp()}`, LIMITS.suggest_ip.limit, LIMITS.suggest_ip.windowSec);
+  if (!rl.ok) return [];
   return suggestAddresses(query);
 }
 
@@ -76,6 +81,8 @@ export async function geocodeForEstimate(input: {
 }): Promise<{ lng: number; lat: number } | null> {
   const address = input.address?.trim();
   if (!address) return null;
+  const rl = await rateLimit(`geocode:ip:${clientIp()}`, LIMITS.geocode_ip.limit, LIMITS.geocode_ip.windowSec);
+  if (!rl.ok) return null;
   const coords = await geocodeAddress([address, input.city, input.zip, "TX"].filter(Boolean).join(", "));
   return coords ? { lng: coords[0], lat: coords[1] } : null;
 }
@@ -95,19 +102,37 @@ export async function getInstantEstimate(
   const address = input.address.trim();
   if (!address) return { ok: false, error: "Enter your property address." };
 
+  // Honeypot: real users never fill this hidden field. Pretend success.
+  if (input.website_hp?.trim()) return { ok: true, measured: false, bookingUrl: null };
+
+  // Per-IP abuse cap — every estimate costs geocode + county GIS + imagery + email.
+  const rl = await rateLimit(`estimate:ip:${clientIp()}`, LIMITS.estimate_ip.limit, LIMITS.estimate_ip.windowSec);
+  if (!rl.ok) return { ok: false, error: "Too many requests from this connection — please try again later." };
+
   const co = await resolveTenant();
   if (!co) return { ok: false, error: "Something went wrong — please try again." };
   const bookingUrl = co.booking_url ?? null;
+
+  // Per-tenant daily measured-quote budget (bounds Mapbox/API spend). Over
+  // budget, degrade gracefully: still capture the lead + send the follow-up
+  // email, just skip the metered measurement work.
+  const budget = await rateLimit(
+    `tenant:${co.id}:quotes`,
+    LIMITS.tenant_quotes_day.limit,
+    LIMITS.tenant_quotes_day.windowSec
+  );
+  const canMeasure = budget.ok;
 
   const icp = input.type === "commercial" ? "office_park" : "residential";
   const startNote = input.startTiming ? ` Start: ${input.startTiming}.` : "";
 
   // Geocode + parcel + auto-measure (best-effort; any miss → lead-only fallback).
   // Reuse the preview geocode if the client already resolved it.
-  const coords =
-    input.coords ??
-    (await geocodeAddress([address, input.city, input.zip, "TX"].filter(Boolean).join(", ")));
-  const parcel = coords ? await fetchParcelAtPoint(coords[0], coords[1]) : null;
+  const coords = canMeasure
+    ? input.coords ??
+      (await geocodeAddress([address, input.city, input.zip, "TX"].filter(Boolean).join(", ")))
+    : input.coords ?? null;
+  const parcel = canMeasure && coords ? await fetchParcelAtPoint(coords[0], coords[1]) : null;
 
   // Residential is priced from PROPERTY SQUARE FOOTAGE (lot − building − drive),
   // not imagery — heavy tree canopy makes grass segmentation unreliable on homes.
@@ -242,6 +267,10 @@ export async function submitQuoteRequest(formData: FormData): Promise<void> {
 
   // Honeypot: real users never fill this hidden field. Pretend success.
   if (s(formData, "website_hp")) redirect(`/quote?type=${type}&sent=1`);
+
+  // Per-IP abuse cap (pretend success — don't hand scripts a signal).
+  const rl = await rateLimit(`intake:ip:${clientIp()}`, LIMITS.intake_ip.limit, LIMITS.intake_ip.windowSec);
+  if (!rl.ok) redirect(`/quote?type=${type}&sent=1`);
 
   const contactName = s(formData, "contact_name");
   const email = s(formData, "email");

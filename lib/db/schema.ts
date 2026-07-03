@@ -9,6 +9,7 @@ import {
   timestamp,
   jsonb,
   numeric,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 // ---------------------------------------------------------------------------
@@ -340,6 +341,20 @@ export const suppression = pgTable("suppression", {
   reason: text("reason"),
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// --- usage counters (rate limiting + tenant metering) ----------------------
+// Fixed-window counters, serverless-friendly (one upsert per check, no Redis).
+// key examples: "quote:ip:1.2.3.4", "tenant:<uuid>:quotes". Old windows are
+// pruned opportunistically by the pipeline runner.
+export const usageCounter = pgTable(
+  "usage_counter",
+  {
+    key: text("key").notNull(),
+    window_start: timestamp("window_start", { withTimezone: true }).notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.key, t.window_start] })]
+);
 
 // Convenience type exports for the app layer.
 export type Company = typeof company.$inferSelect;

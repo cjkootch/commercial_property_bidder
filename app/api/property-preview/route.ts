@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { getMapboxToken } from "@/lib/integrations/geocoding";
+import { rateLimit, clientIp, LIMITS } from "@/lib/ratelimit";
 
 // Aerial-preview proxy: renders a Mapbox satellite static image for a given
 // lng/lat so the instant-quote "measuring" screen can show the customer their
@@ -12,6 +13,10 @@ const clampZoom = (z: number) => Math.min(20, Math.max(14, Number.isFinite(z) ? 
 export async function GET(req: NextRequest) {
   const token = getMapboxToken();
   if (!token) return new Response("Preview unavailable", { status: 404 });
+
+  // Public route that spends Mapbox quota per call — cap per IP.
+  const rl = await rateLimit(`preview:ip:${clientIp()}`, LIMITS.preview_ip.limit, LIMITS.preview_ip.windowSec);
+  if (!rl.ok) return new Response("Too many requests", { status: 429 });
 
   const sp = req.nextUrl.searchParams;
   const lng = Number(sp.get("lng"));
