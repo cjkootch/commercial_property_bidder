@@ -39,6 +39,7 @@ export function InstantQuote({ accent }: { accent: string }) {
   const [startTiming, setStartTiming] = useState("As soon as possible");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [hp, setHp] = useState(""); // honeypot — humans never see/fill this
   const [freq, setFreq] = useState<(typeof FREQUENCIES)[number]["key"]>("weekly");
 
   // Debounced address autocomplete (step 0 only).
@@ -74,6 +75,7 @@ export function InstantQuote({ accent }: { accent: string }) {
         email,
         name,
         coords: geo ? [geo.lng, geo.lat] : undefined,
+        website_hp: hp,
       });
       setResult(res);
       setMeasuring(false);
@@ -343,6 +345,17 @@ export function InstantQuote({ accent }: { accent: string }) {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
             className="input"
+          />
+          {/* Honeypot: visually hidden, tempting to bots. */}
+          <input
+            type="text"
+            name="company_website"
+            value={hp}
+            onChange={(e) => setHp(e.target.value)}
+            tabIndex={-1}
+            autoComplete="off"
+            aria-hidden="true"
+            className="absolute -left-[9999px] h-0 w-0 opacity-0"
           />
           <button
             type="button"
