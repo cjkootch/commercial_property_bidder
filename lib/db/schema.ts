@@ -179,6 +179,11 @@ export const property = pgTable("property", {
   // a new property manager (spotted via a sign or listing). No reliable free API
   // for this, so it's a manual flag.
   actively_leasing: boolean("actively_leasing").notNull().default(false),
+  // Lead marketplace: stamped when this property is exported as a sellable lead
+  // (sold once — exported leads are excluded from future packages). Sold leads
+  // carry PUBLIC-RECORD data only; see lib/leads/package.ts.
+  lead_exported_at: timestamp("lead_exported_at"),
+  lead_buyer: text("lead_buyer"),
   notes: text("notes"),
   ...timestamps,
 });
