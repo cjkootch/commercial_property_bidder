@@ -1,28 +1,31 @@
 """
-Serviceable-area segmentation — proof-of-training on hand-drawn labels.
+Serviceable-area segmentation — trained on hand-drawn labels.
 
-Trains a small U-Net to predict per-class masks from a satellite tile. The
-output has one channel per class in CLASSES (independent sigmoids, NOT a softmax)
-so a pixel can be turf OR tree and the classes are learned with their own
-pos_weight — important because each is a different-sized pixel minority.
+Trains a U-Net with a PRETRAINED ResNet18 encoder to predict per-class masks
+from a satellite tile. The output has one channel per class in CLASSES
+(independent sigmoids, NOT a softmax) so a pixel can be turf OR tree and the
+classes are learned with their own pos_weight — important because each is a
+different-sized pixel minority.
 
-Currently CLASSES = ["turf", "tree", "building", "pavement"]:
-  - turf      drives the mowable-area price.
-  - tree      separates canopy from grass (the "grass under trees" toggle, and a
-              cleaner grass pre-screen — RGB veg % lumps the two together).
-  - building  } subtracted from turf to get the geometric mowable area, so the
-  - pavement  } self-training drafts are complete enough to price without hand work.
-(bed is also subtracted from turf but has no labels yet — add it to CLASSES once
- properties carry bed polygons.)
-
-This is a DEMO on a handful of samples to show the pipeline learns — not a
-production model (that needs dozens+ of labeled properties, and in particular
-properties where the operator has actually drawn TREE polygons).
+Rigor (v2):
+  - Deterministic TRAIN/VAL split by property-name hash (~20% val), so reported
+    val-IoU measures generalization, not memorization, and is comparable
+    across runs as labels accumulate.
+  - Per-sample augmentation (flips + 90° rotations) and mini-batch training
+    (many optimizer steps per epoch instead of one full-batch step).
+  - Best-checkpoint saving: the model written to disk is the one with the best
+    mean val IoU, not whatever the last epoch produced.
 
 Usage:
   npm run export:training          # produce training-data/
-  python3 ml/train_turf.py         # train + report loss/IoU per class
+  python3 ml/train_turf.py         # train + report train/val IoU per class
+
+Env overrides (iterate fast while labeling; long run for a final model):
+  FAST=1 python3 ml/train_turf.py           # SIZE 384, EPOCHS 30 (~3-4x faster)
+  SIZE=512 EPOCHS=60 BATCH=4 ...            # explicit
 """
+import copy
+import hashlib
 import json
 import os
 import random
@@ -31,16 +34,17 @@ from PIL import Image
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "training-data")
-# SIZE / EPOCHS are env-overridable so you can iterate fast while labeling and
-# only do the long, high-res run for a "final" model. Defaults are the proven
-# high-quality settings; for a ~3-4x faster loop use e.g.:
-#   FAST=1 python3 ml/train_turf.py            (≈ SIZE=384, EPOCHS=80)
-#   SIZE=384 EPOCHS=80 python3 ml/train_turf.py
+# An "epoch" is a full pass over the train split in mini-batches (several
+# optimizer steps), so far fewer epochs are needed than the old full-batch
+# trainer (which took ONE step per epoch).
 FAST = os.environ.get("FAST", "") not in ("", "0", "false")
 SIZE = int(os.environ.get("SIZE", "384" if FAST else "512"))
-EPOCHS = int(os.environ.get("EPOCHS", "80" if FAST else "250"))
+EPOCHS = int(os.environ.get("EPOCHS", "30" if FAST else "60"))
+BATCH = int(os.environ.get("BATCH", "4"))
+EVAL_EVERY = 5
 SEED = 0
 
 # Classes the model predicts, in output-channel order, mapped to the class-index
@@ -51,6 +55,11 @@ CLASS_IDS = {"turf": 1, "bed": 2, "tree": 3, "building": 4, "pavement": 5, "othe
 TURF_CLASS = CLASS_IDS["turf"]
 
 random.seed(SEED); np.random.seed(SEED); torch.manual_seed(SEED)
+
+
+def is_val(name: str) -> bool:
+    """Deterministic ~20% validation split, stable across runs/label growth."""
+    return int(hashlib.md5(name.encode()).hexdigest(), 16) % 5 == 0
 
 
 def load_samples():
@@ -70,19 +79,63 @@ def load_samples():
 
 
 class UNet(nn.Module):
-    def __init__(s, c=16, n_classes=len(CLASSES)):
+    """U-Net with a ResNet18 encoder. Input: RGB in [0,1] — ImageNet
+    normalization happens inside forward, so callers stay unchanged.
+    `pretrained` matters only for training; when loading a checkpoint the
+    downloaded weights would be overwritten anyway, so it defaults False."""
+
+    def __init__(s, n_classes=len(CLASSES), pretrained=False):
         super().__init__()
-        def blk(i, o): return nn.Sequential(nn.Conv2d(i, o, 3, padding=1), nn.ReLU(), nn.Conv2d(o, o, 3, padding=1), nn.ReLU())
-        s.e1, s.e2, s.e3 = blk(3, c), blk(c, c * 2), blk(c * 2, c * 4)
-        s.p = nn.MaxPool2d(2)
-        s.d2, s.d1 = blk(c * 4 + c * 2, c * 2), blk(c * 2 + c, c)
-        s.out = nn.Conv2d(c, n_classes, 1)
+        weights = None
+        if pretrained:
+            try:
+                weights = torchvision.models.ResNet18_Weights.IMAGENET1K_V1
+            except AttributeError:
+                weights = None
+        try:
+            r = torchvision.models.resnet18(weights=weights)
+        except Exception as e:  # offline / download failure -> train from scratch
+            print(f"  (pretrained weights unavailable: {e}; encoder from scratch)")
+            r = torchvision.models.resnet18(weights=None)
+        s.register_buffer("in_mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
+        s.register_buffer("in_std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+        s.stem = nn.Sequential(r.conv1, r.bn1, r.relu)                    # /2, 64
+        s.pool = r.maxpool                                                # /4
+        s.e1, s.e2, s.e3, s.e4 = r.layer1, r.layer2, r.layer3, r.layer4  # 64,128,256,512
+
+        def blk(i, o):
+            return nn.Sequential(
+                nn.Conv2d(i, o, 3, padding=1), nn.ReLU(inplace=True),
+                nn.Conv2d(o, o, 3, padding=1), nn.ReLU(inplace=True),
+            )
+
+        s.d4, s.d3, s.d2, s.d1 = blk(512 + 256, 256), blk(256 + 128, 128), blk(128 + 64, 64), blk(64 + 64, 64)
+        s.out = nn.Conv2d(64, n_classes, 1)
+
+    def encoder_parameters(s):
+        for m in (s.stem, s.e1, s.e2, s.e3, s.e4):
+            yield from m.parameters()
+
+    def decoder_parameters(s):
+        for m in (s.d4, s.d3, s.d2, s.d1, s.out):
+            yield from m.parameters()
 
     def forward(s, x):
-        e1 = s.e1(x); e2 = s.e2(s.p(e1)); e3 = s.e3(s.p(e2))
-        d2 = s.d2(torch.cat([F.interpolate(e3, scale_factor=2, mode="bilinear", align_corners=False), e2], 1))
-        d1 = s.d1(torch.cat([F.interpolate(d2, scale_factor=2, mode="bilinear", align_corners=False), e1], 1))
-        return s.out(d1)
+        x = (x - s.in_mean) / s.in_std
+        c0 = s.stem(x)
+        c1 = s.e1(s.pool(c0))
+        c2 = s.e2(c1)
+        c3 = s.e3(c2)
+        c4 = s.e4(c3)
+
+        def up(t, ref):
+            return F.interpolate(t, size=ref.shape[-2:], mode="bilinear", align_corners=False)
+
+        d4 = s.d4(torch.cat([up(c4, c3), c3], 1))
+        d3 = s.d3(torch.cat([up(d4, c2), c2], 1))
+        d2 = s.d2(torch.cat([up(d3, c1), c1], 1))
+        d1 = s.d1(torch.cat([up(d2, c0), c0], 1))
+        return F.interpolate(s.out(d1), size=x.shape[-2:], mode="bilinear", align_corners=False)
 
 
 def iou(logits, y):
@@ -103,77 +156,140 @@ def dice_loss(logits, y):
     return 1 - num / den
 
 
+def augment(x, y):
+    """Per-sample flips + 90° rotations (tiles are square)."""
+    if random.random() < 0.5:
+        x, y = x.flip(-1), y.flip(-1)
+    if random.random() < 0.5:
+        x, y = x.flip(-2), y.flip(-2)
+    k = random.randint(0, 3)
+    if k:
+        x, y = torch.rot90(x, k, (-2, -1)), torch.rot90(y, k, (-2, -1))
+    return x, y
+
+
+@torch.no_grad()
+def evaluate(model, X, Y, names):
+    """Per-class mean IoU over a split (batched to bound memory). Returns
+    ({class: mean-or-None}, per_property_rows)."""
+    model.eval()
+    per_class = {c: [] for c in CLASSES}
+    rows = []
+    for i0 in range(0, len(X), BATCH):
+        logits = model(X[i0:i0 + BATCH])
+        for j in range(logits.shape[0]):
+            i = i0 + j
+            parts = []
+            for ci, c in enumerate(CLASSES):
+                v = iou(logits[j, ci:ci + 1], Y[i, ci:ci + 1])
+                if v is not None:
+                    per_class[c].append(v)
+                parts.append(f"{c} {v:.3f}" if v is not None else f"{c}  n/a")
+            rows.append(f"  {names[i]:34s} " + "  ".join(parts))
+    means = {c: (float(np.mean(v)) if v else None) for c, v in per_class.items()}
+    return means, rows
+
+
+def fmt_means(means):
+    return "  ".join(f"{c}-IoU {m:.3f}" if m is not None else f"{c}-IoU  n/a" for c, m in means.items())
+
+
 def main():
     data = load_samples()
-    print(f"loaded {len(data)} samples: {[d[0] for d in data]}")
-    X = torch.stack([d[1] for d in data])
-    Y = torch.stack([d[2] for d in data])  # (N, C, H, W)
+    tr_idx = [i for i, d in enumerate(data) if not is_val(d[0])]
+    va_idx = [i for i, d in enumerate(data) if is_val(d[0])]
+    if not va_idx:  # tiny datasets: force at least one val property
+        va_idx = [tr_idx.pop()]
+    Xtr = torch.stack([data[i][1] for i in tr_idx]); Ytr = torch.stack([data[i][2] for i in tr_idx])
+    Xva = torch.stack([data[i][1] for i in va_idx]); Yva = torch.stack([data[i][2] for i in va_idx])
+    tr_names = [data[i][0] for i in tr_idx]; va_names = [data[i][0] for i in va_idx]
+    print(f"loaded {len(data)} samples -> train {len(tr_idx)} / val {len(va_idx)}")
+    print("val properties: " + ", ".join(va_names))
 
     # Per-class label coverage — surface classes that have no signal to learn.
-    print("\nlabel coverage (share of pixels):")
+    print("\nlabel coverage (share of pixels, train split):")
     for ci, c in enumerate(CLASSES):
-        frac = Y[:, ci].mean().item()
-        props = sum(1 for i in range(len(data)) if Y[i, ci].sum() > 0)
-        warn = "  <-- NO LABELS, model can't learn this class" if props == 0 else ""
-        print(f"  {c:8s} {frac:6.2%}  in {props}/{len(data)} properties{warn}")
+        frac = Ytr[:, ci].mean().item()
+        n_tr = sum(1 for i in range(len(tr_idx)) if Ytr[i, ci].sum() > 0)
+        n_va = sum(1 for i in range(len(va_idx)) if Yva[i, ci].sum() > 0)
+        warn = "  <-- NO LABELS, model can't learn this class" if n_tr == 0 else ""
+        print(f"  {c:12s} {frac:6.2%}  in {n_tr}/{len(tr_idx)} train, {n_va}/{len(va_idx)} val{warn}")
 
-    model = UNet()
-    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+    model = UNet(pretrained=True)
+    # Fine-tune: gentler LR on the pretrained encoder than the fresh decoder.
+    opt = torch.optim.Adam([
+        {"params": model.encoder_parameters(), "lr": 3e-4},
+        {"params": model.decoder_parameters(), "lr": 1e-3},
+    ])
     n_params = sum(p.numel() for p in model.parameters())
 
-    # Per-class positive weight so each minority class isn't drowned by BCE.
-    # Cap is generous (40) because very rare classes (e.g. building ~1.7% of
-    # pixels) otherwise collapse to zero, especially at higher input resolution.
+    # Per-class positive weight (from the TRAIN split only) so each minority
+    # class isn't drowned by BCE. Cap 40 (very rare classes collapse otherwise).
     pos_weight = torch.empty(len(CLASSES))
     for ci in range(len(CLASSES)):
-        pos = Y[:, ci].sum().item()
-        neg = Y[:, ci].numel() - pos
+        pos = Ytr[:, ci].sum().item()
+        neg = Ytr[:, ci].numel() - pos
         pos_weight[ci] = min(neg / max(pos, 1), 40.0)
     pw_view = pos_weight.view(1, -1, 1, 1)
-    print(f"\nU-Net params: {n_params/1e6:.2f}M | classes {CLASSES} | "
-          f"pos_weight {[round(w,2) for w in pos_weight.tolist()]} | "
-          f"SIZE {SIZE} | {EPOCHS} epochs CPU{' (FAST)' if FAST else ''}\n")
+    print(f"\nResNet18-UNet params: {n_params/1e6:.2f}M | classes {CLASSES} | "
+          f"pos_weight {[round(w, 2) for w in pos_weight.tolist()]} | "
+          f"SIZE {SIZE} | BATCH {BATCH} | {EPOCHS} epochs CPU{' (FAST)' if FAST else ''}\n")
 
+    best_score, best_state, best_ep = -1.0, None, 0
+    order = list(range(len(tr_idx)))
     for ep in range(1, EPOCHS + 1):
         model.train()
-        # simple flip augmentation (flip W=dim3 / H=dim2 on both image and mask)
-        xb, yb = X.clone(), Y.clone()
-        if random.random() < 0.5: xb, yb = xb.flip(3), yb.flip(3)
-        if random.random() < 0.5: xb, yb = xb.flip(2), yb.flip(2)
-        opt.zero_grad()
-        logits = model(xb)
-        bce = F.binary_cross_entropy_with_logits(logits, yb, pos_weight=pw_view)
-        dice = sum(dice_loss(logits[:, ci], yb[:, ci]) for ci in range(len(CLASSES))) / len(CLASSES)
-        loss = bce + dice
-        loss.backward(); opt.step()
-        if ep % 10 == 0 or ep == 1:
-            model.eval()
-            with torch.no_grad():
-                tr = model(X)
-            line = f"epoch {ep:3d}  loss {loss.item():.4f}"
-            for ci, c in enumerate(CLASSES):
-                vals = [iou(tr[i, ci:ci+1], Y[i, ci:ci+1]) for i in range(len(data))]
-                vals = [v for v in vals if v is not None]
-                line += f"  {c}-IoU {np.mean(vals):.3f}" if vals else f"  {c}-IoU  n/a"
-            print(line)
+        random.shuffle(order)
+        ep_loss, steps = 0.0, 0
+        for i0 in range(0, len(order), BATCH):
+            batch = order[i0:i0 + BATCH]
+            pairs = [augment(Xtr[i], Ytr[i]) for i in batch]
+            xb = torch.stack([p[0] for p in pairs])
+            yb = torch.stack([p[1] for p in pairs])
+            opt.zero_grad()
+            logits = model(xb)
+            bce = F.binary_cross_entropy_with_logits(logits, yb, pos_weight=pw_view)
+            dice = sum(dice_loss(logits[:, ci], yb[:, ci]) for ci in range(len(CLASSES))) / len(CLASSES)
+            loss = bce + dice
+            loss.backward()
+            opt.step()
+            ep_loss += loss.item(); steps += 1
 
-    # per-property, per-class final IoU
-    model.eval()
-    with torch.no_grad():
-        pred = model(X)
-    print("\nfinal per-property IoU:")
-    for i, (name, _, _) in enumerate(data):
-        parts = []
-        for ci, c in enumerate(CLASSES):
-            v = iou(pred[i, ci:ci+1], Y[i, ci:ci+1])
-            parts.append(f"{c} {v:.3f}" if v is not None else f"{c}  n/a")
-        print(f"  {name:34s} " + "  ".join(parts))
+        if ep % EVAL_EVERY == 0 or ep == 1 or ep == EPOCHS:
+            va_means, _ = evaluate(model, Xva, Yva, va_names)
+            scored = [m for m in va_means.values() if m is not None]
+            score = float(np.mean(scored)) if scored else -1.0
+            marker = ""
+            if score > best_score:
+                best_score, best_state, best_ep = score, copy.deepcopy(model.state_dict()), ep
+                marker = "  <-- best, checkpointed"
+            print(f"epoch {ep:3d}  loss {ep_loss/max(steps,1):.4f}  VAL {fmt_means(va_means)}{marker}")
+
+    # Restore the best checkpoint and report both splits with it.
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    tr_means, tr_rows = evaluate(model, Xtr, Ytr, tr_names)
+    va_means, va_rows = evaluate(model, Xva, Yva, va_names)
+    print(f"\nbest checkpoint (epoch {best_ep}):")
+    print(f"  TRAIN {fmt_means(tr_means)}")
+    print(f"  VAL   {fmt_means(va_means)}")
+    print("\nper-property IoU (VAL — the honest number):")
+    for r in va_rows:
+        print(r)
+    print("\nper-property IoU (train):")
+    for r in tr_rows:
+        print(r)
 
     os.makedirs(os.path.join(ROOT, "out"), exist_ok=True)
     torch.save(model.state_dict(), os.path.join(ROOT, "out", "seg_unet.pt"))
-    # Record which classes each channel corresponds to, for the predictor.
-    json.dump({"classes": CLASSES}, open(os.path.join(ROOT, "out", "seg_classes.json"), "w"))
-    print("\nsaved model -> training-data/out/seg_unet.pt (classes: " + ", ".join(CLASSES) + ")")
+    # Record channel->class order + val metrics, for the predictor and for
+    # tracking model quality across retrains.
+    json.dump(
+        {"classes": CLASSES, "val_iou": va_means, "val_properties": va_names,
+         "size": SIZE, "epochs": EPOCHS, "best_epoch": best_ep},
+        open(os.path.join(ROOT, "out", "seg_classes.json"), "w"),
+    )
+    print("\nsaved best model -> training-data/out/seg_unet.pt (classes: " + ", ".join(CLASSES) + ")")
 
 
 if __name__ == "__main__":
