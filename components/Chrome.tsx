@@ -34,6 +34,9 @@ export function Chrome({ children }: { children: React.ReactNode }) {
             <Link href="/dashboard" className="hover:text-brand">
               Dashboard
             </Link>
+            <Link href="/queue" className="hover:text-brand">
+              Queue
+            </Link>
             <Link href="/properties/new" className="hover:text-brand">
               Add property
             </Link>

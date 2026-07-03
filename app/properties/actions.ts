@@ -649,7 +649,12 @@ export async function sendProposalEmail(propertyId: string): Promise<SendProposa
     .set({ status: "sent", resend_message_id: sent.id, sent_at: new Date(), updated_at: new Date() })
     .where(eq(outreach.id, row.id));
   await db.update(proposal).set({ status: "sent", updated_at: new Date() }).where(eq(proposal.id, prop_.id));
-  if (prop.status === "proposal_ready" || prop.status === "priced" || prop.status === "sourced") {
+  if (
+    prop.status === "proposal_ready" ||
+    prop.status === "priced" ||
+    prop.status === "sourced" ||
+    prop.status === "outreach_drafted" // approval queue (/queue)
+  ) {
     await db.update(property).set({ status: "sent", updated_at: new Date() }).where(eq(property.id, propertyId));
   }
   revalidatePath(`/properties/${propertyId}`);

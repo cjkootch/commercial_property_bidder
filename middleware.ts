@@ -20,6 +20,7 @@ const PUBLIC_PREFIXES = [
   "/api/unsubscribe",
   "/api/webhooks",
   "/api/property-preview",
+  "/api/cron", // routes self-authenticate with CRON_SECRET
 ];
 
 export function middleware(req: NextRequest) {
