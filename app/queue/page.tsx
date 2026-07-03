@@ -171,14 +171,25 @@ export default async function QueuePage() {
             (Apollo) or add a contact manually.
           </p>
           <ul className="mt-3 space-y-2">
-            {blockedNoEmail.map((p) => (
-              <li key={p.id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm">
-                <span>{p.name}</span>
-                <Link href={`/properties/${p.id}`} className="font-medium text-brand hover:underline">
-                  Open →
-                </Link>
-              </li>
-            ))}
+            {blockedNoEmail.map((p) => {
+              const parcel = p.parcel_geojson as { owner?: string | null; owner_mailing_address?: string | null } | null;
+              return (
+                <li key={p.id} className="flex items-center justify-between gap-4 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm">
+                  <div>
+                    <div>{p.name}</div>
+                    {parcel?.owner_mailing_address ? (
+                      <div className="mt-0.5 text-xs text-gray-500">
+                        Owner mail (county record): {parcel.owner ? `${parcel.owner} · ` : ""}
+                        {parcel.owner_mailing_address}
+                      </div>
+                    ) : null}
+                  </div>
+                  <Link href={`/properties/${p.id}`} className="shrink-0 font-medium text-brand hover:underline">
+                    Open →
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}

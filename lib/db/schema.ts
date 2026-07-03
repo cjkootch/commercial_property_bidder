@@ -88,6 +88,10 @@ export const outreachStatusEnum = pgEnum("outreach_status", [
 export const company = pgTable("company", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
+  // White-label tenant slug: <slug>.<TENANT_ROOT_DOMAIN> serves this company's
+  // branded public funnel (see lib/tenant.ts). Null = never served by subdomain
+  // (the apex/default company doesn't need one).
+  slug: text("slug").unique(),
   address: text("address"),
   city: text("city"),
   zip: text("zip"),

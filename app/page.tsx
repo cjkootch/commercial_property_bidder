@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getDefaultCompany } from "@/lib/db/queries";
+import { resolveTenant } from "@/lib/tenant";
 import { MarketingShell, type Brand } from "@/components/MarketingShell";
 import { InstantQuote } from "@/components/InstantQuote";
 
@@ -10,7 +10,7 @@ import { InstantQuote } from "@/components/InstantQuote";
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const co = await getDefaultCompany();
+  const co = await resolveTenant();
   const brand: Brand = {
     name: co?.name ?? "Greenkeep",
     accent: co?.brand_color || "#2f7d4f",
