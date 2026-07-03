@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getDefaultCompany } from "@/lib/db/queries";
+import { resolveTenant } from "@/lib/tenant";
 import { MarketingShell, type Brand } from "@/components/MarketingShell";
 import { submitQuoteRequest } from "./actions";
 
@@ -11,7 +11,7 @@ export default async function QuotePage({
 }: {
   searchParams: { type?: string; sent?: string; error?: string };
 }) {
-  const co = await getDefaultCompany();
+  const co = await resolveTenant();
   const brand: Brand = {
     name: co?.name ?? "Greenkeep",
     accent: co?.brand_color || "#2f7d4f",

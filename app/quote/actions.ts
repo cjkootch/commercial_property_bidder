@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { contact, measurement, pricingResult, property } from "@/lib/db/schema";
-import { getActiveConfig, getDefaultCompany, toEngineConfig } from "@/lib/db/queries";
+import { getActiveConfig, toEngineConfig } from "@/lib/db/queries";
+import { resolveTenant } from "@/lib/tenant";
 import { geocodeAddress, getMapboxToken, suggestAddresses, type AddressSuggestion } from "@/lib/integrations/geocoding";
 import { fetchParcelAtPoint } from "@/lib/integrations/parcel";
 import { estimateServiceableArea } from "@/lib/integrations/imagery";
@@ -94,7 +95,7 @@ export async function getInstantEstimate(
   const address = input.address.trim();
   if (!address) return { ok: false, error: "Enter your property address." };
 
-  const co = await getDefaultCompany();
+  const co = await resolveTenant();
   if (!co) return { ok: false, error: "Something went wrong — please try again." };
   const bookingUrl = co.booking_url ?? null;
 
@@ -256,7 +257,7 @@ export async function submitQuoteRequest(formData: FormData): Promise<void> {
     redirect(`/quote?type=${type}&error=1`);
   }
 
-  const co = await getDefaultCompany();
+  const co = await resolveTenant();
   if (!co) redirect(`/quote?type=${type}&error=1`);
 
   const icpRaw = s(formData, "icp_type");
