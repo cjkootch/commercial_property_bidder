@@ -15,7 +15,6 @@ import { LogoMark } from "@/components/Logo";
 import { Logo } from "@/components/Logo";
 import { ChatWidget, type ChatMsg } from "@/components/ChatWidget";
 import { BidCalculator } from "@/components/BidCalculator";
-import { PrintButton } from "@/components/PrintButton";
 import { CopyLetter } from "@/components/CopyLetter";
 import { OutreachTracker } from "@/components/OutreachTracker";
 
@@ -107,7 +106,14 @@ export default async function LeadSheet({
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3.5">
           <Logo name={brand} />
           <div className="flex items-center gap-4">
-            <PrintButton />
+            <a
+              href={`/buyers/leads/${unlock.id}/pdf`}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+            >
+              View / download PDF
+            </a>
             <Link href="/buyers" className="text-sm text-gray-500 hover:text-gray-800">
               ← All leads
             </Link>

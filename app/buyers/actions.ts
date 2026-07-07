@@ -504,6 +504,11 @@ export async function uploadBuyerLogo(formData: FormData): Promise<void> {
   if (!file || file.size === 0) redirect("/buyers/profile?logoerr=1");
   if (file.size > 3_000_000) redirect("/buyers/profile?logoerr=toobig");
   if (!/^image\/(png|jpe?g|svg\+xml|webp)$/.test(file.type)) redirect("/buyers/profile?logoerr=type");
+  // No Blob store linked → the token is absent at runtime. Report that precisely
+  // (a real store must be CREATED in Vercel; adding the var name alone won't do).
+  if (!process.env.BLOB_READ_WRITE_TOKEN) redirect("/buyers/profile?logoerr=upload");
+
+  let url: string;
   try {
     const { put } = await import("@vercel/blob");
     const ext = (file.name.split(".").pop() || "png").toLowerCase();
@@ -511,11 +516,15 @@ export async function uploadBuyerLogo(formData: FormData): Promise<void> {
       access: "public",
       contentType: file.type,
     });
-    await db.update(buyer).set({ logo_url: blob.url, updated_at: new Date() }).where(eq(buyer.id, buyerId!));
-  } catch {
-    redirect("/buyers/profile?logoerr=upload");
+    url = blob.url;
+  } catch (e) {
+    // A configured store that still failed — log the real cause for diagnosis.
+    console.error("[uploadBuyerLogo] blob put failed:", e instanceof Error ? e.message : e);
+    redirect("/buyers/profile?logoerr=failed");
   }
+  await db.update(buyer).set({ logo_url: url, updated_at: new Date() }).where(eq(buyer.id, buyerId!));
   revalidatePath("/buyers/profile");
+  revalidatePath("/buyers");
   redirect("/buyers/profile?saved=1");
 }
 
