@@ -84,68 +84,85 @@ def vectorize(mask, kind, b, W, H, min_area):
     return feats
 
 
-def main():
-    items = json.load(open(os.path.join(HERE, "to_predict.json")))
-    # Trust the channel->class order saved alongside the model if present.
+def load_model():
+    """Load the trained U-Net + the channel->class order saved alongside it.
+    Shared by the batch predictor (main) and the HTTP service (serve.py)."""
     classes = CLASSES
     if os.path.exists(CLASSES_JSON):
         classes = json.load(open(CLASSES_JSON)).get("classes", CLASSES)
+    model_path = os.environ.get("TURF_MODEL_PATH", MODEL)
+    model = UNet(n_classes=len(classes))
+    model.load_state_dict(torch.load(model_path, map_location="cpu"))
+    model.eval()
+    return model, classes
 
-    model = UNet(n_classes=len(classes)); model.load_state_dict(torch.load(MODEL)); model.eval()
+
+def predict_tile(model, classes, img, W, H, b, parcel_rings, existing_labels=None):
+    """Run one tile through the model: clip each class to the (buffered) parcel,
+    honor existing operator polygons (gap-fill), vectorize to lng/lat features,
+    and self-assess confidence. Returns (features, confidence). Pure w.r.t. I/O
+    — shared by the batch predictor and the HTTP service."""
+    x = torch.from_numpy(np.asarray(img.resize((SIZE, SIZE), Image.BILINEAR), np.float32) / 255.0).permute(2, 0, 1)[None]
+    with torch.no_grad():
+        prob = torch.sigmoid(model(x))[0].numpy()  # (C, SIZE, SIZE)
+
+    # Parcel clip mask (shared by every class), dilated by the buffer.
+    mpp = ((b["maxLng"] - b["minLng"]) * 111320 * np.cos(np.radians((b["minLat"] + b["maxLat"]) / 2))) / W
+    buf_px = int(max(3, min(40, BUFFER_M / max(mpp, 1e-6))))
+    pmask_raw = parcel_mask(parcel_rings, b, W, H)
+    pmask = cv2.dilate(pmask_raw, np.ones((buf_px * 2 + 1, buf_px * 2 + 1), np.uint8))
+
+    # Gap-fill: where the operator already drew, leave it alone — the model
+    # only proposes labels for the un-drawn remainder. A few px of erosion
+    # lets gap-fill meet existing edges without a seam.
+    gap = None
+    if existing_labels and existing_labels.get("features"):
+        claimed = labeled_mask(existing_labels, b, W, H)
+        claimed = cv2.dilate(claimed, np.ones((5, 5), np.uint8))
+        gap = (pmask > 0) & (claimed == 0)
+
+    # Confidence over the (undilated) parcel: how far each class's sigmoid
+    # sits from the 0.5 decision boundary (0 = coin-flip, 1 = certain), plus
+    # the model's vegetation fraction so the seeder can cross-check it
+    # against the independent RGB grass_fraction. Note: an uncalibrated
+    # margin can be confidently WRONG — that's why the seeder requires
+    # agreement with the RGB signal before upgrading a draft's confidence.
+    inside = pmask_raw > 0
+    n_in = max(int(inside.sum()), 1)
+    margins = {}
+    veg = np.zeros((H, W), bool)
+    min_area = MIN_AREA_FRAC * W * H
+    feats = []
+    for ci, kind in enumerate(classes):
+        pr = cv2.resize(prob[ci], (W, H), interpolation=cv2.INTER_LINEAR)
+        margins[kind] = float(np.abs(2 * pr[inside] - 1).mean())
+        if kind in ("turf", "sports_turf", "tree"):
+            veg |= pr > 0.5
+        pred = (pr > 0.5).astype(np.uint8)
+        pred = pred & pmask
+        if gap is not None:
+            pred = pred & gap.astype(np.uint8)
+        feats.extend(vectorize(pred, kind, b, W, H, min_area))
+    confidence = {
+        "turf_margin": margins.get("turf", 0.0),
+        "mean_margin": float(np.mean(list(margins.values()))) if margins else 0.0,
+        "veg_frac": float((veg & inside).sum() / n_in),
+    }
+    return feats, confidence
+
+
+def main():
+    items = json.load(open(os.path.join(HERE, "to_predict.json")))
+    model, classes = load_model()
     out = []
     for it in items:
         pid, name, W, H, b = it["property_id"], it["name"], it["width"], it["height"], it["bbox"]
         img = Image.open(os.path.join(HERE, "predict_in", f"{pid}.jpg")).convert("RGB")
-        x = torch.from_numpy(np.asarray(img.resize((SIZE, SIZE), Image.BILINEAR), np.float32) / 255.0).permute(2, 0, 1)[None]
-        with torch.no_grad():
-            prob = torch.sigmoid(model(x))[0].numpy()  # (C, SIZE, SIZE)
-
-        # Parcel clip mask (shared by every class), dilated by the buffer.
-        mpp = ((b["maxLng"] - b["minLng"]) * 111320 * np.cos(np.radians((b["minLat"] + b["maxLat"]) / 2))) / W
-        buf_px = int(max(3, min(40, BUFFER_M / max(mpp, 1e-6))))
-        pmask_raw = parcel_mask(it["parcel_rings"], b, W, H)
-        pmask = cv2.dilate(pmask_raw, np.ones((buf_px * 2 + 1, buf_px * 2 + 1), np.uint8))
-
-        # Gap-fill: where the operator already drew, leave it alone — the model
-        # only proposes labels for the un-drawn remainder. A few px of erosion
-        # lets gap-fill meet existing edges without a seam.
-        gap = None
-        existing = it.get("existing_labels")
-        if existing and existing.get("features"):
-            claimed = labeled_mask(existing, b, W, H)
-            claimed = cv2.dilate(claimed, np.ones((5, 5), np.uint8))
-            gap = (pmask > 0) & (claimed == 0)
-
-        # Confidence over the (undilated) parcel: how far each class's sigmoid
-        # sits from the 0.5 decision boundary (0 = coin-flip, 1 = certain), plus
-        # the model's vegetation fraction so the seeder can cross-check it
-        # against the independent RGB grass_fraction. Note: an uncalibrated
-        # margin can be confidently WRONG — that's why the seeder requires
-        # agreement with the RGB signal before upgrading a draft's confidence.
-        inside = pmask_raw > 0
-        n_in = max(int(inside.sum()), 1)
-        margins = {}
-        veg = np.zeros((H, W), bool)
-        min_area = MIN_AREA_FRAC * W * H
-        feats = []
-        per_class = []
-        for ci, kind in enumerate(classes):
-            pr = cv2.resize(prob[ci], (W, H), interpolation=cv2.INTER_LINEAR)
-            margins[kind] = float(np.abs(2 * pr[inside] - 1).mean())
-            if kind in ("turf", "sports_turf", "tree"):
-                veg |= pr > 0.5
-            pred = (pr > 0.5).astype(np.uint8)
-            pred = pred & pmask
-            if gap is not None:
-                pred = pred & gap.astype(np.uint8)
-            cf = vectorize(pred, kind, b, W, H, min_area)
-            feats.extend(cf)
-            per_class.append(f"{len(cf)} {kind}")
-        confidence = {
-            "turf_margin": margins.get("turf", 0.0),
-            "mean_margin": float(np.mean(list(margins.values()))) if margins else 0.0,
-            "veg_frac": float((veg & inside).sum() / n_in),
-        }
+        feats, confidence = predict_tile(model, classes, img, W, H, b, it["parcel_rings"], it.get("existing_labels"))
+        by_kind = {}
+        for f in feats:
+            k = f["properties"]["kind"]
+            by_kind[k] = by_kind.get(k, 0) + 1
         out.append({
             "property_id": pid,
             "name": name,
@@ -156,7 +173,7 @@ def main():
                 "zoom": 17,
             },
         })
-        print(f"  {name:34s} " + ", ".join(per_class) +
+        print(f"  {name:34s} " + ", ".join(f"{n} {k}" for k, n in by_kind.items()) +
               f"  | margin {confidence['turf_margin']:.2f}  veg {confidence['veg_frac']:.0%}")
 
     json.dump(out, open(os.path.join(HERE, "predictions.json"), "w"))

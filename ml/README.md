@@ -65,3 +65,22 @@ rest to a human.
 3. `npm run ml:seed-pred`       # TS: insert predictions as editable 'ml_pred' drafts (turf + tree polygons)
 4. Operator opens each property -> corrects the predicted turf/tree -> Save (becomes a clean human label).
 5. `npm run export:training` (excludes ml_pred) -> retrain. Each round the drafts get closer.
+
+## Hosted inference (auto-draft on property open — no laptop involved)
+
+`ml/serve.py` wraps the model in a small HTTP service. When the app has
+`TURF_MODEL_URL` set, opening any property that has a parcel and **no
+measurement yet** automatically runs the model and inserts the polygons as an
+editable `ml_pred` draft (same gating as the batch seeder: confidence stays
+"Low" unless the model is decisive AND agrees with the RGB vegetation signal).
+
+Deploy (any box that runs Python — a $5 VPS, a Hugging Face Docker Space, Fly):
+1. Copy this `ml/` directory + your trained weights (`out/seg_unet.pt` and
+   `out/seg_classes.json`). Set `TURF_MODEL_PATH` if they live elsewhere.
+2. `pip install -r requirements.txt`
+3. `TURF_MODEL_KEY=<secret> uvicorn serve:app --host 0.0.0.0 --port 8000`
+4. In Vercel: `TURF_MODEL_URL=https://<host>` + the same `TURF_MODEL_KEY`.
+
+The app sends the parcel-fit satellite tile it already fetches (the service
+never needs a Mapbox token) and receives lng/lat polygons back. The batch loop
+above still works unchanged for backfills.

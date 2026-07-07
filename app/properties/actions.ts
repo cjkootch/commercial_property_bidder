@@ -311,6 +311,77 @@ export async function ensurePropertyParcel(
 }
 
 /**
+ * Auto-draft service areas from the hosted turf model on first open: if the
+ * property has a parcel, NO measurement of any kind yet, and TURF_MODEL_URL is
+ * configured, run inference and insert an editable 'ml_pred' draft (+ pricing),
+ * exactly like scripts/seed-predictions.ts does in batch. The operator corrects
+ * the draft and saves — a clean human label. Safe during render (no
+ * revalidatePath); no-ops fast on every later open (a measurement exists).
+ */
+export async function ensurePropertyPrediction(propertyId: string): Promise<void> {
+  const { getTurfModelUrl, predictServiceAreas } = await import("@/lib/integrations/turf-model");
+  if (!getTurfModelUrl()) return;
+
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop?.parcel_geojson) return;
+  const [existing] = await db
+    .select({ id: measurement.id })
+    .from(measurement)
+    .where(eq(measurement.property_id, propertyId))
+    .limit(1);
+  if (existing) return;
+
+  const pred = await predictServiceAreas(prop.parcel_geojson as ParcelResult, getMapboxToken());
+  if (!pred) return;
+  const cfgRow = await getActiveConfig(prop.company_id);
+  if (!cfgRow) return;
+
+  const { draftConfidence } = await import("@/lib/ml/confidence");
+  const { computeEffectiveTurf, roundSqft } = await import("@/lib/geo/area");
+  const rgbVeg = prop.grass_fraction != null ? Number(prop.grass_fraction) : null;
+  const { level, why } = draftConfidence(pred.confidence, rgbVeg);
+  const turf_sqft = roundSqft(computeEffectiveTurf(pred.service_areas, false));
+
+  const [meas] = await db
+    .insert(measurement)
+    .values({
+      property_id: propertyId,
+      turf_sqft,
+      bed_sqft: 0,
+      complexity: "1.00",
+      confidence: level,
+      source: "ml_pred",
+      service_areas: pred.service_areas,
+      map_view: pred.map_view,
+    })
+    .returning();
+
+  const result = computePricing(
+    { turf_sqft, bed_sqft: 0, complexity: 1.0, confidence: level },
+    toEngineConfig(cfgRow)
+  );
+  await db.insert(pricingResult).values({
+    property_id: propertyId,
+    measurement_id: meas.id,
+    config_id: cfgRow.id,
+    cost_per_visit: result.cost_per_visit,
+    price_per_visit: result.price_per_visit,
+    gross_profit_per_visit: result.gross_profit_per_visit,
+    gross_margin_pct: result.gross_margin_pct,
+    min_acceptable_price: result.min_acceptable_price,
+    monthly_price: result.monthly_price,
+    annual_price: result.annual_price,
+    annual_gross_profit: result.annual_gross_profit,
+    cole_annual_cut: result.cole_annual_cut,
+    implied_per_acre_visit: result.implied_per_acre_visit,
+    crew_hours_per_visit: result.crew_hours_per_visit,
+    flags: result.flags,
+    needs_review: result.needs_review,
+  });
+  console.log(`[turf-model] auto-drafted ${prop.name}: turf ${turf_sqft} sf (${pred.service_areas.features.length} polys) [${level}: ${why}]`);
+}
+
+/**
  * Detect buildings / parking / tree canopy inside the property's parcel from
  * OpenStreetMap (cached). Returns the suggestions for the map to drop in as
  * editable polygons. Empty array if there's no parcel or OSM has no coverage.
