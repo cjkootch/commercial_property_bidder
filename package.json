@@ -20,6 +20,8 @@
     "source:sports": "tsx scripts/source-sports.ts",
     "source:residential": "tsx scripts/source-residential.ts",
     "source:permits": "tsx scripts/source-permits.ts",
+    "residential:lob:draft": "tsx scripts/build-lob-mail-draft.ts",
+    "residential:lob:export-test-payload": "tsx scripts/export-lob-test-payload.ts",
     "screen": "tsx scripts/screen-properties.ts",
     "export:training": "tsx scripts/export-training-data.ts",
     "ml:dump": "tsx scripts/dump-unlabeled.ts",

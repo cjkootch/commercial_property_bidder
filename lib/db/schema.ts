@@ -85,6 +85,37 @@ export const outreachStatusEnum = pgEnum("outreach_status", [
   "unsubscribed",
 ]);
 
+export const mailProviderEnum = pgEnum("mail_provider", ["lob", "manual"]);
+
+export const mailFormatEnum = pgEnum("mail_format", [
+  "postcard_6x9",
+  "postcard_6x11",
+  "letter",
+]);
+
+export const mailCampaignStatusEnum = pgEnum("mail_campaign_status", [
+  "draft",
+  "proof_ready",
+  "approved",
+  "lob_test_ready",
+  "submitted",
+  "in_production",
+  "mailed",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+export const mailRecipientStatusEnum = pgEnum("mail_recipient_status", [
+  "pending",
+  "validated",
+  "invalid_address",
+  "test_submitted",
+  "submitted",
+  "mailed",
+  "failed",
+]);
+
 // --- company -------------------------------------------------------------
 
 export const company = pgTable("company", {
@@ -421,6 +452,131 @@ export const usageCounter = pgTable(
     count: integer("count").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.key, t.window_start] })]
+);
+
+// --- residential ---------------------------------------------------------
+
+export const residentialLead = pgTable("residential_lead", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  company_id: uuid("company_id")
+    .notNull()
+    .references(() => company.id),
+  address: text("address").notNull(),
+  address_line2: text("address_line2"),
+  city: text("city").notNull(),
+  state: text("state").notNull(),
+  zip: text("zip").notNull(),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  recipient_name: text("recipient_name"),
+  event_type: text("event_type"), // e.g. "sold", "permit", "new_construction"
+  event_date: timestamp("event_date", { withTimezone: true }),
+  parcel_id: text("parcel_id"),
+  ...timestamps,
+});
+
+export const residentialPackage = pgTable("residential_package", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  company_id: uuid("company_id")
+    .notNull()
+    .references(() => company.id),
+  name: text("name").notNull(),
+  description: text("description"),
+  price_cents: integer("price_cents").notNull(),
+  is_active: boolean("is_active").notNull().default(true),
+  ...timestamps,
+});
+
+export const residentialPackageMembership = pgTable(
+  "residential_package_membership",
+  {
+    package_id: uuid("package_id")
+      .notNull()
+      .references(() => residentialPackage.id),
+    lead_id: uuid("lead_id")
+      .notNull()
+      .references(() => residentialLead.id),
+  },
+  (t) => [primaryKey({ columns: [t.package_id, t.lead_id] })]
+);
+
+export const residentialUnlock = pgTable(
+  "residential_unlock",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    buyer_id: uuid("buyer_id")
+      .notNull()
+      .references(() => buyer.id),
+    package_id: uuid("package_id")
+      .notNull()
+      .references(() => residentialPackage.id),
+    stripe_session_id: text("stripe_session_id"),
+    ...timestamps,
+  },
+  (t) => [unique("res_unlock_buyer_package").on(t.buyer_id, t.package_id)]
+);
+
+export const residentialMailCampaign = pgTable("residential_mail_campaign", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  company_id: uuid("company_id")
+    .notNull()
+    .references(() => company.id),
+  buyer_id: uuid("buyer_id").references(() => buyer.id),
+  residential_package_id: uuid("residential_package_id")
+    .notNull()
+    .references(() => residentialPackage.id),
+  provider: mailProviderEnum("provider").notNull().default("lob"),
+  mail_format: mailFormatEnum("mail_format").notNull(),
+  status: mailCampaignStatusEnum("status").notNull().default("draft"),
+  name: text("name").notNull(),
+  offer_headline: text("offer_headline"),
+  proof_front_html: text("proof_front_html"),
+  proof_back_html: text("proof_back_html"),
+  proof_front_copy: text("proof_front_copy"),
+  proof_back_copy: text("proof_back_copy"),
+  mailpiece_count: integer("mailpiece_count").notNull().default(0),
+  estimated_print_postage_cost_cents: integer("estimated_print_postage_cost_cents"),
+  client_price_cents: integer("client_price_cents"),
+  lob_campaign_id: text("lob_campaign_id"),
+  lob_metadata: jsonb("lob_metadata"),
+  tracking_summary: jsonb("tracking_summary"),
+  approved_at: timestamp("approved_at", { withTimezone: true }),
+  submitted_at: timestamp("submitted_at", { withTimezone: true }),
+  mailed_at: timestamp("mailed_at", { withTimezone: true }),
+  ...timestamps,
+});
+
+export const residentialMailRecipient = pgTable(
+  "residential_mail_recipient",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    residential_mail_campaign_id: uuid("residential_mail_campaign_id")
+      .notNull()
+      .references(() => residentialMailCampaign.id),
+    residential_lead_id: uuid("residential_lead_id")
+      .notNull()
+      .references(() => residentialLead.id),
+    address: text("address").notNull(),
+    address_line2: text("address_line2"),
+    city: text("city").notNull(),
+    state: text("state").notNull(),
+    zip: text("zip").notNull(),
+    recipient_name: text("recipient_name"),
+    lob_address_id: text("lob_address_id"),
+    lob_postcard_id: text("lob_postcard_id"),
+    lob_letter_id: text("lob_letter_id"),
+    status: mailRecipientStatusEnum("status").notNull().default("pending"),
+    lob_status: text("lob_status"),
+    mailed_at: timestamp("mailed_at", { withTimezone: true }),
+    raw_lob_response: jsonb("raw_lob_response"),
+    ...timestamps,
+  },
+  (t) => [
+    unique("res_mail_campaign_lead").on(
+      t.residential_mail_campaign_id,
+      t.residential_lead_id
+    ),
+  ]
 );
 
 // Convenience type exports for the app layer.

@@ -271,6 +271,12 @@ export default async function BuyerDashboard({
                         Sheet includes the exact address, aerial measurement, decision contacts,
                         bid window, and intro letter.
                       </div>
+                      <div className="mt-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-brand">
+                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-brand text-[10px] text-white">
+                          ✓
+                        </span>
+                        Done-for-you postcard mailing available after report approval
+                      </div>
                     </div>
                     <div className="flex w-full flex-col justify-center gap-2 sm:w-56">
                       {freeAvailable ? (
