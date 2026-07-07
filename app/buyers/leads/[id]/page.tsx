@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyer, chatMessage, leadUnlock, property } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
@@ -8,13 +8,15 @@ import { leadMaxBuyers } from "@/lib/leads/availability";
 import type { Metadata } from "next";
 import type { Dossier } from "@/lib/leads/dossier";
 import { personalizeLetter, profileComplete } from "@/lib/leads/personalize";
-import { currentBuyerId, sendChatMessage } from "../../actions";
+import { addLeadNote, currentBuyerId, sendChatMessage, setLeadStatus } from "../../actions";
+import { leadActivity } from "@/lib/db/schema";
 import { LogoMark } from "@/components/Logo";
 import { Logo } from "@/components/Logo";
 import { ChatWidget, type ChatMsg } from "@/components/ChatWidget";
 import { BidCalculator } from "@/components/BidCalculator";
 import { PrintButton } from "@/components/PrintButton";
 import { CopyLetter } from "@/components/CopyLetter";
+import { OutreachTracker } from "@/components/OutreachTracker";
 
 // The full job sheet — the product a buyer paid for. Renders the dossier
 // SNAPSHOT from unlock time (aerial + vegetation mask + parcel outline
@@ -58,6 +60,13 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
   // their profile updates every letter they hold.
   const letter = d?.intro_letter ? personalizeLetter(d.intro_letter, me ?? {}) : "";
   const letterReady = profileComplete(me ?? {});
+
+  const activity = await db
+    .select()
+    .from(leadActivity)
+    .where(eq(leadActivity.unlock_id, unlock.id))
+    .orderBy(desc(leadActivity.created_at))
+    .limit(50);
 
   const chat: ChatMsg[] = (
     await db
@@ -138,6 +147,45 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
                 </p>
               </div>
             </div>
+
+            {/* Outreach tracker — the buyer's pipeline on this lead */}
+            <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm print:hidden">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold uppercase tracking-wide text-gray-700">Your outreach</h2>
+                <span className="text-xs text-gray-400">Track this lead from first touch to won.</span>
+              </div>
+              <div className="mt-4">
+                <OutreachTracker unlockId={unlock.id} status={unlock.outreach_status} accent={accent} onSet={setLeadStatus} />
+              </div>
+
+              <form action={addLeadNote.bind(null, unlock.id)} className="mt-4 flex gap-2">
+                <input
+                  name="note"
+                  maxLength={1000}
+                  placeholder="Add a note — who you called, next step…"
+                  className="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+                />
+                <button className="rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                  Log
+                </button>
+              </form>
+
+              {activity.length > 0 ? (
+                <ul className="mt-4 space-y-2 border-t border-gray-100 pt-4">
+                  {activity.map((a) => (
+                    <li key={a.id} className="flex gap-3 text-sm">
+                      <span className="mt-0.5 text-[11px] text-gray-400">
+                        {a.created_at.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                      </span>
+                      <span className={a.kind === "status" ? "font-medium text-gray-700" : "text-gray-600"}>
+                        {a.kind === "status" ? "" : "📝 "}
+                        {a.detail}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
 
             {/* Aerial with measurement overlay */}
             <div className="relative mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 shadow-sm">

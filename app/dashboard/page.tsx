@@ -48,6 +48,7 @@ export default async function DashboardPage() {
   const freeUnlocks = unlocks.length - paidUnlocks;
   const creditOutstanding = buyers.reduce((s, b) => s + b.credit_cents, 0) / 100;
   const alertsOn = buyers.filter((b) => b.notify).length;
+  const wonCount = unlocks.filter((u) => u.outreach_status === "won").length;
 
   const byStatus = new Map<string, DashboardRow[]>();
   for (const r of rows) {
@@ -80,10 +81,11 @@ export default async function DashboardPage() {
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
           Lead marketplace
         </h2>
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-6 gap-4">
           <Metric label="Lead revenue" value={`$${Math.round(leadRevenue).toLocaleString()}`} accent={leadRevenue > 0} />
           <Metric label="Paid unlocks" value={String(paidUnlocks)} />
           <Metric label="Free claims" value={String(freeUnlocks)} />
+          <Metric label="Contracts won" value={String(wonCount)} accent={wonCount > 0} />
           <Metric label="Buyers (alerts on)" value={`${buyers.length} (${alertsOn})`} />
           <Metric label="Credit outstanding" value={`$${Math.round(creditOutstanding).toLocaleString()}`} accent={creditOutstanding > 0} />
         </div>
