@@ -41,6 +41,9 @@ export type TabsDetails = {
   zip: string | null;
   owner: string | null;
   scope: string | null;
+  /** Architect of record — a real project contact, public record. */
+  architect: string | null;
+  tenant: string | null;
 };
 
 type RawRow = {
@@ -141,6 +144,48 @@ export async function fetchTabsDetails(projectId: string): Promise<TabsDetails |
       zip: afterLabel(lines, "Location Zip Code"),
       owner: afterLabel(lines, "Owner"),
       scope: afterLabel(lines, "Scope of Work"),
+      architect: afterLabel(lines, "Architect"),
+      tenant: afterLabel(lines, "Tenant"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Look a project up by its TABS number (recovers ProjectId + dates for a
+ *  previously-ingested lead). */
+export async function findTabsByNumber(projectNumber: string): Promise<TabsProject | null> {
+  const body = new URLSearchParams({
+    draw: "1",
+    start: "0",
+    length: "5",
+    ProjectNumber: projectNumber,
+    DataVersionId: String(DATA_VERSION),
+  });
+  try {
+    const res = await fetch(`${BASE}/SearchProjects`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      body: body.toString(),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { data?: RawRow[] };
+    const r = (data.data ?? []).find((x) => x.ProjectNumber === projectNumber) ?? data.data?.[0];
+    if (!r) return null;
+    return {
+      project_id: r.ProjectId,
+      project_number: r.ProjectNumber,
+      project_name: r.ProjectName,
+      facility_name: r.FacilityName?.trim() || null,
+      county_id: r.County,
+      work_type: r.TypeOfWork,
+      estimated_cost: Number(r.EstimatedCost) || 0,
+      registered_on: r.ProjectCreatedOn,
+      est_start: r.EstimatedStartDate ?? null,
+      est_end: r.EstimatedEndDate ?? null,
     };
   } catch {
     return null;

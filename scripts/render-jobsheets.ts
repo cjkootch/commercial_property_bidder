@@ -11,6 +11,9 @@ import { fetchParcelTile, estimateServiceableArea } from "../lib/integrations/im
 import { getActiveConfig, toEngineConfig } from "../lib/db/queries";
 import { computePricing } from "../lib/pricing/engine";
 import { M2_TO_SQFT } from "../lib/geo/area";
+import { findTabsByNumber, fetchTabsDetails } from "../lib/integrations/tabs";
+import { findContact } from "../lib/integrations/contact";
+import { haversineMiles } from "../lib/sourcing/criteria";
 import area from "@turf/area";
 import type { ParcelResult } from "../lib/geo/types";
 
@@ -63,8 +66,10 @@ function sheetHtml(o: {
   workType: string;
   projCost: string;
   start: string;
-  owner: string;
   scope: string;
+  contacts: { role: string; value: string }[];
+  routeIntel: string;
+  bidWindow: string;
   tileUrl: string;
   maskUrl: string | null;
   acres: number;
@@ -100,9 +105,14 @@ function sheetHtml(o: {
     .money .k{font-size:17px;color:#a8cdb6}
     .money .v{font-size:42px;font-weight:bold;color:#8be29a}
     .money .m{font-size:18px;color:#cfe8d8;text-align:right}
-    .scope{margin-top:24px;font-size:17px;line-height:1.5;color:#333}
+    .scope{margin-top:22px;font-size:16px;line-height:1.45;color:#333}
     .scope b{color:#17251c}
-    .fine{margin-top:auto;font-size:13px;color:#98a39c;line-height:1.5}
+    .two{margin-top:20px;display:grid;grid-template-columns:1.15fr 1fr;gap:14px}
+    .panelbox{border:1.5px solid #e2e8e4;border-radius:12px;padding:14px 16px}
+    .panelbox .k{font-size:14px;text-transform:uppercase;letter-spacing:.5px;color:#7b8a81;margin-bottom:8px}
+    .panelbox .k small{text-transform:none;letter-spacing:0}
+    .panelbox .row{font-size:15.5px;line-height:1.45;color:#333;margin-top:4px}
+    .fine{margin-top:auto;padding-top:16px;font-size:12.5px;color:#98a39c;line-height:1.5}
   </style></head><body>
     <div class="photo">
       <img src="${o.tileUrl}"/>
@@ -125,8 +135,20 @@ function sheetHtml(o: {
         <div><div class="k">Estimated maintenance contract value</div><div class="v">${usd(o.annualLo)}–${usd(o.annualHi)}<span style="font-size:20px;color:#cfe8d8">/yr</span></div></div>
         <div class="m">≈ ${usd(o.monthly)}/mo<br/>at market pricing</div>
       </div>
-      <div class="scope"><b>Owner:</b> ${esc(o.owner)} &nbsp;·&nbsp; <b>Registered scope:</b> ${esc(o.scope)}</div>
+      <div class="scope"><b>Registered scope:</b> ${esc(o.scope)}</div>
+      <div class="two">
+        <div class="panelbox">
+          <div class="k">Decision contacts <small>(public record / self-published)</small></div>
+          ${o.contacts.map((c) => `<div class="row"><b>${esc(c.role)}:</b> ${esc(c.value)}</div>`).join("")}
+        </div>
+        <div class="panelbox">
+          <div class="k">Route intelligence &amp; bid window</div>
+          <div class="row">${o.routeIntel}</div>
+          <div class="row">${o.bidWindow}</div>
+        </div>
+      </div>
       <div class="fine">Prepared from public records (TDLR TABS, county parcel/appraisal) and current aerial imagery.
+      Contacts are from public filings or the organization's own published channels — no licensed databases.
       ${o.projected ? "Site is under construction — turf area is projected from parcel geometry and typical site coverage; " : ""}Maintenance value estimated at prevailing commercial rates; confirm scope on site. © ${esc(o.brand)}.</div>
     </div>
   </body></html>`;
@@ -155,7 +177,14 @@ When it opens, it will need year-round grounds maintenance:
   - Estimated contract value: ${usd(o.annualLo)}–${usd(o.annualHi)}/yr
   - Registered scope includes landscaping/site work
 
-We prepared the full job sheet: exact address, owner/decision-maker, site measurement with aerial, crew-hour sizing, and the registered scope of work.
+The full job sheet unlocks everything you need to go win it:
+
+  - Exact address + aerial with the grounds highlighted
+  - OWNER and ARCHITECT OF RECORD, with the owner's county mailing address
+  - Published phone/email/website where available
+  - Crew-hour + equipment sizing for your bid math
+  - Bid window: estimated completion date and when to engage
+  - Route intel: what other measured commercial work sits within 3 miles
 
 Reply "UNLOCK" and it's yours for {PRICE} — sold to one company only, first come.
 (Your first sheet is free — reply "SAMPLE" and we'll send one from a recent project so you can judge the quality.)
@@ -180,6 +209,14 @@ async function main() {
     .from(schema.property)
     .where(like(schema.property.name, "%(TABS %"))
     .orderBy(desc(schema.property.created_at));
+
+  // Route intelligence inputs: every measured+priced property with a location
+  // (the buyer's real question is "does this anchor or extend a route?").
+  const allProps = await db.select().from(schema.property);
+  const allPrs = await db.select().from(schema.pricingResult).orderBy(desc(schema.pricingResult.created_at));
+  const annualBy = new Map<string, number>();
+  for (const pr of allPrs) if (!annualBy.has(pr.property_id)) annualBy.set(pr.property_id, pr.annual_price);
+  const located = allProps.filter((x) => x.lat != null && x.lng != null && annualBy.has(x.id));
 
   await mkdir("jobsheets", { recursive: true });
   const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
@@ -219,15 +256,59 @@ async function main() {
         : priced.turf_acres > 0.75 ? "Zero-turn + walk-behind, 2-person crew"
         : "Walk-behind + trim, small crew";
 
+      // Live TABS lookup for the paid extras: architect/tenant + completion date.
+      const tabsNum = note(p.notes, "number");
+      const proj = tabsNum ? await findTabsByNumber(tabsNum) : null;
+      const det = proj ? await fetchTabsDetails(proj.project_id) : null;
+
+      // Public-record / self-published contacts ONLY (licensed databases like
+      // Apollo must never ship in a sold lead).
+      const contacts: { role: string; value: string }[] = [];
+      const owner = det?.owner ?? note(p.notes, "owner");
+      if (owner) contacts.push({ role: "Owner", value: owner });
+      if (parcel.owner_mailing_address) {
+        contacts.push({ role: "Owner mail (county)", value: parcel.owner_mailing_address });
+      }
+      if (det?.tenant) contacts.push({ role: "Tenant", value: det.tenant });
+      if (det?.architect) contacts.push({ role: "Architect of record", value: det.architect });
+      const pub = await findContact(parcel);
+      if (pub?.phone) contacts.push({ role: "Published phone", value: pub.phone });
+      if (pub?.email) contacts.push({ role: "Published email", value: pub.email });
+      if (pub?.website) contacts.push({ role: "Website", value: pub.website });
+      if (!contacts.length) contacts.push({ role: "Owner", value: "See county records" });
+
+      // Route intelligence: measured book of business near this site.
+      let routeIntel = "First measured property in this pocket — route-anchor opportunity.";
+      if (p.lat != null && p.lng != null) {
+        const near = located.filter(
+          (x) => x.id !== p.id && haversineMiles([p.lng!, p.lat!], [x.lng!, x.lat!]) <= 3
+        );
+        if (near.length) {
+          const total = near.reduce((s, x) => s + (annualBy.get(x.id) ?? 0), 0);
+          routeIntel = `<b>${near.length}</b> other measured commercial propert${near.length === 1 ? "y" : "ies"} within 3 mi (≈ <b>${usd(total)}/yr</b> combined maintenance value) — strong route density.`;
+        }
+      }
+
+      // Bid window: grounds contracts are typically awarded 1–3 months before
+      // completion — tell the buyer exactly when to move.
+      let bidWindow = "Completion date not yet filed — monitor and engage early.";
+      if (proj?.est_end) {
+        const end = new Date(proj.est_end);
+        const engage = new Date(end.getTime() - 90 * 86400_000);
+        bidWindow = `Est. completion <b>${end.toISOString().slice(0, 10)}</b> — grounds contracts are usually awarded 1–3 months prior. Engage the owner by <b>${engage.toISOString().slice(0, 10)}</b>.`;
+      }
+
       const sheet = sheetHtml({
         name: p.name.replace(/ \(TABS [^)]+\)$/, ""),
         address: [p.address, p.city, p.zip].filter(Boolean).join(", "),
-        tabs: note(p.notes, "number") ?? "TABS",
+        tabs: tabsNum ?? "TABS",
         workType: note(p.notes, "type") ?? "New Construction",
         projCost: note(p.notes, "cost") ?? "—",
         start: note(p.notes, "start") ?? "TBD",
-        owner: note(p.notes, "owner") ?? "See records",
-        scope: (note(p.notes, "scope") ?? "").slice(0, 260) || "—",
+        scope: ((det?.scope ?? note(p.notes, "scope")) ?? "").slice(0, 220) || "—",
+        contacts,
+        routeIntel,
+        bidWindow,
         tileUrl: `data:image/jpeg;base64,${tile.jpeg.toString("base64")}`,
         maskUrl: !projected && est ? est.mask_data_url : null,
         acres,
