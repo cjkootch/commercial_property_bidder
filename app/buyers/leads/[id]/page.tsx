@@ -101,7 +101,7 @@ export default async function LeadSheet({
   }));
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-100">
       <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3.5">
           <Logo name={brand} />

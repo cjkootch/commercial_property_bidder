@@ -48,7 +48,7 @@ export default async function ProspectsPage({
       : p.monthly_price ?? null;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-100">
       <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3.5">
           <Logo name={brand} />
@@ -91,7 +91,7 @@ export default async function ProspectsPage({
         ) : null}
 
         {/* Add addresses */}
-        <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-6">
+        <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
             Add addresses
           </h2>
@@ -164,7 +164,7 @@ export default async function ProspectsPage({
                 return (
                   <li
                     key={p.id}
-                    className={`rounded-xl border border-gray-200 bg-white p-4 ${
+                    className={`rounded-xl border border-gray-200 bg-white p-4 shadow-sm ${
                       p.status === "archived" ? "opacity-60" : ""
                     }`}
                   >

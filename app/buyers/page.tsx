@@ -2,12 +2,20 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { asc, desc, eq, like } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, chatMessage, leadUnlock, property, prospect } from "@/lib/db/schema";
+import { buyer, chatMessage, leadUnlock, postcard, property, prospect } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { exclusivePriceCents, leadPriceCents } from "@/lib/integrations/stripe";
 import { leadMaxBuyers } from "@/lib/leads/availability";
 import { haversineMiles } from "@/lib/sourcing/criteria";
-import { buyerLogout, claimFreeLead, currentBuyerId, sendChatMessage, startCheckout, toggleNotifications } from "./actions";
+import {
+  buyerLogout,
+  claimFreeLead,
+  currentBuyerId,
+  markAlertsSeen,
+  sendChatMessage,
+  startCheckout,
+  toggleNotifications,
+} from "./actions";
 import { Logo } from "@/components/Logo";
 import { ChatWidget, type ChatMsg } from "@/components/ChatWidget";
 import { profileComplete } from "@/lib/leads/personalize";
@@ -67,23 +75,44 @@ export default async function BuyerDashboard({
   // "First sheet free" — organic signups claim it from here.
   const freeAvailable = !mine.some(({ unlock }) => unlock.kind === "free");
 
-  // Self-serve prospecting summary for the sidebar card.
+  // Self-serve prospecting summary + alert sources (skip heavy jsonb columns).
   const myProspects = await db
-    .select({ status: prospect.status, views: prospect.view_count })
+    .select({
+      id: prospect.id,
+      name: prospect.name,
+      address: prospect.address,
+      status: prospect.status,
+      views: prospect.view_count,
+      last_viewed_at: prospect.last_viewed_at,
+    })
     .from(prospect)
     .where(eq(prospect.buyer_id, me.id));
   const prospectCount = myProspects.length;
   const prospectMailed = myProspects.filter((p) => p.status === "mailed" || p.status === "viewed").length;
   const prospectViews = myProspects.reduce((s, p) => s + (p.views ?? 0), 0);
 
-  const chat: ChatMsg[] = (
-    await db
-      .select()
-      .from(chatMessage)
-      .where(eq(chatMessage.buyer_id, me.id))
-      .orderBy(asc(chatMessage.created_at))
-      .limit(200)
-  ).map((m) => ({
+  const myPostcards = await db
+    .select({
+      id: postcard.id,
+      to_name: postcard.to_name,
+      expected_delivery: postcard.expected_delivery,
+      status: postcard.status,
+      unlock_id: postcard.unlock_id,
+      prospect_id: postcard.prospect_id,
+      created_at: postcard.created_at,
+    })
+    .from(postcard)
+    .where(eq(postcard.buyer_id, me.id))
+    .orderBy(desc(postcard.created_at))
+    .limit(10);
+
+  const chatRows = await db
+    .select()
+    .from(chatMessage)
+    .where(eq(chatMessage.buyer_id, me.id))
+    .orderBy(asc(chatMessage.created_at))
+    .limit(200);
+  const chat: ChatMsg[] = chatRows.map((m) => ({
     id: m.id,
     sender: m.sender,
     body: m.body,
@@ -156,6 +185,55 @@ export default async function BuyerDashboard({
     .slice(0, 6);
   const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
 
+  // ---- Alert feed: real activity, newest first. "Unread" = newer than the
+  // buyer's alerts_seen_at marker (badge + green dot until they mark it read).
+  type Alert = { at: Date; icon: string; text: string; href?: string };
+  const alerts: Alert[] = [];
+  const fortnightAgo = Date.now() - 14 * 86400_000;
+
+  // New jobs that appeared in their range recently.
+  for (const item of inRange) {
+    if (item.p.created_at.getTime() < fortnightAgo) continue;
+    alerts.push({
+      at: item.p.created_at,
+      icon: "🆕",
+      text: `New job in your area${item.p.city ? ` — ${item.p.city}` : ""}${
+        item.teaser?.annual_lo ? `, est. ${usd(item.teaser.annual_lo)}–${usd(item.teaser.annual_hi ?? item.teaser.annual_lo)}/yr` : ""
+      }`,
+    });
+  }
+  // A prospect opened their quote page — the hottest signal they get.
+  for (const p of myProspects) {
+    if (!p.last_viewed_at) continue;
+    alerts.push({
+      at: p.last_viewed_at,
+      icon: "👀",
+      text: `Your quote for ${p.name || p.address} was opened${(p.views ?? 0) > 1 ? ` (${p.views}× total)` : ""}`,
+      href: `/buyers/prospects/${p.id}`,
+    });
+  }
+  // Postcards in the mail.
+  for (const pc of myPostcards) {
+    if (pc.status !== "created") continue;
+    alerts.push({
+      at: pc.created_at,
+      icon: "📬",
+      text: `Postcard to ${pc.to_name ?? "the owner"} is in the mail${pc.expected_delivery ? ` — arrives ~${pc.expected_delivery}` : ""}`,
+      href: pc.unlock_id ? `/buyers/leads/${pc.unlock_id}` : pc.prospect_id ? `/buyers/prospects/${pc.prospect_id}` : undefined,
+    });
+  }
+  // A reply from the Greenkeep team in chat.
+  const lastOp = [...chatRows].reverse().find((m) => m.sender !== "buyer");
+  if (lastOp) {
+    alerts.push({ at: lastOp.created_at, icon: "💬", text: `New message from the ${brand} team — open the chat below` });
+  }
+  alerts.sort((a, b) => b.at.getTime() - a.at.getTime());
+  const feed = alerts.slice(0, 8);
+  const seenAt = me.alerts_seen_at?.getTime() ?? 0;
+  const unseen = feed.filter((a) => a.at.getTime() > seenAt).length;
+  const alertTime = (d: Date) =>
+    d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
   const initials = me.company_name
     .split(/\s+/)
     .slice(0, 2)
@@ -165,19 +243,19 @@ export default async function BuyerDashboard({
   const purchased = mine.filter(({ unlock }) => unlock.kind !== "free").length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
+    <div className="min-h-screen bg-gray-100">
+      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3.5">
           <Logo name={brand} />
-          <div className="flex items-center gap-4 text-sm">
-            <Link href="/buyers/prospects" className="text-gray-500 hover:text-gray-900">
-              Prospecting
+          <div className="flex items-center gap-5 text-sm font-medium">
+            <Link href="/buyers/prospects" className="text-gray-600 hover:text-gray-900">
+              My prospects
             </Link>
-            <Link href="/buyers/profile" className="text-gray-500 hover:text-gray-900">
+            <Link href="/buyers/profile" className="text-gray-600 hover:text-gray-900">
               Profile
             </Link>
             <form action={buyerLogout}>
-              <button className="text-gray-500 hover:text-gray-900">Sign out</button>
+              <button className="text-gray-600 hover:text-gray-900">Sign out</button>
             </form>
           </div>
         </div>
@@ -249,9 +327,9 @@ export default async function BuyerDashboard({
           ) : null}
 
           {/* Self-serve prospecting */}
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-gray-900">Your prospecting</div>
+              <div className="text-sm font-semibold text-gray-900">My prospects</div>
               <Link href="/buyers/prospects" className="text-xs font-semibold text-brand hover:underline">
                 Open →
               </Link>
@@ -279,10 +357,10 @@ export default async function BuyerDashboard({
             )}
           </div>
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-gray-900">New-job alerts</div>
+                <div className="text-sm font-semibold text-gray-900">Email alerts</div>
                 <div className="mt-0.5 text-xs text-gray-500">
                   {me.notify ? "On — emailed when a job opens near you." : "Off."}
                 </div>
@@ -320,16 +398,74 @@ export default async function BuyerDashboard({
             </p>
           ) : null}
 
+        {/* ---- Alerts: what happened since you last looked ---------------- */}
+        {feed.length > 0 ? (
+          <section className="mt-6 rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold text-gray-900">Alerts</h2>
+                {unseen > 0 ? (
+                  <span className="rounded-full bg-brand px-2 py-0.5 text-[11px] font-bold text-white">
+                    {unseen} new
+                  </span>
+                ) : null}
+              </div>
+              {unseen > 0 ? (
+                <form action={markAlertsSeen}>
+                  <button className="text-xs font-semibold text-gray-500 hover:text-gray-800">
+                    Mark all read
+                  </button>
+                </form>
+              ) : null}
+            </div>
+            <ul className="divide-y divide-gray-50 px-5 py-1">
+              {feed.map((a, i) => {
+                const isNew = a.at.getTime() > seenAt;
+                const body = (
+                  <div className="flex items-start gap-3 py-2.5">
+                    <span className="text-base leading-6">{a.icon}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className={`text-sm ${isNew ? "font-semibold text-gray-900" : "text-gray-600"}`}>
+                        {a.text}
+                        {a.href ? <span className="ml-1 text-brand">→</span> : null}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-gray-400">{alertTime(a.at)}</div>
+                    </div>
+                    {isNew ? <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-brand" /> : null}
+                  </div>
+                );
+                return (
+                  <li key={i}>
+                    {a.href ? (
+                      <Link href={a.href} className="block hover:bg-gray-50">
+                        {body}
+                      </Link>
+                    ) : (
+                      body
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
+
         {/* ---- Unlocked leads -------------------------------------------- */}
         <section className="mt-8">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
             Unlocked — yours
           </h2>
           {mine.length === 0 ? (
-            <p className="mt-3 rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500">
-              Nothing unlocked yet. Claim a job below and the full sheet — location, contacts,
-              measurement, bid window — appears here.
-            </p>
+            <div className="mt-3 rounded-2xl border-2 border-dashed border-gray-300 bg-white p-6 text-center shadow-sm">
+              <p className="text-sm font-medium text-gray-700">
+                Nothing unlocked yet{freeAvailable ? " — your first sheet is free." : "."}
+              </p>
+              <p className="mt-1 text-sm text-gray-500">
+                {freeAvailable
+                  ? "Pick any job below and hit the green button. The full sheet — address, contacts, measurement, bid window — appears here."
+                  : "Claim a job below and the full sheet — address, contacts, measurement, bid window — appears here."}
+              </p>
+            </div>
           ) : (
             <div className="mt-3 space-y-3">
               {mine.map(({ unlock, prop }) => {
@@ -338,7 +474,7 @@ export default async function BuyerDashboard({
                   <Link
                     key={unlock.id}
                     href={`/buyers/leads/${unlock.id}`}
-                    className="block rounded-xl border border-gray-200 bg-white p-5 hover:border-brand"
+                    className="block rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-brand hover:shadow-md"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div>
@@ -540,20 +676,20 @@ function LeadCard({
         <div className="flex w-full flex-col justify-center gap-2 sm:w-56">
           {freeAvailable ? (
             <form action={claimFreeLead.bind(null, p.id)}>
-              <button className="w-full rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+              <button className="w-full rounded-lg bg-brand px-4 py-3 text-[15px] font-bold text-white shadow-sm transition hover:bg-brand-dark">
                 Claim free — first sheet on us
               </button>
             </form>
           ) : (
             <form action={startCheckout.bind(null, p.id, "paid")}>
-              <button className="w-full rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+              <button className="w-full rounded-lg bg-brand px-4 py-3 text-[15px] font-bold text-white shadow-sm transition hover:bg-brand-dark">
                 Unlock the sheet — ${price}
               </button>
             </form>
           )}
           {exclusiveOpen ? (
             <form action={startCheckout.bind(null, p.id, "exclusive")}>
-              <button className="w-full rounded-lg border border-gray-300 px-4 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50">
+              <button className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50">
                 Lock it down — ${exclusivePrice} exclusive
               </button>
             </form>

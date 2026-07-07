@@ -62,7 +62,7 @@ export default async function ProspectWorkspace({
   const quoteUrl = `${base || ""}/quote/${p.proposal_slug}`;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-100">
       <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-3.5">
           <Logo name={brand} />
@@ -105,7 +105,7 @@ export default async function ProspectWorkspace({
 
         {/* Estimate + price override */}
         <section className="mt-6 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-2xl border border-gray-200 bg-white p-6">
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Estimate</h2>
             <div className="mt-2 text-3xl font-bold text-gray-900">
               {monthly != null ? `${usd(monthly)}/mo` : "Pending"}
@@ -132,7 +132,7 @@ export default async function ProspectWorkspace({
             </p>
           </div>
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-6">
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
               Your price
             </h2>
@@ -196,7 +196,7 @@ export default async function ProspectWorkspace({
 
         {/* Quote page + mail */}
         <section className="mt-6 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-2xl border border-gray-200 bg-white p-6">
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
               Your quote page
             </h2>
@@ -215,7 +215,7 @@ export default async function ProspectWorkspace({
             <p className="mt-2 text-xs text-gray-400">Opened {p.view_count}×</p>
           </div>
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-6">
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
               Mail a postcard
             </h2>

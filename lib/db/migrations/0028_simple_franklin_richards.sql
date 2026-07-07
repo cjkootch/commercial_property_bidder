@@ -1,0 +1,1 @@
+ALTER TABLE "buyer" ADD COLUMN "alerts_seen_at" timestamp with time zone;

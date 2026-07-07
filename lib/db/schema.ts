@@ -391,6 +391,8 @@ export const buyer = pgTable("buyer", {
   bio: text("bio"),
   // Company logo (Vercel Blob URL) — printed on the postcard they mail.
   logo_url: text("logo_url"),
+  // Dashboard alert feed: events newer than this are "unread" (badge + dot).
+  alerts_seen_at: timestamp("alerts_seen_at", { withTimezone: true }),
   // No-refunds policy: when a paid lead can't be delivered (sold out mid-
   // payment, duplicate purchase), the money becomes account credit that
   // auto-applies to the next unlock. Disclosed at the point of sale.
