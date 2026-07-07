@@ -123,11 +123,21 @@ export default async function BuyerDashboard({
       </header>
 
       <main className="mx-auto max-w-3xl px-6 py-10">
-        <h1 className="text-2xl font-semibold">Your job leads</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          {me.company_name} · {me.email}
-          {me.city ? ` · ${me.city}` : ""}
-        </p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold">Your job leads</h1>
+            <p className="mt-1 text-sm text-gray-500">
+              {me.company_name} · {me.email}
+              {me.city ? ` · ${me.city}` : ""}
+            </p>
+          </div>
+          <Link
+            href="/buyers/residential"
+            className="rounded-lg bg-brand/10 px-4 py-2 text-sm font-semibold text-brand transition hover:bg-brand/20"
+          >
+            Residential leads
+          </Link>
+        </div>
 
         {searchParams.unlocked ? (
           <p className="mt-4 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">

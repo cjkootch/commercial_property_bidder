@@ -26,7 +26,9 @@
     "ml:dump-one": "tsx scripts/dump-one.ts",
     "ml:seed-pred": "tsx scripts/seed-predictions.ts",
     "ml:complete": "tsx scripts/complete-property.ts",
-    "campaign:send": "tsx scripts/campaign-send.ts"
+    "campaign:send": "tsx scripts/campaign-send.ts",
+    "residential:import": "tsx scripts/import-residential-leads.ts",
+    "residential:package": "tsx scripts/build-residential-packages.ts"
   },
   "dependencies": {
     "@mapbox/mapbox-gl-draw": "^1.5.1",

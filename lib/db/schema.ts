@@ -85,6 +85,43 @@ export const outreachStatusEnum = pgEnum("outreach_status", [
   "unsubscribed",
 ]);
 
+export const residentialSignalTypeEnum = pgEnum("residential_signal_type", [
+  "recently_sold",
+  "new_construction",
+  "permit_completed",
+  "certificate_of_occupancy",
+  "newly_listed",
+  "stale_listing",
+  "price_reduction",
+  "withdrawn_listing",
+  "subdivision_phase",
+  "manual",
+]);
+
+export const residentialSourceEnum = pgEnum("residential_source", [
+  "manual",
+  "public_permit",
+  "public_deed",
+  "builder_site",
+  "partner_feed",
+  "import_csv",
+]);
+
+export const residentialLeadStatusEnum = pgEnum("residential_lead_status", [
+  "sourced",
+  "qualified",
+  "packaged",
+  "unlocked",
+  "archived",
+]);
+
+export const residentialPackageStatusEnum = pgEnum("residential_package_status", [
+  "draft",
+  "published",
+  "sold_out",
+  "archived",
+]);
+
 // --- company -------------------------------------------------------------
 
 export const company = pgTable("company", {
@@ -433,3 +470,90 @@ export type Contact = typeof contact.$inferSelect;
 export type Proposal = typeof proposal.$inferSelect;
 export type Outreach = typeof outreach.$inferSelect;
 export type Suppression = typeof suppression.$inferSelect;
+
+// --- residential_lead ----------------------------------------------------
+
+export const residentialLead = pgTable("residential_lead", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  company_id: uuid("company_id")
+    .notNull()
+    .references(() => company.id),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zip: text("zip"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  subdivision_name: text("subdivision_name"),
+  builder_name: text("builder_name"),
+  signal_type: residentialSignalTypeEnum("signal_type").notNull(),
+  signal_date: timestamp("signal_date", { withTimezone: true }),
+  source: residentialSourceEnum("source").notNull().default("manual"),
+  estimated_home_value: integer("estimated_home_value"),
+  lot_size_sqft: doublePrecision("lot_size_sqft"),
+  year_built: integer("year_built"),
+  confidence: confidenceEnum("confidence").notNull().default("Med"),
+  status: residentialLeadStatusEnum("status").notNull().default("sourced"),
+  notes: text("notes"),
+  raw_source: jsonb("raw_source"),
+  ...timestamps,
+});
+
+// --- residential_package -------------------------------------------------
+
+export const residentialPackage = pgTable("residential_package", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  company_id: uuid("company_id")
+    .notNull()
+    .references(() => company.id),
+  name: text("name").notNull(),
+  geography_label: text("geography_label"),
+  zip: text("zip"),
+  lead_count: integer("lead_count").notNull().default(0),
+  signal_summary: jsonb("signal_summary"),
+  exclusive_until: timestamp("exclusive_until", { withTimezone: true }),
+  price_cents: integer("price_cents").notNull().default(0),
+  status: residentialPackageStatusEnum("status").notNull().default("draft"),
+  ...timestamps,
+});
+
+// --- residential_package_membership --------------------------------------
+
+export const residentialPackageMembership = pgTable(
+  "residential_package_membership",
+  {
+    package_id: uuid("package_id")
+      .notNull()
+      .references(() => residentialPackage.id),
+    residential_lead_id: uuid("residential_lead_id")
+      .notNull()
+      .references(() => residentialLead.id),
+  },
+  (t) => [primaryKey({ columns: [t.package_id, t.residential_lead_id] })]
+);
+
+// --- residential_unlock --------------------------------------------------
+
+export const residentialUnlock = pgTable(
+  "residential_unlock",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    buyer_id: uuid("buyer_id")
+      .notNull()
+      .references(() => buyer.id),
+    residential_package_id: uuid("residential_package_id")
+      .notNull()
+      .references(() => residentialPackage.id),
+    kind: text("kind").notNull().default("paid"), // free | paid | exclusive
+    price_cents: integer("price_cents").notNull().default(0),
+    stripe_session_id: text("stripe_session_id"),
+    dossier: jsonb("dossier"),
+    ...timestamps,
+  },
+  (t) => [unique("residential_unlock_buyer_package").on(t.buyer_id, t.residential_package_id)]
+);
+
+export type ResidentialLead = typeof residentialLead.$inferSelect;
+export type ResidentialPackage = typeof residentialPackage.$inferSelect;
+export type ResidentialPackageMembership = typeof residentialPackageMembership.$inferSelect;
+export type ResidentialUnlock = typeof residentialUnlock.$inferSelect;

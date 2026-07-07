@@ -141,6 +141,13 @@
       "when": 1783439601793,
       "tag": "0019_modern_grim_reaper",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783443869364,
+      "tag": "0020_short_mister_fear",
+      "breakpoints": true
     }
   ]
 }

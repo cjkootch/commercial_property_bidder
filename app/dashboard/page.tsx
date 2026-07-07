@@ -60,12 +60,20 @@ export default async function DashboardPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Pipeline</h1>
-        <Link
-          href="/properties/new"
-          className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark"
-        >
-          + Add property
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/dashboard/residential"
+            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Residential
+          </Link>
+          <Link
+            href="/properties/new"
+            className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark"
+          >
+            + Add property
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-4">
