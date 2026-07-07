@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, chatMessage, leadUnlock, property } from "@/lib/db/schema";
+import { buyer, leadUnlock, property } from "@/lib/db/schema";
+import { loadBuyerChat } from "@/lib/buyer-chat";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { leadMaxBuyers } from "@/lib/leads/availability";
 import type { Metadata } from "next";
@@ -13,7 +14,7 @@ import { leadActivity, postcard } from "@/lib/db/schema";
 import { postcardPriceCents } from "@/lib/integrations/stripe";
 import { LogoMark } from "@/components/Logo";
 import { Logo } from "@/components/Logo";
-import { ChatWidget, type ChatMsg } from "@/components/ChatWidget";
+import { ChatWidget } from "@/components/ChatWidget";
 import { BidCalculator } from "@/components/BidCalculator";
 import { CopyLetter } from "@/components/CopyLetter";
 import { OutreachTracker } from "@/components/OutreachTracker";
@@ -86,19 +87,7 @@ export default async function LeadSheet({
   const postcardPrice = Math.round(postcardPriceCents() / 100);
   const canMail = Boolean(ownerMail && (me?.address && me?.city));
 
-  const chat: ChatMsg[] = (
-    await db
-      .select()
-      .from(chatMessage)
-      .where(eq(chatMessage.buyer_id, buyerId!))
-      .orderBy(asc(chatMessage.created_at))
-      .limit(200)
-  ).map((m) => ({
-    id: m.id,
-    sender: m.sender,
-    body: m.body,
-    at: m.created_at.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
-  }));
+  const chat = await loadBuyerChat(buyerId!);
 
   return (
     <div className="min-h-screen bg-gray-100">

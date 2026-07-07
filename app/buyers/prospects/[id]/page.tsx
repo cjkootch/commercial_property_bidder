@@ -9,7 +9,9 @@ import { Logo } from "@/components/Logo";
 import { MeasureMapLoader } from "@/components/MeasureMapLoader";
 import type { MapView, ParcelResult, ServiceAreaCollection } from "@/lib/geo/types";
 import type { Confidence } from "@/lib/pricing/types";
-import { currentBuyerId } from "../../actions";
+import { ChatWidget } from "@/components/ChatWidget";
+import { loadBuyerChat } from "@/lib/buyer-chat";
+import { currentBuyerId, sendChatMessage } from "../../actions";
 import {
   deleteProspect,
   ensureProspectScanned,
@@ -54,6 +56,7 @@ export default async function ProspectWorkspace({
     mapView?.center ?? (p.lng != null && p.lat != null ? [p.lng, p.lat] : DEFAULT_CENTER);
   const zoom = mapView?.zoom ?? DEFAULT_ZOOM;
 
+  const chat = await loadBuyerChat(buyerId!);
   const monthly =
     p.price_override_cents != null ? p.price_override_cents / 100 : p.monthly_price ?? null;
   const overridden = p.price_override_cents != null;
@@ -251,6 +254,8 @@ export default async function ProspectWorkspace({
           </div>
         </section>
       </main>
+
+      <ChatWidget mode="buyer" messages={chat} sendAction={sendChatMessage} />
     </div>
   );
 }

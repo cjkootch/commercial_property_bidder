@@ -5,7 +5,9 @@ import { db } from "@/lib/db";
 import { buyer, prospect } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { Logo } from "@/components/Logo";
-import { currentBuyerId } from "../actions";
+import { ChatWidget } from "@/components/ChatWidget";
+import { loadBuyerChat } from "@/lib/buyer-chat";
+import { currentBuyerId, sendChatMessage } from "../actions";
 import { addProspects } from "./actions";
 
 // Self-serve prospecting: a buyer adds their own target addresses; we scan,
@@ -39,6 +41,7 @@ export default async function ProspectsPage({
     .from(prospect)
     .where(eq(prospect.buyer_id, buyerId!))
     .orderBy(desc(prospect.created_at));
+  const chat = await loadBuyerChat(buyerId!);
 
   const needsOffice = !me.address || !me.city || !me.zip;
 
@@ -216,6 +219,8 @@ export default async function ProspectsPage({
           )}
         </section>
       </main>
+
+      <ChatWidget mode="buyer" messages={chat} sendAction={sendChatMessage} />
     </div>
   );
 }
