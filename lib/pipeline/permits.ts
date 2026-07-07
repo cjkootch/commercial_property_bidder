@@ -175,9 +175,21 @@ export async function notifyBuyersOfFresh(
         if (!nearest || mi < nearest.mi) nearest = { mi, item: f };
       }
     }
+    // Respect the buyer's service radius (+ a cushion): if we know their
+    // location and NOTHING new landed near enough, don't email them noise.
+    // Buyers with no location still get alerts (we can't filter them).
+    if (b.lat != null && b.lng != null) {
+      const reach = b.service_radius_mi + Math.max(15, Math.round(b.service_radius_mi * 0.4));
+      if (!nearest || nearest.mi > reach) continue;
+    }
     const lead = nearest?.item ?? fresh[0];
     const miTxt = nearest ? ` about ${Math.max(1, Math.round(nearest.mi))} mi from your office` : "";
-    const rows = fresh
+    // Only list jobs actually within reach (or all, if we can't place them).
+    const reach = b.lat != null && b.lng != null ? b.service_radius_mi + Math.max(15, Math.round(b.service_radius_mi * 0.4)) : Infinity;
+    const shown = fresh.filter(
+      (f) => b.lat == null || b.lng == null || f.lat == null || f.lng == null || haversineMiles([b.lng!, b.lat!], [f.lng, f.lat]) <= reach
+    );
+    const rows = (shown.length ? shown : [lead])
       .map((f) => `<li>${usd(f.cost)} project${f.city ? ` — ${f.city} area` : ""}</li>`)
       .join("");
     const unsubUrl = `${base}/api/unsubscribe?token=${encodeURIComponent(signBuyerUnsub(b.email))}`;

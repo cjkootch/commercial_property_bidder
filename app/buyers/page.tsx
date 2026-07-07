@@ -82,7 +82,7 @@ export default async function BuyerDashboard({
     if (u.bid === me.id) e.mine = true;
     byProp.set(u.pid, e);
   }
-  const available = open
+  const eligible = open
     .filter((p) => {
       const e = byProp.get(p.id);
       return (
@@ -108,9 +108,24 @@ export default async function BuyerDashboard({
             ? Math.max(1, Math.round(haversineMiles([me.lng, me.lat], [p.lng, p.lat])))
             : null,
       };
-    })
-    .sort((a, b) => (b.teaser?.annual_hi ?? 0) / ((b.miles ?? 30) + 20) - (a.teaser?.annual_hi ?? 0) / ((a.miles ?? 30) + 20))
+    });
+
+  // Service-radius aware: leads within the buyer's radius come first (sorted by
+  // value-per-distance); jobs just past their range are shown lower, clearly
+  // flagged, up to a proportional cushion — you can always reach a bit further
+  // for a big enough contract. Unknown-distance leads stay in the primary list.
+  const radius = me.service_radius_mi;
+  const cushion = Math.max(15, Math.round(radius * 0.4));
+  const byValuePerDist = (a: (typeof eligible)[number], b: (typeof eligible)[number]) =>
+    (b.teaser?.annual_hi ?? 0) / ((b.miles ?? 30) + 20) - (a.teaser?.annual_hi ?? 0) / ((a.miles ?? 30) + 20);
+  const inRange = eligible
+    .filter((x) => x.miles == null || x.miles <= radius)
+    .sort(byValuePerDist)
     .slice(0, 12);
+  const nearby = eligible
+    .filter((x) => x.miles != null && x.miles > radius && x.miles <= radius + cushion)
+    .sort((a, b) => (a.miles ?? 0) - (b.miles ?? 0))
+    .slice(0, 6);
   const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
 
   const initials = me.company_name
@@ -179,7 +194,7 @@ export default async function BuyerDashboard({
                   <div className="text-[11px] uppercase tracking-wide text-gray-400">Unlocked</div>
                 </div>
                 <div>
-                  <div className="text-lg font-bold text-gray-900">{available.length}</div>
+                  <div className="text-lg font-bold text-gray-900">{inRange.length}</div>
                   <div className="text-[11px] uppercase tracking-wide text-gray-400">Open near you</div>
                 </div>
               </div>
@@ -290,108 +305,188 @@ export default async function BuyerDashboard({
           )}
         </section>
 
-        {/* ---- Open opportunities ---------------------------------------- */}
+        {/* ---- Open opportunities (within radius) ------------------------ */}
         <section className="mt-10">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
             Open in your area
+            <span className="ml-2 font-normal normal-case tracking-normal text-gray-400">
+              within {radius} mi of {me.city ?? "your office"}
+            </span>
           </h2>
           <p className="mt-1 text-xs text-gray-400">
             Every job is capped at {cap} companies — ever. Or lock one down as an exclusive and
             nobody else gets it. If a job sells out before your payment settles, your payment
             instantly becomes account credit for any other job — it never disappears.
           </p>
-          {available.length === 0 ? (
+          {inRange.length === 0 ? (
             <p className="mt-3 rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500">
-              Nothing open right now. We&apos;ll email you when a new job lands
-              {me.city ? ` near ${me.city}` : " in your area"}.
+              Nothing open inside your {radius}-mile range right now.
+              {nearby.length ? " A few just outside are below." : ""} We&apos;ll email you when a
+              new job lands{me.city ? ` near ${me.city}` : " in your area"}.
             </p>
           ) : (
             <div className="mt-3 space-y-3">
-              {available.map(({ p, teaser, cost, workType, start, miles, spotsLeft, exclusiveOpen }) => (
-                <div
-                  key={p.id}
-                  className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md"
-                >
-                  <div className="flex flex-wrap items-stretch justify-between gap-x-6 gap-y-4 p-6">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {teaser?.annual_lo ? (
-                          <span className="text-2xl font-extrabold tracking-tight text-gray-900">
-                            {usd(teaser.annual_lo)}–{usd(teaser.annual_hi ?? teaser.annual_lo)}
-                            <span className="text-sm font-semibold text-gray-400">/yr</span>
-                          </span>
-                        ) : (
-                          <span className="text-2xl font-extrabold tracking-tight text-gray-900">
-                            {cost ?? "Large"} project
-                          </span>
-                        )}
-                        <span
-                          className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                            spotsLeft === 1
-                              ? "bg-amber-100 text-amber-800"
-                              : "bg-brand/10 text-brand"
-                          }`}
-                        >
-                          {spotsLeft === 1 ? "LAST SPOT" : `${spotsLeft} of ${cap} spots left`}
-                        </span>
-                      </div>
-                      <div className="mt-1 text-sm font-medium text-gray-700">
-                        Grounds contract behind a {cost ?? "major"}{" "}
-                        {(workType ?? "commercial").toLowerCase()} project
-                        {p.city ? ` — ${p.city} area` : ""}
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-gray-500">
-                        {miles != null ? (
-                          <span className="font-semibold text-brand">~{miles} mi from your office</span>
-                        ) : null}
-                        {start ? <span>breaks ground ~{start}</span> : <span>in development</span>}
-                        {teaser?.turf_sqft ? (
-                          <span>{teaser.turf_sqft.toLocaleString()} sf of grounds</span>
-                        ) : null}
-                      </div>
-                      <div className="mt-2 text-xs text-gray-400">
-                        Sheet includes the exact address, aerial measurement, decision contacts,
-                        bid window, and intro letter.
-                      </div>
-                    </div>
-                    <div className="flex w-full flex-col justify-center gap-2 sm:w-56">
-                      {freeAvailable ? (
-                        <form action={claimFreeLead.bind(null, p.id)}>
-                          <button className="w-full rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
-                            Claim free — first sheet on us
-                          </button>
-                        </form>
-                      ) : (
-                        <form action={startCheckout.bind(null, p.id, "paid")}>
-                          <button className="w-full rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
-                            Unlock the sheet — ${price}
-                          </button>
-                        </form>
-                      )}
-                      {exclusiveOpen ? (
-                        <form action={startCheckout.bind(null, p.id, "exclusive")}>
-                          <button className="w-full rounded-lg border border-gray-300 px-4 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50">
-                            Lock it down — ${exclusivePrice} exclusive
-                          </button>
-                        </form>
-                      ) : null}
-                      {teaser?.annual_lo && !freeAvailable ? (
-                        <p className="text-center text-[11px] text-gray-400">
-                          ${price} for a {usd(teaser.annual_lo)}+/yr contract lead
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
+              {inRange.map((item) => (
+                <LeadCard
+                  key={item.p.id}
+                  item={item}
+                  freeAvailable={freeAvailable}
+                  price={price}
+                  exclusivePrice={exclusivePrice}
+                  cap={cap}
+                  usd={usd}
+                />
               ))}
             </div>
           )}
         </section>
 
+        {/* ---- Just outside your range ----------------------------------- */}
+        {nearby.length ? (
+          <section className="mt-10">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+              Just outside your range
+            </h2>
+            <p className="mt-1 text-xs text-gray-400">
+              A bit past your {radius}-mile radius — worth a look if the contract value justifies the
+              drive. Widen your range in{" "}
+              <Link href="/buyers/profile" className="underline hover:text-gray-600">
+                your profile
+              </Link>{" "}
+              to see more.
+            </p>
+            <div className="mt-3 space-y-3">
+              {nearby.map((item) => (
+                <LeadCard
+                  key={item.p.id}
+                  item={item}
+                  freeAvailable={freeAvailable}
+                  price={price}
+                  exclusivePrice={exclusivePrice}
+                  cap={cap}
+                  usd={usd}
+                  outside
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         </div>
       </main>
 
       <ChatWidget mode="buyer" messages={chat} sendAction={sendChatMessage} />
+    </div>
+  );
+}
+
+type LeadItem = {
+  p: typeof property.$inferSelect;
+  teaser: { annual_lo?: number; annual_hi?: number; turf_sqft?: number } | null;
+  cost: string | null;
+  workType: string | null;
+  start: string | null;
+  spotsLeft: number;
+  exclusiveOpen: boolean;
+  miles: number | null;
+};
+
+function LeadCard({
+  item,
+  freeAvailable,
+  price,
+  exclusivePrice,
+  cap,
+  usd,
+  outside,
+}: {
+  item: LeadItem;
+  freeAvailable: boolean;
+  price: number;
+  exclusivePrice: number;
+  cap: number;
+  usd: (n: number) => string;
+  outside?: boolean;
+}) {
+  const { p, teaser, cost, workType, start, spotsLeft, exclusiveOpen, miles } = item;
+  return (
+    <div
+      className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition hover:shadow-md ${
+        outside ? "border-gray-200 opacity-90" : "border-gray-200"
+      }`}
+    >
+      <div className="flex flex-wrap items-stretch justify-between gap-x-6 gap-y-4 p-6">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            {teaser?.annual_lo ? (
+              <span className="text-2xl font-extrabold tracking-tight text-gray-900">
+                {usd(teaser.annual_lo)}–{usd(teaser.annual_hi ?? teaser.annual_lo)}
+                <span className="text-sm font-semibold text-gray-400">/yr</span>
+              </span>
+            ) : (
+              <span className="text-2xl font-extrabold tracking-tight text-gray-900">
+                {cost ?? "Large"} project
+              </span>
+            )}
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                spotsLeft === 1 ? "bg-amber-100 text-amber-800" : "bg-brand/10 text-brand"
+              }`}
+            >
+              {spotsLeft === 1 ? "LAST SPOT" : `${spotsLeft} of ${cap} spots left`}
+            </span>
+            {outside && miles != null ? (
+              <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-bold text-gray-500">
+                {miles} MI — OUTSIDE RANGE
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1 text-sm font-medium text-gray-700">
+            Grounds contract behind a {cost ?? "major"} {(workType ?? "commercial").toLowerCase()} project
+            {p.city ? ` — ${p.city} area` : ""}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-gray-500">
+            {miles != null ? (
+              <span className={outside ? "font-semibold text-gray-500" : "font-semibold text-brand"}>
+                ~{miles} mi from your office
+              </span>
+            ) : null}
+            {start ? <span>breaks ground ~{start}</span> : <span>in development</span>}
+            {teaser?.turf_sqft ? <span>{teaser.turf_sqft.toLocaleString()} sf of grounds</span> : null}
+          </div>
+          <div className="mt-2 text-xs text-gray-400">
+            Sheet includes the exact address, aerial measurement, decision contacts, bid window, and
+            intro letter.
+          </div>
+        </div>
+        <div className="flex w-full flex-col justify-center gap-2 sm:w-56">
+          {freeAvailable ? (
+            <form action={claimFreeLead.bind(null, p.id)}>
+              <button className="w-full rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                Claim free — first sheet on us
+              </button>
+            </form>
+          ) : (
+            <form action={startCheckout.bind(null, p.id, "paid")}>
+              <button className="w-full rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                Unlock the sheet — ${price}
+              </button>
+            </form>
+          )}
+          {exclusiveOpen ? (
+            <form action={startCheckout.bind(null, p.id, "exclusive")}>
+              <button className="w-full rounded-lg border border-gray-300 px-4 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50">
+                Lock it down — ${exclusivePrice} exclusive
+              </button>
+            </form>
+          ) : null}
+          {teaser?.annual_lo && !freeAvailable ? (
+            <p className="text-center text-[11px] text-gray-400">
+              ${price} for a {usd(teaser.annual_lo)}+/yr contract lead
+            </p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
