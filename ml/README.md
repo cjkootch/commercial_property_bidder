@@ -74,11 +74,20 @@ measurement yet** automatically runs the model and inserts the polygons as an
 editable `ml_pred` draft (same gating as the batch seeder: confidence stays
 "Low" unless the model is decisive AND agrees with the RGB vegetation signal).
 
-Deploy (any box that runs Python — a $5 VPS, a Hugging Face Docker Space, Fly):
-1. Copy this `ml/` directory + your trained weights (`out/seg_unet.pt` and
-   `out/seg_classes.json`). Set `TURF_MODEL_PATH` if they live elsewhere.
+Deploy — Hugging Face Docker Space (recommended, uses `ml/Dockerfile`):
+1. Create a Space -> Docker -> **private**.
+2. Upload the contents of `ml/` (Dockerfile at the Space root) plus your trained
+   weights as `weights/seg_unet.pt` and `weights/seg_classes.json`
+   (from `training-data/out/`).
+3. In Vercel: `TURF_MODEL_URL=https://<user>-<space>.hf.space` and
+   `TURF_MODEL_KEY=<your hf_ token>`. A private Space is gated by HF's own
+   auth, so leave `TURF_MODEL_KEY` unset inside the Space.
+
+Deploy — any other Python box (VPS, Fly):
+1. Copy `ml/` + the weights. `TURF_MODEL_PATH` / `TURF_CLASSES_PATH` override
+   the default locations (`training-data/out/...`).
 2. `pip install -r requirements.txt`
-3. `TURF_MODEL_KEY=<secret> uvicorn serve:app --host 0.0.0.0 --port 8000`
+3. `TURF_MODEL_KEY=<a secret you invent> uvicorn serve:app --host 0.0.0.0 --port 8000`
 4. In Vercel: `TURF_MODEL_URL=https://<host>` + the same `TURF_MODEL_KEY`.
 
 The app sends the parcel-fit satellite tile it already fetches (the service

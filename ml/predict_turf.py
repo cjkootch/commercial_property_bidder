@@ -86,10 +86,13 @@ def vectorize(mask, kind, b, W, H, min_area):
 
 def load_model():
     """Load the trained U-Net + the channel->class order saved alongside it.
-    Shared by the batch predictor (main) and the HTTP service (serve.py)."""
+    Shared by the batch predictor (main) and the HTTP service (serve.py).
+    TURF_MODEL_PATH / TURF_CLASSES_PATH override the default locations so the
+    service can run from a container with weights mounted anywhere."""
+    classes_path = os.environ.get("TURF_CLASSES_PATH", CLASSES_JSON)
     classes = CLASSES
-    if os.path.exists(CLASSES_JSON):
-        classes = json.load(open(CLASSES_JSON)).get("classes", CLASSES)
+    if os.path.exists(classes_path):
+        classes = json.load(open(classes_path)).get("classes", CLASSES)
     model_path = os.environ.get("TURF_MODEL_PATH", MODEL)
     model = UNet(n_classes=len(classes))
     model.load_state_dict(torch.load(model_path, map_location="cpu"))
