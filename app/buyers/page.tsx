@@ -1,14 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { desc, eq, isNull, like } from "drizzle-orm";
+import { asc, desc, eq, like } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, leadUnlock, property } from "@/lib/db/schema";
+import { buyer, chatMessage, leadUnlock, property } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { exclusivePriceCents, leadPriceCents } from "@/lib/integrations/stripe";
 import { leadMaxBuyers } from "@/lib/leads/availability";
 import { haversineMiles } from "@/lib/sourcing/criteria";
-import { buyerLogout, claimFreeLead, currentBuyerId, startCheckout, toggleNotifications } from "./actions";
+import { buyerLogout, claimFreeLead, currentBuyerId, sendChatMessage, startCheckout, toggleNotifications } from "./actions";
 import { Logo } from "@/components/Logo";
+import { ChatWidget, type ChatMsg } from "@/components/ChatWidget";
 
 // Buyer dashboard: unlocked leads (theirs forever), open opportunities in
 // their area (teaser fields only — one Stripe click to unlock, or account
@@ -44,6 +45,20 @@ export default async function BuyerDashboard({
     .orderBy(desc(leadUnlock.created_at));
   // "First sheet free" — organic signups claim it from here.
   const freeAvailable = !mine.some(({ unlock }) => unlock.kind === "free");
+
+  const chat: ChatMsg[] = (
+    await db
+      .select()
+      .from(chatMessage)
+      .where(eq(chatMessage.buyer_id, me.id))
+      .orderBy(asc(chatMessage.created_at))
+      .limit(200)
+  ).map((m) => ({
+    id: m.id,
+    sender: m.sender,
+    body: m.body,
+    at: m.created_at.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+  }));
 
   // Open opportunities: permit leads with shared spots left (cap disclosed —
   // that's the scarcity promise). Teaser fields only (value/type/timing/city +
@@ -277,6 +292,8 @@ export default async function BuyerDashboard({
           </div>
         </section>
       </main>
+
+      <ChatWidget mode="buyer" messages={chat} sendAction={sendChatMessage} />
     </div>
   );
 }

@@ -127,6 +127,13 @@
       "when": 1783429152078,
       "tag": "0017_lonely_kulan_gath",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783435597766,
+      "tag": "0018_careless_silhouette",
+      "breakpoints": true
     }
   ]
 }
