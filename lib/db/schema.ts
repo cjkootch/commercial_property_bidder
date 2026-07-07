@@ -11,7 +11,9 @@ import {
   numeric,
   primaryKey,
   unique,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // MULTI-TENANCY SEAM (build spec section 12)
@@ -83,6 +85,16 @@ export const outreachStatusEnum = pgEnum("outreach_status", [
   "replied",
   "bounced",
   "unsubscribed",
+]);
+
+// Buyer self-serve prospect lifecycle (bring-your-own address → scan → quote →
+// microsite → postcard). Kept entirely separate from the operator pipeline.
+export const prospectStatusEnum = pgEnum("prospect_status", [
+  "added", // geocoded only
+  "scanned", // parcel + veg + aerial + price cached
+  "mailed", // postcard created via Lob
+  "viewed", // branded microsite opened >= 1
+  "archived", // soft-deleted; retains a mailed postcard's microsite
 ]);
 
 // --- company -------------------------------------------------------------
@@ -428,24 +440,98 @@ export const leadActivity = pgTable("lead_activity", {
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Postcards mailed to a lead's owner via Lob (paid, one-click). Idempotent on
-// stripe_session_id so a webhook retry never double-mails.
-export const postcard = pgTable("postcard", {
+// Postcards mailed via Lob (paid, one-click). Idempotent on stripe_session_id so
+// a webhook retry never double-mails. A card targets EITHER a marketplace lead
+// (`unlock_id`) OR a buyer self-serve prospect (`prospect_id`) — never both,
+// never neither (enforced by the XOR check). `prospect_id` uses SET NULL so a
+// mailed card (and its live microsite QR) survives the prospect being archived.
+export const postcard = pgTable(
+  "postcard",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    unlock_id: uuid("unlock_id").references(() => leadUnlock.id, { onDelete: "cascade" }),
+    prospect_id: uuid("prospect_id").references(() => prospect.id, { onDelete: "set null" }),
+    buyer_id: uuid("buyer_id")
+      .notNull()
+      .references(() => buyer.id),
+    lob_id: text("lob_id"),
+    status: text("status").notNull().default("created"), // created | failed
+    price_cents: integer("price_cents").notNull().default(0),
+    stripe_session_id: text("stripe_session_id").unique(),
+    to_name: text("to_name"),
+    to_address: text("to_address"),
+    expected_delivery: text("expected_delivery"),
+    ...timestamps,
+  },
+  (t) => [
+    // A card targets a lead OR a prospect — never both. (Both-null is tolerated
+    // only as a post-deletion orphan: ON DELETE SET NULL nulls prospect_id when a
+    // prospect/buyer is removed, and Postgres re-checks this on that UPDATE.)
+    check(
+      "postcard_target_xor",
+      sql`NOT (${t.unlock_id} IS NOT NULL AND ${t.prospect_id} IS NOT NULL)`
+    ),
+  ]
+);
+
+// --- buyer self-serve prospecting ------------------------------------------
+// A buyer's own target property. We scan (parcel + aerial + vegetation), quote
+// it with the operator pricing engine (an ESTIMATE; the buyer may override), let
+// them adjust the service area on the map, and mail a branded postcard that
+// drives to the hosted microsite at /quote/<proposal_slug>.
+//
+// TRAINING ISOLATION: buyer-drawn `service_areas` live ONLY here — never in the
+// `measurement`/`property` tables the ML export reads — so buyer edits can never
+// enter the training set. Measurement + pricing are inlined on the row (no
+// operator measurement/pricing_result rows are created).
+export const prospect = pgTable(
+  "prospect",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    buyer_id: uuid("buyer_id")
+      .notNull()
+      .references(() => buyer.id, { onDelete: "cascade" }),
+    name: text("name"),
+    address: text("address").notNull(),
+    city: text("city"),
+    zip: text("zip"),
+    lat: doublePrecision("lat"),
+    lng: doublePrecision("lng"),
+    status: prospectStatusEnum("status").notNull().default("added"),
+    // Cached scan artifacts (buyer-private; never written to property/measurement).
+    parcel_geojson: jsonb("parcel_geojson"), // ParcelResult
+    service_areas: jsonb("service_areas"), // ServiceAreaCollection (buyer-drawn)
+    map_view: jsonb("map_view"), // MapView
+    aerial: jsonb("aerial"), // DossierAerial
+    // Inlined measurement snapshot.
+    turf_sqft: doublePrecision("turf_sqft"),
+    bed_sqft: doublePrecision("bed_sqft"),
+    complexity: numeric("complexity", { precision: 4, scale: 2 }).notNull().default("1.00"),
+    confidence: confidenceEnum("confidence").notNull().default("Med"),
+    // Inlined pricing snapshot (operator config estimate).
+    price_per_visit: doublePrecision("price_per_visit"),
+    monthly_price: doublePrecision("monthly_price"),
+    annual_price: doublePrecision("annual_price"),
+    estimate_lo: doublePrecision("estimate_lo"),
+    estimate_hi: doublePrecision("estimate_hi"),
+    price_override_cents: integer("price_override_cents"), // null = use snapshot
+    // Branded microsite.
+    proposal_slug: text("proposal_slug").notNull().unique(),
+    view_count: integer("view_count").notNull().default(0),
+    last_viewed_at: timestamp("last_viewed_at", { withTimezone: true }),
+    ...timestamps,
+  }
+);
+
+// One row per microsite open (mirrors proposal_view). Feeds the buyer's
+// "your prospect opened the quote" signal + view_count.
+export const prospectView = pgTable("prospect_view", {
   id: uuid("id").primaryKey().defaultRandom(),
-  unlock_id: uuid("unlock_id")
+  prospect_id: uuid("prospect_id")
     .notNull()
-    .references(() => leadUnlock.id, { onDelete: "cascade" }),
-  buyer_id: uuid("buyer_id")
-    .notNull()
-    .references(() => buyer.id),
-  lob_id: text("lob_id"),
-  status: text("status").notNull().default("created"), // created | failed
-  price_cents: integer("price_cents").notNull().default(0),
-  stripe_session_id: text("stripe_session_id").unique(),
-  to_name: text("to_name"),
-  to_address: text("to_address"),
-  expected_delivery: text("expected_delivery"),
-  ...timestamps,
+    .references(() => prospect.id, { onDelete: "cascade" }),
+  user_agent: text("user_agent"),
+  viewed_at: timestamp("viewed_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // --- outreach campaigns (operator review workflow) --------------------------
@@ -537,3 +623,6 @@ export type Contact = typeof contact.$inferSelect;
 export type Proposal = typeof proposal.$inferSelect;
 export type Outreach = typeof outreach.$inferSelect;
 export type Suppression = typeof suppression.$inferSelect;
+export type Postcard = typeof postcard.$inferSelect;
+export type Prospect = typeof prospect.$inferSelect;
+export type ProspectView = typeof prospectView.$inferSelect;

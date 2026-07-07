@@ -32,7 +32,14 @@ type CheckoutSession = {
   amount_total: number | null;
   payment_status?: string;
   payment_intent?: string | null;
-  metadata?: { buyer_id?: string; property_id?: string; kind?: string; type?: string; unlock_id?: string };
+  metadata?: {
+    buyer_id?: string;
+    property_id?: string;
+    kind?: string;
+    type?: string;
+    unlock_id?: string;
+    prospect_id?: string;
+  };
 };
 
 function appUrl(): string {
@@ -98,6 +105,34 @@ export async function POST(req: NextRequest) {
       }).catch(() => null);
     }
     return NextResponse.json({ received: true, postcard: r.postcardId });
+  }
+
+  // Self-serve prospect postcard (buyer-chosen address) — fulfill via Lob.
+  if (session.metadata?.type === "prospect_postcard") {
+    const prospectId = session.metadata?.prospect_id;
+    if (!prospectId) return NextResponse.json({ received: true, skipped: "no prospect for postcard" });
+    const [b] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
+    const { fulfillProspectPostcard } = await import("@/lib/prospects/postcard");
+    const r = await fulfillProspectPostcard({
+      prospectId,
+      buyerId,
+      priceCents: session.amount_total ?? 0,
+      stripeSessionId: session.id,
+    });
+    if (!r.ok) {
+      if (b) await creditAndNotify(session, b, `we couldn't mail that postcard (${r.error})`);
+      else console.error(`[stripe] prospect postcard failed, no buyer to credit — ${session.id}: ${r.error}`);
+      return NextResponse.json({ received: true, prospect_postcard: "failed", error: r.error });
+    }
+    if (b) {
+      await sendEmail({
+        to: b.email,
+        subject: "Your postcard is on its way",
+        html: `<p>${b.company_name} — your postcard has been sent to print${r.expectedDelivery ? ` and should arrive around <strong>${r.expectedDelivery}</strong>` : ""}.</p><p><a href="${appUrl()}/buyers/prospects/${prospectId}">View the prospect</a></p>`,
+        tags: { kind: "postcard" },
+      }).catch(() => null);
+    }
+    return NextResponse.json({ received: true, prospect_postcard: r.postcardId });
   }
 
   if (!propertyId) return NextResponse.json({ received: true, skipped: "no property" });

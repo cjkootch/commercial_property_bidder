@@ -1,12 +1,14 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "./index";
 import {
+  buyer,
   company,
   measurement,
   pricingConfig,
   pricingResult,
   property,
   proposal,
+  prospect,
   outreach,
   contact,
   type PricingConfigRow,
@@ -148,6 +150,16 @@ export async function getProposalBySlug(slug: string) {
     .limit(1);
   const [co] = await db.select().from(company).where(eq(company.id, prop!.company_id)).limit(1);
   return { proposal: prop_, property: prop ?? null, pricing: pr ?? null, company: co ?? null };
+}
+
+/** Buyer self-serve microsite data, by slug: the prospect + its owning buyer
+ *  (for branding). Null if not found. Renders even for archived prospects so a
+ *  mailed postcard's QR keeps resolving. */
+export async function getProspectBySlug(slug: string) {
+  const [p] = await db.select().from(prospect).where(eq(prospect.proposal_slug, slug)).limit(1);
+  if (!p) return null;
+  const [b] = await db.select().from(buyer).where(eq(buyer.id, p.buyer_id)).limit(1);
+  return { prospect: p, buyer: b ?? null };
 }
 
 export type CustomerProposal = {

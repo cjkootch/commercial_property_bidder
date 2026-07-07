@@ -7,10 +7,8 @@ import area from "@turf/area";
 import "mapbox-gl/dist/mapbox-gl.css";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 
-import {
-  estimateServiceableArea,
-  saveMeasurementWithGeometry,
-} from "@/app/properties/actions";
+import type { GeometrySavePayload } from "@/app/properties/actions";
+import type { ServiceableEstimate } from "@/lib/integrations/imagery";
 import {
   colorForKind,
   computeEffectiveTurf,
@@ -102,7 +100,6 @@ const DRAW_STYLES: object[] = [
 
 type Props = {
   token: string | null;
-  propertyId: string;
   center: [number, number]; // [lng, lat]
   zoom: number;
   geocoded: boolean;
@@ -115,6 +112,11 @@ type Props = {
     complexity: number;
     confidence: Confidence;
   };
+  /** Persist the drawn geometry + re-price. Injected so operator and buyer
+   *  workspaces can target their own tables. */
+  onSave: (payload: GeometrySavePayload) => Promise<void>;
+  /** Run the RGB vegetation estimate for this entity's parcel. */
+  onEstimateVeg: () => Promise<ServiceableEstimate | null>;
 };
 
 /** Average of a polygon's exterior ring — good enough for a label anchor. */
@@ -165,7 +167,6 @@ function toCollection(fc: GeoJSON.FeatureCollection): ServiceAreaCollection {
 
 export function MeasureMap({
   token,
-  propertyId,
   center,
   zoom,
   geocoded,
@@ -173,6 +174,8 @@ export function MeasureMap({
   parcel,
   initialCountTreeGrass,
   initial,
+  onSave,
+  onEstimateVeg,
 }: Props) {
   const mapContainer = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -442,7 +445,7 @@ export function MeasureMap({
     setEstimating(true);
     startTransition(async () => {
       try {
-        const est = await estimateServiceableArea(propertyId);
+        const est = await onEstimateVeg();
         const map = mapRef.current;
         if (!est || !map) {
           setMapError("Couldn't estimate from imagery (needs a parcel + map token).");
@@ -478,7 +481,7 @@ export function MeasureMap({
     setSaved(false);
   };
 
-  const onSave = () => {
+  const handleSave = () => {
     const map = mapRef.current;
     if (!map || !areas) return;
     const c = map.getCenter();
@@ -491,7 +494,7 @@ export function MeasureMap({
     const lngLat = pin ? [pin.lng, pin.lat] : [c.lng, c.lat];
 
     startTransition(async () => {
-      await saveMeasurementWithGeometry(propertyId, {
+      await onSave({
         turf_sqft: turfSqft,
         bed_sqft: bedSqft,
         complexity,
@@ -668,7 +671,7 @@ export function MeasureMap({
           </p>
           <div className="flex items-center gap-3">
             <button
-              onClick={onSave}
+              onClick={handleSave}
               disabled={pending || !areas?.features?.length}
               className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
             >
