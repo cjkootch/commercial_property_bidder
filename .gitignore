@@ -40,3 +40,4 @@ next-env.d.ts
 # python bytecode (anywhere)
 __pycache__/
 *.pyc
+postcards/
