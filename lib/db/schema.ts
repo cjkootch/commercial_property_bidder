@@ -10,6 +10,7 @@ import {
   jsonb,
   numeric,
   primaryKey,
+  unique,
 } from "drizzle-orm/pg-core";
 
 // ---------------------------------------------------------------------------
@@ -341,6 +342,52 @@ export const suppression = pgTable("suppression", {
   reason: text("reason"),
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// --- lead buyers (the job-intelligence marketplace) -------------------------
+// A buyer = a landscaping company that claimed a free lead through a campaign
+// link (or signed up later). Creating a profile is the opt-in for new-lead
+// notifications; unsubscribes land in `suppression` like all email.
+
+export const buyer = pgTable("buyer", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  company_name: text("company_name").notNull(),
+  email: text("email").notNull().unique(),
+  city: text("city"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  notify: boolean("notify").notNull().default(true),
+  // No-refunds policy: when a paid lead can't be delivered (sold out mid-
+  // payment, duplicate purchase), the money becomes account credit that
+  // auto-applies to the next unlock. Disclosed at the point of sale.
+  credit_cents: integer("credit_cents").notNull().default(0),
+  ...timestamps,
+});
+
+// One row per revealed lead per buyer. `dossier` is a SNAPSHOT taken at unlock
+// time (contacts, sizing, route intel, bid window, intro letter) so viewing a
+// lead never re-spends imagery/API quota and the buyer keeps what they bought
+// even if the source data shifts. Scarcity model (lib/leads/availability.ts):
+// a lead sells to at most LEAD_MAX_BUYERS companies (shared), or one buyer
+// pays the exclusive premium to close it. A buyer never buys the same lead
+// twice (unique property_id + buyer_id).
+export const leadUnlock = pgTable(
+  "lead_unlock",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    buyer_id: uuid("buyer_id")
+      .notNull()
+      .references(() => buyer.id),
+    property_id: uuid("property_id")
+      .notNull()
+      .references(() => property.id),
+    kind: text("kind").notNull().default("free"), // free | paid | exclusive
+    price_cents: integer("price_cents").notNull().default(0),
+    stripe_session_id: text("stripe_session_id"),
+    dossier: jsonb("dossier"),
+    ...timestamps,
+  },
+  (t) => [unique("lead_unlock_property_buyer").on(t.property_id, t.buyer_id)]
+);
 
 // --- usage counters (rate limiting + tenant metering) ----------------------
 // Fixed-window counters, serverless-friendly (one upsert per check, no Redis).

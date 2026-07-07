@@ -83,6 +83,58 @@ async function scrapeSite(website: string): Promise<{ email: string | null; phon
   return { email: null, phone };
 }
 
+export type BusinessContact = {
+  email: string | null;
+  phone: string | null;
+  /** The site's contact/quote page, if one is linked from the homepage —
+   *  where a campaign message gets pasted. */
+  contact_form_url: string | null;
+};
+
+/**
+ * Scrape a BUSINESS website (e.g. a prospective lead buyer) for its published
+ * email/phone and its contact-page URL. Self-published data only; never throws.
+ */
+export async function scrapeBusinessContact(website: string): Promise<BusinessContact> {
+  const base = normalizeUrl(website);
+  if (!base) return { email: null, phone: null, contact_form_url: null };
+  const origin = new URL(base).origin;
+
+  let email: string | null = null;
+  let phone: string | null = null;
+  let contactUrl: string | null = null;
+
+  const home = await fetchText(base);
+  if (home) {
+    const got = extractFromHtml(home);
+    email = got.email;
+    phone = got.phone;
+    // First homepage link that smells like a contact/quote page.
+    for (const m of home.matchAll(/href=["']([^"']+)["']/gi)) {
+      const href = m[1];
+      if (!/contact|quote|estimate|get-in-touch/i.test(href)) continue;
+      if (/facebook|instagram|twitter|linkedin|mailto:|tel:/i.test(href)) continue;
+      try {
+        contactUrl = new URL(href, origin).toString();
+        break;
+      } catch {
+        /* malformed href */
+      }
+    }
+  }
+  // Fill gaps from the contact page (or conventional paths).
+  for (const u of [contactUrl, `${origin}/contact`, `${origin}/contact-us`].filter(Boolean) as string[]) {
+    if (email && phone && contactUrl) break;
+    const html = await fetchText(u);
+    if (!html) continue;
+    if (!contactUrl) contactUrl = u;
+    const got = extractFromHtml(html);
+    email = email ?? got.email;
+    phone = phone ?? got.phone;
+  }
+  return { email, phone, contact_form_url: contactUrl };
+}
+
 /**
  * Resolve a free contact suggestion for a property from its parcel: OSM contact
  * tags first, then a site scrape to recover an email/phone when only a website

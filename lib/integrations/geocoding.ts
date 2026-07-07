@@ -49,7 +49,12 @@ export async function suggestAddresses(query: string): Promise<AddressSuggestion
  * empty address, network error, or no result — callers fall back to a draggable
  * pin at DEFAULT_CENTER.
  */
-export async function geocodeAddress(address: string): Promise<LngLat | null> {
+export async function geocodeAddress(
+  address: string,
+  /** Mapbox feature types. Default suits street addresses; pass
+   *  "place,address,poi" when the query may be just a city name. */
+  types = "address,poi"
+): Promise<LngLat | null> {
   const token = getMapboxToken();
   if (!token) return null;
   const query = address?.trim();
@@ -57,7 +62,7 @@ export async function geocodeAddress(address: string): Promise<LngLat | null> {
 
   const url =
     `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
-    `?access_token=${encodeURIComponent(token)}&limit=1&country=us&types=address,poi`;
+    `?access_token=${encodeURIComponent(token)}&limit=1&country=us&types=${encodeURIComponent(types)}`;
 
   try {
     const res = await fetch(url);
