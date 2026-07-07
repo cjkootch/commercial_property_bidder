@@ -8,10 +8,23 @@ import { db } from "../db";
 import { pricingResult, property, type Property } from "../db/schema";
 import { getActiveConfig, toEngineConfig } from "../db/queries";
 import { sizeLead } from "./sizing";
+import { estimateServiceableArea, fetchParcelTile } from "../integrations/imagery";
 import { findTabsByNumber, fetchTabsDetails } from "../integrations/tabs";
 import { findContact } from "../integrations/contact";
 import { haversineMiles } from "../sourcing/criteria";
 import type { ParcelResult } from "../geo/types";
+
+/** Aerial snapshot: parcel-fit satellite tile + vegetation mask + parcel
+ *  outline (image-pixel coordinates), stored as data URLs so the sheet never
+ *  re-spends imagery quota and the buyer keeps the exact measurement view. */
+export type DossierAerial = {
+  image: string; // data:image/jpeg — bbox-fit to the parcel
+  mask: string | null; // data:image/png translucent veg mask (null when projected)
+  width: number;
+  height: number;
+  /** SVG polygon `points` strings (one per parcel ring) in image coordinates. */
+  outline: string[];
+};
 
 export type Dossier = {
   gk_ref: string;
@@ -33,15 +46,25 @@ export type Dossier = {
   annual_hi: number;
   monthly: number;
   crew_hours_per_visit: number;
+  visits_per_year: number;
   contacts: { role: string; value: string }[];
   route_intel: string;
   guidance: string;
   intro_letter: string;
   prepared_at: string;
+  aerial: DossierAerial | null;
 };
 
 const note = (notes: string | null, re: RegExp) => notes?.match(re)?.[1]?.trim() ?? null;
 const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
+
+/** Outer-ring coordinates of the parcel polygon(s). */
+function parcelOuterRings(parcel: ParcelResult): [number, number][][] {
+  const g = parcel.geometry as GeoJSON.Geometry;
+  if (g.type === "Polygon") return [g.coordinates[0] as [number, number][]];
+  if (g.type === "MultiPolygon") return g.coordinates.map((poly) => poly[0] as [number, number][]);
+  return [];
+}
 
 export async function buildDossier(p: Property, brand: string): Promise<Dossier | null> {
   const parcel = p.parcel_geojson as ParcelResult | null;
@@ -50,7 +73,28 @@ export async function buildDossier(p: Property, brand: string): Promise<Dossier 
   const cfgRow = await getActiveConfig(p.company_id);
   if (!cfgRow) return null;
 
-  const sizing = await sizeLead(parcel, token, toEngineConfig(cfgRow));
+  // One imagery pass feeds both the sizing numbers and the aerial snapshot.
+  const engineCfg = toEngineConfig(cfgRow);
+  const est = await estimateServiceableArea(parcel, token).catch(() => null);
+  const sizing = await sizeLead(parcel, token, engineCfg, est);
+
+  let aerial: DossierAerial | null = null;
+  const tile = await fetchParcelTile(parcel, token).catch(() => null);
+  if (tile) {
+    // Same linear bbox->pixel mapping the vegetation mask uses.
+    const px = (lng: number) => ((lng - tile.minLng) / (tile.maxLng - tile.minLng)) * tile.width;
+    const py = (lat: number) => ((tile.maxLat - lat) / (tile.maxLat - tile.minLat)) * tile.height;
+    const outline = parcelOuterRings(parcel).map((ring) =>
+      ring.map(([lng, lat]) => `${px(lng).toFixed(1)},${py(lat).toFixed(1)}`).join(" ")
+    );
+    aerial = {
+      image: `data:image/jpeg;base64,${tile.jpeg.toString("base64")}`,
+      mask: !sizing.projected && est ? est.mask_data_url : null,
+      width: tile.width,
+      height: tile.height,
+      outline,
+    };
+  }
 
   const tabsNum = note(p.notes, /TABS (\S+):/);
   const proj = tabsNum ? await findTabsByNumber(tabsNum) : null;
@@ -131,10 +175,12 @@ Respectfully,
     annual_hi: sizing.annual_hi,
     monthly: Math.round(sizing.monthly),
     crew_hours_per_visit: Math.round(sizing.crew_hours_per_visit * 10) / 10,
+    visits_per_year: engineCfg.visits_per_year,
     contacts,
     route_intel,
     guidance,
     intro_letter,
     prepared_at: new Date().toISOString().slice(0, 10),
+    aerial,
   };
 }
