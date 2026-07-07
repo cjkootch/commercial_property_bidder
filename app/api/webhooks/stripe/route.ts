@@ -1,28 +1,46 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, leadUnlock, property } from "@/lib/db/schema";
-import { verifyStripeSignature } from "@/lib/integrations/stripe";
+import { buyer, leadUnlock, property, usageCounter } from "@/lib/db/schema";
+import { refundPayment, verifyStripeSignature } from "@/lib/integrations/stripe";
 import { buildDossier } from "@/lib/leads/dossier";
+import {
+  closeLeadIfDone,
+  confirmUnlockWithinCap,
+  leadAvailability,
+} from "@/lib/leads/availability";
 import { sendEmail } from "@/lib/integrations/resend";
 import { getDefaultCompany } from "@/lib/db/queries";
 
 // Stripe webhook: on checkout.session.completed, unlock the lead for the
-// paying buyer — build the dossier snapshot, stamp sold-once, and email them.
-// Idempotent (duplicate deliveries are no-ops); signature is verified against
-// the RAW body. Middleware exempts /api/webhooks from auth.
+// paying buyer — build the dossier snapshot, close the lead if the cap filled
+// or an exclusive sold, and email the sheet link.
+//
+// NO-REFUNDS POLICY (disclosed at checkout): if the lead can't be delivered
+// (sold out between checkout and payment, duplicate purchase), the payment
+// becomes ACCOUNT CREDIT that auto-applies to the buyer's next unlock. The
+// only automatic refund is a payment we can't match to any buyer — there is
+// nobody to credit. Idempotent (duplicate deliveries are no-ops); signature is
+// verified against the RAW body. Middleware exempts /api/webhooks from auth.
 export const dynamic = "force-dynamic";
+// Dossier build touches TABS + Mapbox + county services; don't die at the
+// platform default. Stripe retries on timeout and the flow is idempotent.
+export const maxDuration = 60;
 
 type CheckoutSession = {
   id: string;
   amount_total: number | null;
-  metadata?: { buyer_id?: string; property_id?: string };
+  payment_status?: string;
+  payment_intent?: string | null;
+  metadata?: { buyer_id?: string; property_id?: string; kind?: string };
 };
 
 function appUrl(): string {
   const envBase = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
   return envBase && !/localhost|127\.0\.0\.1/.test(envBase) ? envBase : "https://greenkeep.us";
 }
+
+const usd = (cents: number) => `$${Math.round(cents / 100).toLocaleString()}`;
 
 export async function POST(req: NextRequest) {
   const payload = await req.text();
@@ -43,21 +61,39 @@ export async function POST(req: NextRequest) {
   const session = event.data?.object;
   const buyerId = session?.metadata?.buyer_id;
   const propertyId = session?.metadata?.property_id;
+  const kind = session?.metadata?.kind === "exclusive" ? "exclusive" : "paid";
   if (!session || !buyerId || !propertyId) {
     return NextResponse.json({ received: true, skipped: "no lead metadata" });
   }
+  // Async payment methods complete the session before funds settle — only
+  // unlock on settled money (card sessions are always "paid" here).
+  if (session.payment_status && session.payment_status !== "paid") {
+    return NextResponse.json({ received: true, skipped: `payment_status ${session.payment_status}` });
+  }
+
+  // Idempotency: this exact session already produced an unlock.
+  const [done] = await db.select().from(leadUnlock).where(eq(leadUnlock.stripe_session_id, session.id)).limit(1);
+  if (done) return NextResponse.json({ received: true, skipped: "duplicate delivery" });
 
   const [b] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
-  if (!b || !prop) return NextResponse.json({ received: true, skipped: "unknown buyer/property" });
-
-  // Idempotency + sold-once: property_id is UNIQUE on lead_unlock. If the row
-  // already exists (duplicate delivery, or a race the buyer lost), do nothing —
-  // a lost race is refunded manually from the Stripe dashboard.
-  const [existing] = await db.select().from(leadUnlock).where(eq(leadUnlock.property_id, propertyId)).limit(1);
-  if (existing) {
-    return NextResponse.json({ received: true, skipped: "already unlocked" });
+  if (!b) {
+    // Nobody to credit — the one case that still auto-refunds.
+    const refunded = await refundPayment(session.payment_intent);
+    if (!refunded) console.error(`[stripe] UNMATCHED PAYMENT, refund failed — session ${session.id}: refund manually.`);
+    return NextResponse.json({ received: true, refunded, reason: "unknown buyer" });
   }
+  if (!prop) return creditAndNotify(session, b, "the job you paid for is no longer listed");
+
+  // Sold out (or exported) between checkout and payment? Credit, don't ghost.
+  const avail = await leadAvailability(prop);
+  const lost =
+    avail.closed || (kind === "exclusive" && !avail.exclusiveOpen)
+      ? kind === "exclusive"
+        ? "another company got there first, so the exclusive was no longer available"
+        : "the last spot on this job went to another company moments before your payment"
+      : null;
+  if (lost) return creditAndNotify(session, b, lost);
 
   const co = await getDefaultCompany();
   const dossier = co ? await buildDossier(prop, co.name).catch(() => null) : null;
@@ -67,27 +103,76 @@ export async function POST(req: NextRequest) {
     .values({
       buyer_id: b.id,
       property_id: prop.id,
-      kind: "paid",
+      kind,
       price_cents: session.amount_total ?? 0,
       stripe_session_id: session.id,
       dossier,
     })
-    .onConflictDoNothing({ target: leadUnlock.property_id })
+    .onConflictDoNothing({ target: [leadUnlock.property_id, leadUnlock.buyer_id] })
     .returning();
-  if (!unlock) return NextResponse.json({ received: true, skipped: "lost insert race" });
+  if (!unlock) {
+    // Buyer already holds this lead (double-pay) — the duplicate becomes credit.
+    return creditAndNotify(session, b, "you already had this lead, so we converted the duplicate charge");
+  }
 
-  await db
-    .update(property)
-    .set({ lead_exported_at: new Date(), lead_buyer: b.company_name, updated_at: new Date() })
-    .where(and(eq(property.id, prop.id), isNull(property.lead_exported_at)));
+  // No-transaction race guard: if this row landed over the cap (or clashed
+  // with an exclusive), it's rolled back and the money becomes credit.
+  if (!(await confirmUnlockWithinCap(unlock.id, prop.id))) {
+    return creditAndNotify(session, b, "the last spot on this job went to another company moments before your payment");
+  }
+  await closeLeadIfDone(prop.id);
 
   const link = `${appUrl()}/buyers/leads/${unlock.id}`;
+  const facility = prop.name.replace(/ \(TABS [^)]+\)$/, "");
   await sendEmail({
     to: b.email,
-    subject: `Your job sheet is ready — ${prop.name.replace(/ \(TABS [^)]+\)$/, "")}`,
-    html: `<p>Payment received — the full sheet is unlocked and exclusive to ${b.company_name}.</p><p><a href="${link}">Open your job sheet</a></p><p style="color:#888;font-size:12px">Location, decision contacts, aerial measurement, contract value, and the window to bid — all on one page.</p>`,
+    subject: `Your job sheet is ready — ${facility}`,
+    html:
+      `<p>Payment received — the full sheet is unlocked for ${b.company_name}${kind === "exclusive" ? " <strong>exclusively</strong> — no one else will ever get this job from us" : ""}.</p>` +
+      `<p><a href="${link}">Open your job sheet</a></p>` +
+      `<p style="color:#888;font-size:12px">Location, decision contacts, aerial measurement, contract value, and the window to bid — all on one page.</p>`,
     tags: { kind: "lead_unlock" },
   }).catch(() => null);
 
   return NextResponse.json({ received: true, unlocked: unlock.id });
+}
+
+// Far-future sentinel window so the counter pruner (which drops PAST windows)
+// never erases these one-shot idempotency markers.
+const CREDIT_MARKER_WINDOW = new Date("2099-01-01T00:00:00Z");
+
+/**
+ * Undeliverable purchase -> account credit (replacement-lead policy, disclosed
+ * at checkout), exactly once per Stripe session even across webhook retries.
+ */
+async function creditAndNotify(
+  session: CheckoutSession,
+  b: { id: string; email: string; company_name: string },
+  reason: string
+) {
+  const amount = session.amount_total ?? 0;
+  if (amount > 0) {
+    const marker = await db
+      .insert(usageCounter)
+      .values({ key: `stripe_credit:${session.id}`, window_start: CREDIT_MARKER_WINDOW, count: 1 })
+      .onConflictDoNothing({ target: [usageCounter.key, usageCounter.window_start] })
+      .returning();
+    if (marker.length === 0) {
+      return NextResponse.json({ received: true, skipped: "credit already granted" });
+    }
+    await db
+      .update(buyer)
+      .set({ credit_cents: sql`${buyer.credit_cents} + ${amount}`, updated_at: new Date() })
+      .where(eq(buyer.id, b.id));
+  }
+  await sendEmail({
+    to: b.email,
+    subject: `That job sold out — your ${usd(amount)} credit is ready`,
+    html:
+      `<p>${b.company_name} — ${reason}. Your payment is now a <strong>${usd(amount)} credit</strong> on your account.</p>` +
+      `<p>It applies automatically: pick any open job in <a href="${appUrl()}/buyers">your dashboard</a> and it's yours — no card needed.</p>` +
+      `<p style="color:#888;font-size:12px">We cap every job at a fixed number of companies and never oversell — that's why spots can go fast.</p>`,
+    tags: { kind: "lead_credit" },
+  }).catch(() => null);
+  return NextResponse.json({ received: true, credited: amount, reason });
 }

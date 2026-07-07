@@ -181,7 +181,7 @@ The job sheet puts everything a bidder needs on one page:
   - Crew-hour + equipment sizing for your math
   - What other measured commercial work sits within 3 miles of it
 
-Each job goes to ONE company. Reply "UNLOCK" and this one's yours for {PRICE}.
+Every job is capped at 3 companies — ever — or lock it down as an exclusive. Reply "UNLOCK" and a spot is yours for {PRICE}.
 First time? Reply "SAMPLE" instead and we'll send a recent sheet free, so you can judge the quality before spending a dime.
 
 — ${o.brand}

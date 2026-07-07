@@ -16,6 +16,11 @@ export function leadPriceCents(): number {
   const usd = Number(process.env.LEAD_PRICE_USD);
   return Number.isFinite(usd) && usd > 0 ? Math.round(usd * 100) : 7900;
 }
+/** Premium to close a lead outright (only offered while nobody else has it). */
+export function exclusivePriceCents(): number {
+  const usd = Number(process.env.LEAD_EXCLUSIVE_PRICE_USD);
+  return Number.isFinite(usd) && usd > 0 ? Math.round(usd * 100) : 19900;
+}
 
 export type CheckoutResult = { ok: true; url: string } | { ok: false; error: string };
 
@@ -26,12 +31,15 @@ export async function createLeadCheckout(opts: {
   buyerEmail: string;
   buyerId: string;
   propertyId: string;
+  /** "paid" (one shared spot) or "exclusive" (closes the lead) */
+  kind: "paid" | "exclusive";
   successUrl: string;
   cancelUrl: string;
 }): Promise<CheckoutResult> {
   const key = getStripeKey();
   if (!key) return { ok: false, error: "Payments not configured (STRIPE_SECRET_KEY)." };
 
+  const label = opts.kind === "exclusive" ? "Exclusive job sheet" : "Job sheet";
   const params = new URLSearchParams({
     mode: "payment",
     customer_email: opts.buyerEmail,
@@ -40,9 +48,10 @@ export async function createLeadCheckout(opts: {
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "usd",
     "line_items[0][price_data][unit_amount]": String(opts.amountCents),
-    "line_items[0][price_data][product_data][name]": `Job sheet — ${opts.leadName}`.slice(0, 120),
+    "line_items[0][price_data][product_data][name]": `${label} — ${opts.leadName}`.slice(0, 120),
     "metadata[buyer_id]": opts.buyerId,
     "metadata[property_id]": opts.propertyId,
+    "metadata[kind]": opts.kind,
   });
   try {
     const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -60,6 +69,29 @@ export async function createLeadCheckout(opts: {
     return { ok: true, url: data.url };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Stripe request failed." };
+  }
+}
+
+/**
+ * Refund a payment in full (lost cap race, duplicate purchase, unsellable
+ * lead). Best-effort: returns false on any failure so callers flag the session
+ * for a manual refund instead of crashing the webhook.
+ */
+export async function refundPayment(paymentIntentId: string | null | undefined): Promise<boolean> {
+  const key = getStripeKey();
+  if (!key || !paymentIntentId) return false;
+  try {
+    const res = await fetch("https://api.stripe.com/v1/refunds", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ payment_intent: paymentIntentId }).toString(),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 

@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyer, leadUnlock, property } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
+import { leadMaxBuyers } from "@/lib/leads/availability";
 import type { Dossier } from "@/lib/leads/dossier";
 import { currentBuyerId } from "../../actions";
 import { Logo } from "@/components/Logo";
@@ -59,7 +60,10 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-xs font-medium uppercase tracking-wide text-gray-400">
-                  {d.gk_ref} · prepared {d.prepared_at} · exclusive to {unlock.kind === "free" ? "you (free claim)" : "you"}
+                  {d.gk_ref} · prepared {d.prepared_at} ·{" "}
+                  {unlock.kind === "exclusive"
+                    ? "exclusive to you"
+                    : `capped at ${leadMaxBuyers()} companies`}
                 </div>
                 <h1 className="mt-1 text-2xl font-semibold">{d.name}</h1>
                 <p className="mt-1 text-sm text-gray-600">
@@ -135,8 +139,11 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
             </Card>
 
             <p className="mt-8 text-xs text-gray-400">
-              Prepared exclusively for {me?.company_name ?? "your company"} by {brand}. Do not
-              redistribute.
+              Prepared for {me?.company_name ?? "your company"} by {brand}.{" "}
+              {unlock.kind === "exclusive"
+                ? "This job is exclusively yours — we will never sell it to anyone else."
+                : `We sell each job to no more than ${leadMaxBuyers()} companies.`}{" "}
+              Do not redistribute.
             </p>
           </>
         )}

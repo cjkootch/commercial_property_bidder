@@ -3,9 +3,11 @@ import {
   signBuyerClaim,
   signBuyerLogin,
   signBuyerSession,
+  signBuyerUnsub,
   verifyBuyerClaim,
   verifyBuyerLogin,
   verifyBuyerSession,
+  verifyBuyerUnsub,
 } from "./buyer-auth";
 
 describe("buyer-auth tokens", () => {
@@ -24,10 +26,16 @@ describe("buyer-auth tokens", () => {
     expect(verifyBuyerSession(signBuyerSession("buyer-9"))).toBe("buyer-9");
   });
 
+  it("round-trips one-click unsubscribe tokens", () => {
+    expect(verifyBuyerUnsub(signBuyerUnsub("Buyer@Example.com"))).toBe("buyer@example.com");
+  });
+
   it("rejects cross-kind tokens (a session is not a claim)", () => {
     expect(verifyBuyerClaim(signBuyerSession("buyer-9"))).toBeNull();
     expect(verifyBuyerSession(signBuyerClaim("prop-1", null))).toBeNull();
     expect(verifyBuyerLogin(signBuyerClaim("prop-1", null))).toBeNull();
+    expect(verifyBuyerUnsub(signBuyerLogin("a@b.com"))).toBeNull();
+    expect(verifyBuyerLogin(signBuyerUnsub("a@b.com"))).toBeNull();
   });
 
   it("rejects tampered and malformed tokens", () => {

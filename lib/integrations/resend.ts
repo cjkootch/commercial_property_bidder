@@ -32,6 +32,8 @@ export async function sendEmail(args: {
   subject: string;
   html: string;
   tags?: Record<string, string>;
+  /** Extra SMTP headers (e.g. List-Unsubscribe for one-click opt-out). */
+  headers?: Record<string, string>;
 }): Promise<SendResult> {
   const key = getResendKey();
   const from = getResendFrom();
@@ -52,6 +54,7 @@ export async function sendEmail(args: {
         tags: args.tags
           ? Object.entries(args.tags).map(([name, value]) => ({ name, value }))
           : undefined,
+        headers: args.headers,
       }),
     });
     const data = (await res.json().catch(() => ({}))) as { id?: string; message?: string };

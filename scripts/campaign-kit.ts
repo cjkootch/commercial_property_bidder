@@ -12,6 +12,7 @@ import { searchLandscapers, type BuyerCandidate } from "../lib/integrations/apol
 import { scrapeBusinessContact } from "../lib/integrations/contact";
 import { geocodeAddress } from "../lib/integrations/geocoding";
 import { sizeLead } from "../lib/leads/sizing";
+import { leadMaxBuyers } from "../lib/leads/availability";
 import { signBuyerClaim } from "../lib/buyer-auth";
 import { haversineMiles } from "../lib/sourcing/criteria";
 import type { ParcelResult } from "../lib/geo/types";
@@ -68,6 +69,7 @@ function message(o: {
   brand: string;
   replyEmail: string;
   price: number;
+  cap: number;
   claimUrl: string;
 }): string {
   const { lead } = o;
@@ -79,7 +81,7 @@ A ${lead.cost} development breaks ground around ${lead.start},${o.distClause}${l
 
 We measured the site from the air: ~${lead.turf.toLocaleString()} sq ft of maintainable turf. At market rates that's ${usd(lead.annualLo)}–${usd(lead.annualHi)} a year — every year.
 
-Everything a bidder needs is on one page: exact location, the owner and architect to contact, our measurement, crew sizing, and the window to bid. Each job goes to ONE company. First to claim it.
+Everything a bidder needs is on one page: exact location, the owner and architect to contact, our measurement, crew sizing, and the window to bid. Every job is capped at ${o.cap} companies — ever — and you can lock one down as an exclusive so nobody else gets it.
 
 Your first sheet is FREE — claim it here (takes 30 seconds, no card):
 ${o.claimUrl}
@@ -129,6 +131,16 @@ async function main() {
   }
 
   // --- Size the TABS leads (in-memory; identical math to the job sheets) ----
+  // Only leads that can still be sold: not exported/closed, not exclusive, and
+  // shared spots left under the cap.
+  const cap = leadMaxBuyers();
+  const unlockRows = await db.select().from(schema.leadUnlock);
+  const unlockCount = new Map<string, number>();
+  const exclusiveProps = new Set<string>();
+  for (const u of unlockRows) {
+    unlockCount.set(u.property_id, (unlockCount.get(u.property_id) ?? 0) + 1);
+    if (u.kind === "exclusive") exclusiveProps.add(u.property_id);
+  }
   const leadRows = await db
     .select()
     .from(schema.property)
@@ -136,6 +148,7 @@ async function main() {
     .orderBy(desc(schema.property.created_at));
   const leads: SizedLead[] = [];
   for (const p of leadRows) {
+    if (p.lead_exported_at != null || exclusiveProps.has(p.id) || (unlockCount.get(p.id) ?? 0) >= cap) continue;
     const parcel = p.parcel_geojson as ParcelResult | null;
     if (!parcel || p.lat == null || p.lng == null) continue;
     try {
@@ -169,6 +182,14 @@ async function main() {
     buyers = await searchLandscapers("Houston, Texas", MAX_BUYERS);
     console.log(`\n  ${buyers.length} buyer(s) from Apollo search (own-outreach targeting only)`);
   }
+  // "First sheet free" is once per company — don't tease companies that
+  // already have a profile (they'd just hit the once-per-buyer guard anyway).
+  const existingBuyers = await db.select().from(schema.buyer);
+  const knownNames = new Set(existingBuyers.map((b) => b.company_name.trim().toLowerCase()));
+  const before = buyers.length;
+  buyers = buyers.filter((b) => !knownNames.has(b.name.trim().toLowerCase()));
+  if (before !== buyers.length) console.log(`  (${before - buyers.length} skipped — already have buyer profiles)`);
+
   buyers = buyers.slice(0, MAX_BUYERS);
   if (!buyers.length) throw new Error("No buyers (set APOLLO_API_KEY or provide campaign/buyers.csv).");
 
@@ -176,6 +197,12 @@ async function main() {
   const dir = `campaign/${stamp}`;
   await mkdir(`${dir}/messages`, { recursive: true });
   const base = siteBase();
+  if (!process.env.BUYER_AUTH_SECRET) {
+    console.log(
+      "  (!) BUYER_AUTH_SECRET is not set locally — claim links are signed with a fallback secret.\n" +
+        "      They will show as EXPIRED in production unless the same secret chain is set in Vercel."
+    );
+  }
 
   const csv: string[] = [
     "company,website,contact_form_url,published_email,published_phone,office_area,distance_mi,lead_tabs,lead_value_yr,message_file,status",
@@ -210,10 +237,10 @@ async function main() {
 
     // Per-buyer claim link: 30-day token carrying the lead + suggested company
     // name. Opening it lands on /buyers/claim/<token> — profile creation IS the
-    // free unlock (first company to claim wins the exclusive).
+    // free unlock (takes one of the lead's capped shared spots).
     const claimUrl = `${base}/buyers/claim/${signBuyerClaim(lead.id, b.name)}`;
 
-    const msg = message({ company: b.name, distClause, distShort, lead, brand: co.name, replyEmail, price: PRICE, claimUrl });
+    const msg = message({ company: b.name, distClause, distShort, lead, brand: co.name, replyEmail, price: PRICE, cap, claimUrl });
     const safe = b.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
     await writeFile(`${dir}/messages/${safe}.txt`, msg);
 

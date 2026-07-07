@@ -13,6 +13,8 @@ import {
 import { geocodeAddress } from "../lib/integrations/geocoding";
 import { fetchParcelAtPoint } from "../lib/integrations/parcel";
 import { sendEmail } from "../lib/integrations/resend";
+import { signBuyerUnsub } from "../lib/buyer-auth";
+import { leadMaxBuyers } from "../lib/leads/availability";
 import { eq } from "drizzle-orm";
 import { haversineMiles } from "../lib/sourcing/criteria";
 
@@ -160,16 +162,22 @@ async function notifyBuyers(fresh: { city: string | null; cost: number; lat: num
     const rows = fresh
       .map((f) => `<li>${usd(f.cost)} project${f.city ? ` — ${f.city} area` : ""}</li>`)
       .join("");
+    const unsubUrl = `${base}/api/unsubscribe?token=${encodeURIComponent(signBuyerUnsub(b.email))}`;
     const res = await sendEmail({
       to: b.email,
       subject: `New job near you: ${usd(lead.cost)} project${lead.city ? ` in ${lead.city}` : ""}`,
       html:
         `<p>${b.company_name} — ${fresh.length === 1 ? "a new job just opened" : `${fresh.length} new jobs just opened`}${miTxt}:</p>` +
         `<ul>${rows}</ul>` +
-        `<p>Each one goes to a single company — first to unlock wins the exclusive.</p>` +
+        `<p>Every job is capped at ${leadMaxBuyers()} companies — first come, first served. Or lock one down as an exclusive.</p>` +
         `<p><a href="${base}/buyers">See them in your dashboard</a></p>` +
-        `<p style="color:#888;font-size:12px">You get these because you turned on new-job alerts. Turn them off any time in <a href="${base}/buyers">your dashboard</a>.</p>`,
+        `<p style="color:#888;font-size:12px">You get these because you turned on new-job alerts. ` +
+        `<a href="${unsubUrl}">Unsubscribe with one click</a> or manage alerts in <a href="${base}/buyers">your dashboard</a>.</p>`,
       tags: { kind: "buyer_alert" },
+      headers: {
+        "List-Unsubscribe": `<${unsubUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
     });
     if (res.ok) sent++;
   }

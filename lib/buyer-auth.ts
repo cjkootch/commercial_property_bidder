@@ -1,9 +1,10 @@
 // Passwordless BUYER auth (lead-marketplace side), mirroring lib/customer-auth:
-// signed HMAC tokens, no passwords. Three token kinds:
+// signed HMAC tokens, no passwords. Four token kinds:
 //   - claim:   embedded in campaign teasers; carries the free lead's property_id
 //              (+ suggested company name). Opening it IS the invitation.
 //   - login:   short-TTL magic link for returning buyers.
 //   - session: long-TTL, stored in the gk_buyer cookie (carries buyer id).
+//   - unsub:   one-click unsubscribe in alert emails (no login required).
 
 import crypto from "node:crypto";
 
@@ -14,18 +15,24 @@ const SESSION_TTL = 30 * 24 * 60 * 60;
 export const BUYER_SESSION_MAX_AGE = SESSION_TTL;
 
 function secret(): string {
-  return (
+  const s =
     process.env.BUYER_AUTH_SECRET ||
     process.env.CUSTOMER_AUTH_SECRET ||
-    process.env.OPERATOR_SHARED_SECRET ||
-    "dev-insecure-buyer-secret"
-  );
+    process.env.OPERATOR_SHARED_SECRET;
+  if (s) return s;
+  // Fail loudly in production — a hardcoded fallback would make every buyer
+  // session and claim link forgeable.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("BUYER_AUTH_SECRET (or CUSTOMER_AUTH_SECRET/OPERATOR_SHARED_SECRET) must be set.");
+  }
+  return "dev-insecure-buyer-secret";
 }
 
 type Payload =
   | { kind: "claim"; property_id: string; company: string | null; exp: number }
   | { kind: "login"; email: string; exp: number }
-  | { kind: "session"; buyer_id: string; exp: number };
+  | { kind: "session"; buyer_id: string; exp: number }
+  | { kind: "unsub"; email: string; exp: number };
 
 function sign(payload: Payload): string {
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
@@ -77,4 +84,15 @@ export function signBuyerSession(buyerId: string): string {
 export function verifyBuyerSession(token: string | null | undefined): string | null {
   const p = verify(token);
   return p?.kind === "session" ? p.buyer_id : null;
+}
+
+// One-click unsubscribe links for alert emails (opting out must not require a
+// login). Effectively non-expiring.
+const UNSUB_TTL = 10 * 365 * 24 * 60 * 60;
+export function signBuyerUnsub(email: string): string {
+  return sign({ kind: "unsub", email: email.toLowerCase().trim(), exp: nowSec() + UNSUB_TTL });
+}
+export function verifyBuyerUnsub(token: string | null | undefined): string | null {
+  const p = verify(token);
+  return p?.kind === "unsub" ? p.email : null;
 }

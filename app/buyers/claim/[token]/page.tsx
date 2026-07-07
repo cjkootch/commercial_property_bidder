@@ -1,17 +1,21 @@
 import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { leadUnlock, property } from "@/lib/db/schema";
+import { property } from "@/lib/db/schema";
 import { verifyBuyerClaim } from "@/lib/buyer-auth";
 import { getDefaultCompany } from "@/lib/db/queries";
+import { leadAvailability, leadMaxBuyers } from "@/lib/leads/availability";
 import { createBuyerProfile } from "../../actions";
 import { Logo } from "@/components/Logo";
 
 // Public claim landing (token-authenticated): the campaign teaser links here.
 // Shows what we can say for free (project value, type, timing, area — never the
 // address) and a 3-field profile form. Creating the profile IS the opt-in and
-// unlocks the free lead.
+// unlocks the free lead if a shared spot is still open.
 export const dynamic = "force-dynamic";
+// createBuyerProfile builds the dossier snapshot (TABS + Mapbox + county) —
+// give the action room beyond the platform default.
+export const maxDuration = 60;
 
 const note = (notes: string | null, re: RegExp) => notes?.match(re)?.[1]?.trim() ?? null;
 
@@ -45,9 +49,9 @@ export default async function ClaimPage({
   }
 
   const [prop] = await db.select().from(property).where(eq(property.id, claim.property_id)).limit(1);
-  const [taken] = prop
-    ? await db.select().from(leadUnlock).where(eq(leadUnlock.property_id, prop.id)).limit(1)
-    : [undefined];
+  const avail = prop && prop.parcel_geojson ? await leadAvailability(prop) : null;
+  const claimable = !!avail?.open;
+  const cap = leadMaxBuyers();
 
   const cost = note(prop?.notes ?? null, /est\. cost (\$[\d,]+)/);
   const workType = note(prop?.notes ?? null, /: ([^,]+), est\. cost/);
@@ -57,20 +61,24 @@ export default async function ClaimPage({
     <Shell brand={brand}>
       <h1 className="mt-4 text-xl font-semibold">Claim your free job sheet</h1>
 
-      {prop && !taken ? (
+      {claimable ? (
         <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
           <div className="font-medium text-gray-900">Reserved for you:</div>
           <ul className="mt-2 space-y-1 text-gray-600">
             {cost ? <li>• {cost} {workType ?? "commercial"} project</li> : <li>• Large commercial project</li>}
             {start ? <li>• Breaking ground around {start}</li> : null}
-            {prop.city ? <li>• {prop.city} area</li> : null}
+            {prop!.city ? <li>• {prop!.city} area</li> : null}
             <li>• Full sheet: exact location, decision contacts, our aerial measurement, contract value, and the window to bid</li>
           </ul>
+          <p className="mt-2 text-xs text-gray-400">
+            Every job is capped at {cap} companies — ever.
+            {avail!.spotsLeft === 1 ? " This is the last spot." : ""}
+          </p>
         </div>
       ) : (
         <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          {taken
-            ? "This job was claimed by another company — each one goes to a single buyer. Create your profile anyway and you'll see what's open in your area, plus get first look at the next one."
+          {prop
+            ? `This job hit its ${cap}-company cap — we never oversell a lead. Create your profile anyway and you'll see what's open in your area, plus get first look at the next one.`
             : "Create your profile and you'll see the jobs open in your area."}
         </p>
       )}
@@ -105,7 +113,7 @@ export default async function ClaimPage({
           type="submit"
           className="w-full rounded-md bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark"
         >
-          {prop && !taken ? "Create profile & unlock my free sheet" : "Create profile"}
+          {claimable ? "Create profile & unlock my free sheet" : "Create profile"}
         </button>
         <p className="text-xs text-gray-400">
           No card required. We&apos;ll email you when new jobs open near your office — unsubscribe
