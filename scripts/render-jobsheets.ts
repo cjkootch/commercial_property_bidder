@@ -147,9 +147,9 @@ function sheetHtml(o: {
           <div class="row">${o.bidWindow}</div>
         </div>
       </div>
-      <div class="fine">Prepared from public records (TDLR TABS, county parcel/appraisal) and current aerial imagery.
-      Contacts are from public filings or the organization's own published channels — no licensed databases.
-      ${o.projected ? "Site is under construction — turf area is projected from parcel geometry and typical site coverage; " : ""}Maintenance value estimated at prevailing commercial rates; confirm scope on site. © ${esc(o.brand)}.</div>
+      <div class="fine">Prepared by ${esc(o.brand)} from verified project intelligence, county land records, and current
+      aerial imagery. Contacts come from public filings or the organization's own published channels — no licensed databases.
+      ${o.projected ? "Site is under construction — turf area is projected from parcel geometry and typical site coverage; " : ""}Maintenance value estimated at prevailing commercial rates; confirm scope on site. © ${esc(o.brand)}. Do not redistribute.</div>
     </div>
   </body></html>`;
 }
@@ -169,18 +169,18 @@ function teaserTxt(o: {
 
 Hi {FIRST_NAME},
 
-A ${o.projCost} commercial ${o.workType.toLowerCase()} project has been registered in the ${o.cityArea} area{DISTANCE_CLAUSE}, with construction starting around ${o.start}.
+A ${o.projCost} commercial development is getting underway in the ${o.cityArea} area{DISTANCE_CLAUSE}, with ground breaking around ${o.start}.
 
-When it opens, it will need year-round grounds maintenance:
+Once complete, it will need year-round grounds maintenance:
 
-  - ~${o.turf.toLocaleString()} sq ft of maintainable turf (measured from aerial imagery)
+  - ~${o.turf.toLocaleString()} sq ft of maintainable turf (we measured the site from the air)
   - Estimated contract value: ${usd(o.annualLo)}–${usd(o.annualHi)}/yr
-  - Registered scope includes landscaping/site work
+  - The development plans include landscaping/site work
 
 The full job sheet unlocks everything you need to go win it:
 
   - Exact address + aerial with the grounds highlighted
-  - OWNER and ARCHITECT OF RECORD, with the owner's county mailing address
+  - The OWNER and ARCHITECT to contact, with the owner's mailing address
   - Published phone/email/website where available
   - Crew-hour + equipment sizing for your bid math
   - Bid window: estimated completion date and when to engage
@@ -258,6 +258,10 @@ async function main() {
 
       // Live TABS lookup for the paid extras: architect/tenant + completion date.
       const tabsNum = note(p.notes, "number");
+      // Buyer-facing reference: internal GK id, never the registry number — the
+      // sourcing method is our trade secret (filename included: sheets get
+      // emailed to buyers).
+      const gkRef = `GK-${(tabsNum ?? `X${n}`).replace(/\D/g, "").slice(-5) || n}`;
       const proj = tabsNum ? await findTabsByNumber(tabsNum) : null;
       const det = proj ? await fetchTabsDetails(proj.project_id) : null;
 
@@ -301,7 +305,7 @@ async function main() {
       const sheet = sheetHtml({
         name: p.name.replace(/ \(TABS [^)]+\)$/, ""),
         address: [p.address, p.city, p.zip].filter(Boolean).join(", "),
-        tabs: tabsNum ?? "TABS",
+        tabs: gkRef,
         workType: note(p.notes, "type") ?? "New Construction",
         projCost: note(p.notes, "cost") ?? "—",
         start: note(p.notes, "start") ?? "TBD",
@@ -323,7 +327,7 @@ async function main() {
         brand: co.name,
         today,
       });
-      const safe = (note(p.notes, "number") ?? `lead-${n}`).toLowerCase();
+      const safe = gkRef.toLowerCase();
       await page.setContent(sheet, { waitUntil: "load" });
       await page.screenshot({ path: `jobsheets/${safe}-sheet.png` });
       await writeFile(

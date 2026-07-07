@@ -69,11 +69,11 @@ function message(o: {
   const { lead } = o;
   return `Hi ${o.company} team,
 
-We track upcoming commercial construction across the Houston metro. A ${lead.cost} ${lead.workType.toLowerCase()} project was just registered${o.distClause}${lead.city ? ` (${lead.city} area)` : ""}, breaking ground around ${lead.start}.
+A ${lead.cost} commercial development is getting underway${o.distClause}${lead.city ? ` (${lead.city} area)` : ""}, with ground breaking around ${lead.start}.
 
-When it opens, it will need year-round grounds maintenance — roughly ${lead.turf.toLocaleString()} sq ft of maintainable turf, an estimated ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr contract.
+Once it's complete, it will need year-round grounds maintenance. We've already measured the site from the air: roughly ${lead.turf.toLocaleString()} sq ft of maintainable turf — an estimated ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr contract.
 
-We prepare full job sheets on projects like this: exact address, owner and architect of record, aerial site measurement, crew sizing, and when to bid. YOUR FIRST SHEET IS FREE — reply to this message or email ${o.replyEmail} and we'll send it over, no strings attached.
+We package opportunities like this into complete job sheets: the exact location, the owner and architect to contact, our site measurement, crew-hour sizing, and the right window to bid. YOUR FIRST SHEET IS FREE — reply to this message or email ${o.replyEmail} and it's yours, no strings attached.
 
 — ${o.brand}
 ${o.replyEmail} · after the free one, sheets are $${o.price} each and sold to one company only
