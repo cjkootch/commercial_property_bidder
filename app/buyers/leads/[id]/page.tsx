@@ -248,6 +248,14 @@ export default async function LeadSheet({
                     <div className="font-medium text-gray-900">{ownerName ?? "the owner"}</div>
                     <div className="text-gray-600">{ownerMail ?? "No mailing address on file for this owner."}</div>
                   </div>
+                  <a
+                    href={`/buyers/leads/${unlock.id}/postcard-preview`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-block text-sm font-semibold text-brand hover:underline"
+                  >
+                    Preview the postcard →
+                  </a>
                   {canMail ? (
                     <form action={startPostcardCheckout.bind(null, unlock.id)} className="mt-3">
                       <button className="rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark">

@@ -222,6 +222,14 @@ export default async function ProspectWorkspace({
             <p className="mt-1 text-xs text-gray-500">
               We print &amp; mail a branded card to this property with a QR to your quote page.
             </p>
+            <a
+              href={`/buyers/prospects/${p.id}/postcard-preview`}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-block text-sm font-semibold text-brand hover:underline"
+            >
+              Preview the postcard →
+            </a>
             {needsOffice ? (
               <p className="mt-3 text-xs text-amber-700">
                 Add your office address in{" "}
