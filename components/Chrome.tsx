@@ -17,6 +17,7 @@ export function Chrome({ children }: { children: React.ReactNode }) {
     pathname?.startsWith("/quote") ||
     pathname?.startsWith("/proposals") ||
     pathname?.startsWith("/customer") ||
+    pathname?.startsWith("/buyers") ||
     pathname?.startsWith("/login");
   if (bare) return <>{children}</>;
 

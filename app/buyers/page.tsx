@@ -7,7 +7,7 @@ import { getDefaultCompany } from "@/lib/db/queries";
 import { exclusivePriceCents, leadPriceCents } from "@/lib/integrations/stripe";
 import { leadMaxBuyers } from "@/lib/leads/availability";
 import { haversineMiles } from "@/lib/sourcing/criteria";
-import { buyerLogout, currentBuyerId, startCheckout, toggleNotifications } from "./actions";
+import { buyerLogout, claimFreeLead, currentBuyerId, startCheckout, toggleNotifications } from "./actions";
 import { Logo } from "@/components/Logo";
 
 // Buyer dashboard: unlocked leads (theirs forever), open opportunities in
@@ -42,6 +42,8 @@ export default async function BuyerDashboard({
     .innerJoin(property, eq(leadUnlock.property_id, property.id))
     .where(eq(leadUnlock.buyer_id, me.id))
     .orderBy(desc(leadUnlock.created_at));
+  // "First sheet free" — organic signups claim it from here.
+  const freeAvailable = !mine.some(({ unlock }) => unlock.kind === "free");
 
   // Open opportunities: permit leads with shared spots left (cap disclosed —
   // that's the scarcity promise). Teaser fields only (value/type/timing/city +
@@ -228,11 +230,19 @@ export default async function BuyerDashboard({
                       </div>
                     </div>
                     <div className="flex flex-col items-stretch gap-2">
-                      <form action={startCheckout.bind(null, p.id, "paid")}>
-                        <button className="w-full rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark">
-                          Unlock — ${price}
-                        </button>
-                      </form>
+                      {freeAvailable ? (
+                        <form action={claimFreeLead.bind(null, p.id)}>
+                          <button className="w-full rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark">
+                            Claim free — first sheet on us
+                          </button>
+                        </form>
+                      ) : (
+                        <form action={startCheckout.bind(null, p.id, "paid")}>
+                          <button className="w-full rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark">
+                            Unlock — ${price}
+                          </button>
+                        </form>
+                      )}
                       {exclusiveOpen ? (
                         <form action={startCheckout.bind(null, p.id, "exclusive")}>
                           <button className="w-full rounded-md border border-gray-300 px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50">
