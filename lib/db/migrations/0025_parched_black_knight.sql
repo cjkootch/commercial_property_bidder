@@ -1,0 +1,1 @@
+ALTER TABLE "buyer" ADD COLUMN "zip" text;

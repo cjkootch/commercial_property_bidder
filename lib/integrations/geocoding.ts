@@ -76,6 +76,41 @@ export async function geocodeAddress(
   }
 }
 
+/**
+ * Geocode an address to coords AND its USPS ZIP (from Mapbox's `context`).
+ * Used for the buyer's office address so their mailed postcards carry a real
+ * return ZIP without asking for it. Null on the same conditions as
+ * geocodeAddress; `zip` is null when Mapbox doesn't resolve a postcode.
+ */
+export async function geocodeWithZip(
+  address: string,
+  types = "address,poi"
+): Promise<{ lng: number; lat: number; zip: string | null } | null> {
+  const token = getMapboxToken();
+  if (!token) return null;
+  const query = address?.trim();
+  if (!query) return null;
+
+  const url =
+    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
+    `?access_token=${encodeURIComponent(token)}&limit=1&country=us&types=${encodeURIComponent(types)}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      features?: Array<{ center?: number[]; context?: Array<{ id?: string; text?: string }> }>;
+    };
+    const f = data.features?.[0];
+    const center = f?.center;
+    if (!center || center.length < 2) return null;
+    const zip = f?.context?.find((c) => c.id?.startsWith("postcode"))?.text ?? null;
+    return { lng: center[0], lat: center[1], zip: zip && /^\d{5}$/.test(zip) ? zip : null };
+  } catch {
+    return null;
+  }
+}
+
 /** Driving time/distance between two [lng,lat] points (Mapbox Directions). */
 export async function fetchDriveTime(
   from: [number, number],

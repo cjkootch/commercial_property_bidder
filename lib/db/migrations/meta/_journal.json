@@ -169,6 +169,20 @@
       "when": 1783452634644,
       "tag": "0023_workable_namor",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783453484378,
+      "tag": "0024_open_madripoor",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783454319310,
+      "tag": "0025_parched_black_knight",
+      "breakpoints": true
     }
   ]
 }
