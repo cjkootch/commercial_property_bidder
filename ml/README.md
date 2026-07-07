@@ -74,11 +74,14 @@ measurement yet** automatically runs the model and inserts the polygons as an
 editable `ml_pred` draft (same gating as the batch seeder: confidence stays
 "Low" unless the model is decisive AND agrees with the RGB vegetation signal).
 
+The trained weights are COMMITTED at `ml/weights/` (fp16 — verified to produce
+identical polygons to the fp32 training output; the fresh fp32 lands in
+`training-data/out/` after a retrain and takes precedence when present).
+
 Deploy — Hugging Face Docker Space (recommended, uses `ml/Dockerfile`):
 1. Create a Space -> Docker -> **private**.
-2. Upload the contents of `ml/` (Dockerfile at the Space root) plus your trained
-   weights as `weights/seg_unet.pt` and `weights/seg_classes.json`
-   (from `training-data/out/`).
+2. Upload the contents of `ml/` (Dockerfile at the Space root) including the
+   `weights/` folder — that's the whole deployment.
 3. In Vercel: `TURF_MODEL_URL=https://<user>-<space>.hf.space` and
    `TURF_MODEL_KEY=<your hf_ token>`. A private Space is gated by HF's own
    auth, so leave `TURF_MODEL_KEY` unset inside the Space.
