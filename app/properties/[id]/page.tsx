@@ -9,6 +9,8 @@ import {
 } from "@/lib/db/queries";
 import {
   saveMeasurement,
+  saveMeasurementWithGeometry,
+  estimateServiceableArea,
   ensurePropertyGeocoded,
   ensurePropertyParcel,
   ensurePropertyOwnerSuggestion,
@@ -239,7 +241,6 @@ export default async function PropertyWorkspace({
       {/* Aerial measure & audit */}
       <MeasureMapLoader
         token={mapToken}
-        propertyId={prop.id}
         center={center}
         zoom={zoom}
         geocoded={geocoded}
@@ -252,6 +253,8 @@ export default async function PropertyWorkspace({
           complexity: meas ? Number(meas.complexity) : 1.0,
           confidence: meas?.confidence ?? "Med",
         }}
+        onSave={saveMeasurementWithGeometry.bind(null, prop.id)}
+        onEstimateVeg={estimateServiceableArea.bind(null, prop.id)}
       />
 
       {/* Pricing calculation audit */}

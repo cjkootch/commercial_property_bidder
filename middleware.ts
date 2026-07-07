@@ -25,6 +25,7 @@ const PUBLIC_PREFIXES = [
   "/api/unsubscribe",
   "/api/webhooks",
   "/api/property-preview",
+  "/api/postcard-asset", // Lob fetches the prospect aerial by unguessable slug
   "/api/cron", // routes self-authenticate with CRON_SECRET
 ];
 

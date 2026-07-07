@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { asc, desc, eq, like } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, chatMessage, leadUnlock, property } from "@/lib/db/schema";
+import { buyer, chatMessage, leadUnlock, property, prospect } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { exclusivePriceCents, leadPriceCents } from "@/lib/integrations/stripe";
 import { leadMaxBuyers } from "@/lib/leads/availability";
@@ -66,6 +66,15 @@ export default async function BuyerDashboard({
     .orderBy(desc(leadUnlock.created_at));
   // "First sheet free" — organic signups claim it from here.
   const freeAvailable = !mine.some(({ unlock }) => unlock.kind === "free");
+
+  // Self-serve prospecting summary for the sidebar card.
+  const myProspects = await db
+    .select({ status: prospect.status, views: prospect.view_count })
+    .from(prospect)
+    .where(eq(prospect.buyer_id, me.id));
+  const prospectCount = myProspects.length;
+  const prospectMailed = myProspects.filter((p) => p.status === "mailed" || p.status === "viewed").length;
+  const prospectViews = myProspects.reduce((s, p) => s + (p.views ?? 0), 0);
 
   const chat: ChatMsg[] = (
     await db
@@ -161,6 +170,9 @@ export default async function BuyerDashboard({
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3.5">
           <Logo name={brand} />
           <div className="flex items-center gap-4 text-sm">
+            <Link href="/buyers/prospects" className="text-gray-500 hover:text-gray-900">
+              Prospecting
+            </Link>
             <Link href="/buyers/profile" className="text-gray-500 hover:text-gray-900">
               Profile
             </Link>
@@ -226,6 +238,37 @@ export default async function BuyerDashboard({
               <div className="mt-0.5 text-xs">Applies automatically on your next unlock.</div>
             </div>
           ) : null}
+
+          {/* Self-serve prospecting */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-4">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-gray-900">Your prospecting</div>
+              <Link href="/buyers/prospects" className="text-xs font-semibold text-brand hover:underline">
+                Open →
+              </Link>
+            </div>
+            {prospectCount > 0 ? (
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-lg font-bold text-gray-900">{prospectCount}</div>
+                  <div className="text-[11px] uppercase tracking-wide text-gray-400">Prospects</div>
+                </div>
+                <div>
+                  <div className="text-lg font-bold text-gray-900">{prospectMailed}</div>
+                  <div className="text-[11px] uppercase tracking-wide text-gray-400">Mailed</div>
+                </div>
+                <div>
+                  <div className="text-lg font-bold text-gray-900">{prospectViews}</div>
+                  <div className="text-[11px] uppercase tracking-wide text-gray-400">Quote opens</div>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-gray-500">
+                Add your own target addresses — we measure, quote, and mail a branded postcard that
+                drives to your quote page.
+              </p>
+            )}
+          </div>
 
           <div className="rounded-2xl border border-gray-200 bg-white p-4">
             <div className="flex items-center justify-between gap-3">

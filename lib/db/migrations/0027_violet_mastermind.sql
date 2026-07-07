@@ -1,0 +1,2 @@
+ALTER TABLE "postcard" DROP CONSTRAINT "postcard_target_xor";--> statement-breakpoint
+ALTER TABLE "postcard" ADD CONSTRAINT "postcard_target_xor" CHECK (NOT ("postcard"."unlock_id" IS NOT NULL AND "postcard"."prospect_id" IS NOT NULL));
