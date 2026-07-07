@@ -230,6 +230,47 @@ export async function requestBuyerLink(formData: FormData): Promise<void> {
   redirect("/buyers/login?sent=1");
 }
 
+/** Update the landscaper profile (auto-fills their outreach letters + anchors
+ *  the service-radius map to their office). */
+export async function updateBuyerProfile(formData: FormData): Promise<void> {
+  const buyerId = await currentBuyerId();
+  if (!buyerId) redirect("/buyers/login");
+  const s = (k: string) => ((formData.get(k) as string) || "").trim().slice(0, 300) || null;
+  const company = s("company_name");
+  const address = s("address");
+  const city = s("city");
+  const radius = Math.max(2, Math.min(60, Math.round(Number(formData.get("service_radius_mi")) || 25)));
+  const [me] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
+
+  // Geocode the office ADDRESS (precise) when it changed; fall back to city.
+  let coords: [number, number] | null = null;
+  if (address && address !== me?.address) {
+    coords = await geocodeAddress(`${address}, ${city ?? "TX"}`, "address,poi");
+  } else if (!me?.lat && city) {
+    coords = await geocodeAddress(`${city}, TX`, "place,address,poi");
+  }
+
+  await db
+    .update(buyer)
+    .set({
+      company_name: company || me?.company_name || "My company",
+      contact_name: s("contact_name"),
+      phone: s("phone"),
+      website: s("website"),
+      license_number: s("license_number"),
+      address,
+      city,
+      service_radius_mi: radius,
+      bio: s("bio"),
+      ...(coords ? { lng: coords[0], lat: coords[1] } : {}),
+      updated_at: new Date(),
+    })
+    .where(eq(buyer.id, buyerId!));
+  revalidatePath("/buyers");
+  revalidatePath("/buyers/profile");
+  redirect("/buyers/profile?saved=1");
+}
+
 export async function buyerLogout(): Promise<void> {
   cookies().delete(BUYER_COOKIE);
   redirect("/buyers/login");
