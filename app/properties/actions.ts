@@ -237,6 +237,31 @@ export async function saveMeasurementWithGeometry(
 }
 
 /**
+ * Soft-archive a reviewed/used-for-modelling property: hides it from the
+ * dashboard pipeline and the buyer marketplace. Its measurements stay, so the
+ * ML training export is unaffected. Reversible via unarchiveProperty.
+ */
+export async function archiveProperty(propertyId: string): Promise<void> {
+  await db
+    .update(property)
+    .set({ archived_at: new Date(), updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  revalidatePath("/dashboard");
+  revalidatePath(`/properties/${propertyId}`);
+  redirect("/dashboard");
+}
+
+/** Restore an archived property to the working lists. */
+export async function unarchiveProperty(propertyId: string): Promise<void> {
+  await db
+    .update(property)
+    .set({ archived_at: null, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  revalidatePath("/dashboard");
+  revalidatePath(`/properties/${propertyId}`);
+}
+
+/**
  * Lazily geocode a property's address to lat/lng on first map open. No-op if
  * already geocoded or if geocoding fails (the map falls back to a draggable
  * pin). Returns the current [lng, lat] or null.

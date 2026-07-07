@@ -1,8 +1,9 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { db } from "./index";
 import {
   buyer,
   company,
+  leadUnlock,
   measurement,
   pricingConfig,
   pricingResult,
@@ -78,6 +79,18 @@ export type DashboardRow = {
   /** Composite 0–100 prospect score + the signals that drove it. */
   lead_score: number;
   lead_reasons: string[];
+  /** Soft-archived (hidden from working lists; training data retained). */
+  archived: boolean;
+  /** Has a human-verified labelled measurement — it trained (or will train) the model. */
+  modelled: boolean;
+  /** Marketplace-ready: a permit lead with a parcel, not yet exported. */
+  sellable: boolean;
+  /** Buyer teaser band, when the lead has one. */
+  teaser_lo: number | null;
+  teaser_hi: number | null;
+  /** Marketplace sales on this lead. */
+  spots_sold: number;
+  sold_exclusive: boolean;
 };
 
 /** All properties with their most recent pricing result, for the dashboard. */
@@ -87,6 +100,25 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
     .from(property)
     .where(eq(property.company_id, companyId))
     .orderBy(desc(property.created_at));
+
+  // Human-labelled measurements = properties that feed the model.
+  const labelled = await db
+    .select({ pid: measurement.property_id })
+    .from(measurement)
+    .where(and(isNotNull(measurement.service_areas), ne(measurement.source, "ml_pred")));
+  const modelledIds = new Set(labelled.map((m) => m.pid));
+
+  // Marketplace sales per property.
+  const unlocks = await db
+    .select({ pid: leadUnlock.property_id, kind: leadUnlock.kind })
+    .from(leadUnlock);
+  const soldBy = new Map<string, { count: number; exclusive: boolean }>();
+  for (const u of unlocks) {
+    const e = soldBy.get(u.pid) ?? { count: 0, exclusive: false };
+    e.count++;
+    if (u.kind === "exclusive") e.exclusive = true;
+    soldBy.set(u.pid, e);
+  }
 
   // Coordinates of every property, for route-density scoring.
   const coords = props
@@ -118,6 +150,8 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
       neighborsNearby: neighborsNearby(p),
     });
 
+    const teaser = p.lead_teaser as { annual_lo?: number; annual_hi?: number } | null;
+    const sold = soldBy.get(p.id);
     rows.push({
       id: p.id,
       name: p.name,
@@ -133,6 +167,13 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
       needs_review: pr?.needs_review ?? false,
       lead_score: score,
       lead_reasons: reasons,
+      archived: p.archived_at != null,
+      modelled: modelledIds.has(p.id),
+      sellable: /\(TABS /.test(p.name) && p.parcel_geojson != null && p.lead_exported_at == null,
+      teaser_lo: teaser?.annual_lo ?? null,
+      teaser_hi: teaser?.annual_hi ?? null,
+      spots_sold: sold?.count ?? 0,
+      sold_exclusive: sold?.exclusive ?? false,
     });
   }
   return rows;
