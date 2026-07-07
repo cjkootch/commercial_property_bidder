@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function BuyerLogin({
   searchParams,
 }: {
-  searchParams: { sent?: string; error?: string; expired?: string };
+  searchParams: { sent?: string; error?: string; expired?: string; exists?: string };
 }) {
   const co = await getDefaultCompany();
   return (
@@ -25,6 +25,11 @@ export default async function BuyerLogin({
         {searchParams.expired ? (
           <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             That link has expired — request a fresh one below.
+          </p>
+        ) : null}
+        {searchParams.exists ? (
+          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            You already have a profile — enter your email and we&apos;ll send your sign-in link.
           </p>
         ) : null}
 

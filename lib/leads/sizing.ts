@@ -5,7 +5,7 @@
 // same numbers.
 
 import area from "@turf/area";
-import { estimateServiceableArea } from "../integrations/imagery";
+import { estimateServiceableArea, type ServiceableEstimate } from "../integrations/imagery";
 import { computePricing } from "../pricing/engine";
 import { M2_TO_SQFT } from "../geo/area";
 import type { ParcelResult } from "../geo/types";
@@ -31,9 +31,11 @@ const roundTo = (n: number, step: number) => Math.max(step, Math.round(n / step)
 export async function sizeLead(
   parcel: ParcelResult,
   token: string,
-  cfg: PricingConfig
+  cfg: PricingConfig,
+  /** Pass a pre-fetched estimate to avoid a second imagery spend (dossier). */
+  preEst?: ServiceableEstimate | null
 ): Promise<LeadSizing> {
-  const est = await estimateServiceableArea(parcel, token);
+  const est = preEst !== undefined ? preEst : await estimateServiceableArea(parcel, token);
   const parcelSqft = area(parcel.geometry as GeoJSON.Geometry) * M2_TO_SQFT;
   const projected = !est || est.turf_sqft < parcelSqft * 0.08;
   const turf = Math.round(projected ? parcelSqft * PROJECTED_GROUNDS_FRACTION : est!.turf_sqft);

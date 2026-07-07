@@ -121,7 +121,10 @@ export async function fetchParcelTile(
 
   try {
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[imagery] parcel tile fetch ${res.status} for bbox ${bbox}`);
+      return null;
+    }
     const buf = Buffer.from(await res.arrayBuffer());
     const img = jpeg.decode(buf, { useTArray: true, formatAsRGBA: true });
     return {
@@ -140,7 +143,8 @@ export async function fetchParcelTile(
         [minLng, minLat],
       ],
     };
-  } catch {
+  } catch (e) {
+    console.warn(`[imagery] parcel tile failed:`, e instanceof Error ? e.message : e);
     return null;
   }
 }

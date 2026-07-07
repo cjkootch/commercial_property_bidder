@@ -91,6 +91,9 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
 /**
  * Public signup (homepage): same 3-field profile, no campaign token and no
  * lead attached — the buyer picks their free first sheet from the dashboard.
+ * SECURITY: an existing email gets routed to the magic-link login instead of
+ * a fresh session — otherwise typing someone's address would hand over their
+ * account. (Claim-token signups may reuse the row: token possession is proof.)
  */
 export async function createBuyerAccount(formData: FormData): Promise<void> {
   const email = ((formData.get("email") as string) || "").trim().toLowerCase();
@@ -101,22 +104,20 @@ export async function createBuyerAccount(formData: FormData): Promise<void> {
   const rl = await rateLimit(`buyersignup:ip:${clientIp()}`, 10, 3600);
   if (!rl.ok) redirect("/buyers/signup?error=1");
 
-  const coords = city ? await geocodeAddress(`${city}, TX`, "place,address,poi") : null;
   const [existing] = await db.select().from(buyer).where(eq(buyer.email, email)).limit(1);
-  const row =
-    existing ??
-    (
-      await db
-        .insert(buyer)
-        .values({
-          company_name: company,
-          email,
-          city: city || null,
-          lng: coords?.[0] ?? null,
-          lat: coords?.[1] ?? null,
-        })
-        .returning()
-    )[0];
+  if (existing) redirect("/buyers/login?exists=1");
+
+  const coords = city ? await geocodeAddress(`${city}, TX`, "place,address,poi") : null;
+  const [row] = await db
+    .insert(buyer)
+    .values({
+      company_name: company,
+      email,
+      city: city || null,
+      lng: coords?.[0] ?? null,
+      lat: coords?.[1] ?? null,
+    })
+    .returning();
 
   cookies().set(BUYER_COOKIE, signBuyerSession(row.id), {
     httpOnly: true,
