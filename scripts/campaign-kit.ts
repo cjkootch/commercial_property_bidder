@@ -12,6 +12,7 @@ import { searchLandscapers, type BuyerCandidate } from "../lib/integrations/apol
 import { scrapeBusinessContact } from "../lib/integrations/contact";
 import { geocodeAddress } from "../lib/integrations/geocoding";
 import { sizeLead } from "../lib/leads/sizing";
+import { signBuyerClaim } from "../lib/buyer-auth";
 import { haversineMiles } from "../lib/sourcing/criteria";
 import type { ParcelResult } from "../lib/geo/types";
 
@@ -46,6 +47,7 @@ function note(notes: string | null, re: RegExp): string | null {
 }
 
 type SizedLead = {
+  id: string;
   tabs: string;
   city: string | null;
   cost: string;
@@ -66,6 +68,7 @@ function message(o: {
   brand: string;
   replyEmail: string;
   price: number;
+  claimUrl: string;
 }): string {
   const { lead } = o;
   return `SUBJECT: ${usd(lead.annualHi)}/yr grounds contract coming${o.distShort}
@@ -78,13 +81,24 @@ We measured the site from the air: ~${lead.turf.toLocaleString()} sq ft of maint
 
 Everything a bidder needs is on one page: exact location, the owner and architect to contact, our measurement, crew sizing, and the window to bid. Each job goes to ONE company. First to claim it.
 
-Your first sheet is free. Reply "SEND IT" and it's in your inbox today — no card, no strings. After that they're $${o.price} each.
+Your first sheet is FREE — claim it here (takes 30 seconds, no card):
+${o.claimUrl}
+
+The full sheet unlocks the moment you create your profile. After that they're $${o.price} each. Or just reply "SEND IT" and we'll set it up for you.
 
 — ${o.brand}
 ${o.replyEmail}
 
 P.S. If this one's too far or the wrong size, reply with your service area and we'll send the next match instead.
 `;
+}
+
+/** Public site base for claim links — never leak a localhost dev URL. */
+function siteBase(): string {
+  const envBase = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+  if (envBase && !/localhost|127\.0\.0\.1/.test(envBase)) return envBase;
+  console.log("  (!) NEXT_PUBLIC_APP_URL unset or localhost — claim links use https://greenkeep.us");
+  return "https://greenkeep.us";
 }
 
 function parseBuyersCsv(path: string): BuyerCandidate[] {
@@ -127,6 +141,7 @@ async function main() {
     try {
       const s = await sizeLead(parcel, token!, cfg);
       leads.push({
+        id: p.id,
         tabs: note(p.notes, /TABS (\S+):/) ?? "TABS",
         city: p.city,
         cost: note(p.notes, /est\. cost (\$[\d,]+)/) ?? "large",
@@ -160,6 +175,7 @@ async function main() {
   const stamp = new Date().toISOString().slice(0, 10);
   const dir = `campaign/${stamp}`;
   await mkdir(`${dir}/messages`, { recursive: true });
+  const base = siteBase();
 
   const csv: string[] = [
     "company,website,contact_form_url,published_email,published_phone,office_area,distance_mi,lead_tabs,lead_value_yr,message_file,status",
@@ -192,7 +208,12 @@ async function main() {
 
     const contact = b.website ? await scrapeBusinessContact(b.website) : { email: null, phone: null, contact_form_url: null };
 
-    const msg = message({ company: b.name, distClause, distShort, lead, brand: co.name, replyEmail, price: PRICE });
+    // Per-buyer claim link: 30-day token carrying the lead + suggested company
+    // name. Opening it lands on /buyers/claim/<token> — profile creation IS the
+    // free unlock (first company to claim wins the exclusive).
+    const claimUrl = `${base}/buyers/claim/${signBuyerClaim(lead.id, b.name)}`;
+
+    const msg = message({ company: b.name, distClause, distShort, lead, brand: co.name, replyEmail, price: PRICE, claimUrl });
     const safe = b.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
     await writeFile(`${dir}/messages/${safe}.txt`, msg);
 

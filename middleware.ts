@@ -9,6 +9,7 @@ import { OPERATOR_COOKIE, isValidOperatorCookie } from "./lib/auth";
 //    secret cookie. Cookie name is hardcoded to avoid importing node:crypto
 //    (lib/customer-auth) into the edge middleware.
 const CUSTOMER_COOKIE = "gk_customer";
+const BUYER_COOKIE = "gk_buyer";
 const PUBLIC_PREFIXES = [
   "/login",
   "/residential",
@@ -17,6 +18,9 @@ const PUBLIC_PREFIXES = [
   "/proposals",
   "/customer/login",
   "/customer/verify",
+  "/buyers/claim", // campaign claim links (token-authenticated)
+  "/buyers/login",
+  "/buyers/verify",
   "/api/unsubscribe",
   "/api/webhooks",
   "/api/property-preview",
@@ -28,6 +32,14 @@ export function middleware(req: NextRequest) {
 
   if (pathname === "/" || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
+  }
+
+  // Buyer portal (lead marketplace) — require a buyer session cookie.
+  if (pathname.startsWith("/buyers")) {
+    if (req.cookies.get(BUYER_COOKIE)?.value) return NextResponse.next();
+    const url = req.nextUrl.clone();
+    url.pathname = "/buyers/login";
+    return NextResponse.redirect(url);
   }
 
   // Customer portal — require a customer session cookie (presence check).

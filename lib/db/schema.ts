@@ -342,6 +342,43 @@ export const suppression = pgTable("suppression", {
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// --- lead buyers (the job-intelligence marketplace) -------------------------
+// A buyer = a landscaping company that claimed a free lead through a campaign
+// link (or signed up later). Creating a profile is the opt-in for new-lead
+// notifications; unsubscribes land in `suppression` like all email.
+
+export const buyer = pgTable("buyer", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  company_name: text("company_name").notNull(),
+  email: text("email").notNull().unique(),
+  city: text("city"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  notify: boolean("notify").notNull().default(true),
+  ...timestamps,
+});
+
+// One row per revealed lead. `dossier` is a SNAPSHOT taken at unlock time
+// (contacts, sizing, route intel, bid window, intro letter) so viewing a lead
+// never re-spends imagery/API quota and the buyer keeps what they bought even
+// if the source data shifts. Exclusivity: a property is unlocked at most once
+// (unique property_id) — sold to one company only.
+export const leadUnlock = pgTable("lead_unlock", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  buyer_id: uuid("buyer_id")
+    .notNull()
+    .references(() => buyer.id),
+  property_id: uuid("property_id")
+    .notNull()
+    .unique()
+    .references(() => property.id),
+  kind: text("kind").notNull().default("free"), // free | paid
+  price_cents: integer("price_cents").notNull().default(0),
+  stripe_session_id: text("stripe_session_id"),
+  dossier: jsonb("dossier"),
+  ...timestamps,
+});
+
 // --- usage counters (rate limiting + tenant metering) ----------------------
 // Fixed-window counters, serverless-friendly (one upsert per check, no Redis).
 // key examples: "quote:ip:1.2.3.4", "tenant:<uuid>:quotes". Old windows are

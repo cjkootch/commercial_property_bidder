@@ -12,6 +12,9 @@ import {
 } from "../lib/integrations/tabs";
 import { geocodeAddress } from "../lib/integrations/geocoding";
 import { fetchParcelAtPoint } from "../lib/integrations/parcel";
+import { sendEmail } from "../lib/integrations/resend";
+import { eq } from "drizzle-orm";
+import { haversineMiles } from "../lib/sourcing/criteria";
 
 // Permit-timed sourcing: ingest big-ticket commercial construction from the
 // TDLR TABS registry (public record; registration precedes occupancy by
@@ -75,6 +78,7 @@ async function main() {
   console.log(`  ${all.length} registrations -> ${candidates.length} big-ticket candidates\n`);
 
   let added = 0;
+  const fresh: { city: string | null; cost: number; lat: number | null; lng: number | null }[] = [];
   for (const p of candidates) {
     if (added >= WANT) break;
     const label = p.facility_name || p.project_name;
@@ -113,10 +117,63 @@ async function main() {
     });
     have.add(name.trim().toLowerCase());
     added++;
+    fresh.push({ city: det.city, cost: p.estimated_cost, lat: coords?.[1] ?? null, lng: coords?.[0] ?? null });
     console.log(`  ✓  ${usd(p.estimated_cost).padStart(12)}  ${label} — ${det.address}, ${det.city ?? ""}${det.owner ? ` [${det.owner}]` : ""}`);
   }
 
   console.log(`\nDone. Added ${added}/${WANT} permit-timed lead(s). They carry the project value/scope in notes.`);
+  if (fresh.length) await notifyBuyers(fresh);
+}
+
+/**
+ * New-job alerts to opted-in buyers (notify=true at signup; suppression list
+ * respected). Teaser numbers only — value, area, distance from their office —
+ * never an address. This is the ONE auto-send in the system, and it's the one
+ * the buyer explicitly asked for.
+ */
+async function notifyBuyers(fresh: { city: string | null; cost: number; lat: number | null; lng: number | null }[]) {
+  const base = (() => {
+    const b = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+    return b && !/localhost|127\.0\.0\.1/.test(b) ? b : "https://greenkeep.us";
+  })();
+
+  const buyers = await db.select().from(schema.buyer).where(eq(schema.buyer.notify, true));
+  if (!buyers.length) return;
+  const suppressed = new Set(
+    (await db.select({ email: schema.suppression.email }).from(schema.suppression)).map((r) => r.email)
+  );
+
+  let sent = 0;
+  for (const b of buyers) {
+    if (suppressed.has(b.email)) continue;
+    // Personalize with the nearest new job when we know their office.
+    let nearest: { mi: number; item: (typeof fresh)[number] } | null = null;
+    if (b.lat != null && b.lng != null) {
+      for (const f of fresh) {
+        if (f.lat == null || f.lng == null) continue;
+        const mi = haversineMiles([b.lng, b.lat], [f.lng, f.lat]);
+        if (!nearest || mi < nearest.mi) nearest = { mi, item: f };
+      }
+    }
+    const lead = nearest?.item ?? fresh[0];
+    const miTxt = nearest ? ` about ${Math.max(1, Math.round(nearest.mi))} mi from your office` : "";
+    const rows = fresh
+      .map((f) => `<li>${usd(f.cost)} project${f.city ? ` — ${f.city} area` : ""}</li>`)
+      .join("");
+    const res = await sendEmail({
+      to: b.email,
+      subject: `New job near you: ${usd(lead.cost)} project${lead.city ? ` in ${lead.city}` : ""}`,
+      html:
+        `<p>${b.company_name} — ${fresh.length === 1 ? "a new job just opened" : `${fresh.length} new jobs just opened`}${miTxt}:</p>` +
+        `<ul>${rows}</ul>` +
+        `<p>Each one goes to a single company — first to unlock wins the exclusive.</p>` +
+        `<p><a href="${base}/buyers">See them in your dashboard</a></p>` +
+        `<p style="color:#888;font-size:12px">You get these because you turned on new-job alerts. Turn them off any time in <a href="${base}/buyers">your dashboard</a>.</p>`,
+      tags: { kind: "buyer_alert" },
+    });
+    if (res.ok) sent++;
+  }
+  console.log(`Notified ${sent}/${buyers.length} opted-in buyer(s) of ${fresh.length} new job(s).`);
 }
 
 main().catch((e) => {
