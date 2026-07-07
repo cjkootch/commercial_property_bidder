@@ -197,6 +197,10 @@ export const property = pgTable("property", {
   // a new property manager (spotted via a sign or listing). No reliable free API
   // for this, so it's a manual flag.
   actively_leasing: boolean("actively_leasing").notNull().default(false),
+  // Soft archive: reviewed/used-for-modelling properties the operator wants out
+  // of the working lists. Hidden from the dashboard pipeline and the buyer
+  // marketplace, but measurements stay — the ML training export is unaffected.
+  archived_at: timestamp("archived_at", { withTimezone: true }),
   // Lead marketplace: stamped when this property is exported as a sellable lead
   // (sold once — exported leads are excluded from future packages). Sold leads
   // carry PUBLIC-RECORD data only; see lib/leads/package.ts.

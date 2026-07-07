@@ -14,6 +14,8 @@ import {
   ensurePropertyGeocoded,
   ensurePropertyParcel,
   ensurePropertyOwnerSuggestion,
+  archiveProperty,
+  unarchiveProperty,
 } from "../actions";
 import { AckReviewToggle } from "@/components/AckReviewToggle";
 import { GrassScreen } from "@/components/GrassScreen";
@@ -111,6 +113,27 @@ export default async function PropertyWorkspace({
               Needs review
             </span>
           ) : null}
+          {prop.archived_at ? (
+            <>
+              <span className="rounded-full bg-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-500">
+                Archived
+              </span>
+              <form action={unarchiveProperty.bind(null, prop.id)}>
+                <button className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50">
+                  Restore
+                </button>
+              </form>
+            </>
+          ) : (
+            <form action={archiveProperty.bind(null, prop.id)}>
+              <button
+                title="Hide from the dashboard and marketplace (training data is kept; reversible)"
+                className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+              >
+                Archive
+              </button>
+            </form>
+          )}
         </div>
         <p className="mt-1 text-sm text-gray-500">
           {[prop.address, prop.city, prop.zip].filter(Boolean).join(", ") || "No address"} ·{" "}

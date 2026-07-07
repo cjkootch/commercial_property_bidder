@@ -143,6 +143,7 @@ export default async function BuyerDashboard({
     .filter((p) => {
       const e = byProp.get(p.id);
       return (
+        p.archived_at == null && // operator pulled it from circulation
         p.lead_exported_at == null &&
         p.parcel_geojson != null &&
         !e?.exclusive &&

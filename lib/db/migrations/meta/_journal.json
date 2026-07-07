@@ -204,6 +204,13 @@
       "when": 1783462074905,
       "tag": "0028_simple_franklin_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1783463939376,
+      "tag": "0029_nostalgic_hellfire_club",
+      "breakpoints": true
     }
   ]
 }
