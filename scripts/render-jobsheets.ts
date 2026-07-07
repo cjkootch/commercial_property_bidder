@@ -165,35 +165,30 @@ function teaserTxt(o: {
   annualHi: number;
   brand: string;
 }): string {
-  return `SUBJECT: New ${o.county} County grounds contract coming — est. ${usd(o.annualLo)}–${usd(o.annualHi)}/yr
+  return `SUBJECT: ${usd(o.annualHi)}/yr grounds contract coming to ${o.cityArea}
 
-Hi {FIRST_NAME},
+{FIRST_NAME} —
 
-A ${o.projCost} commercial development is getting underway in the ${o.cityArea} area{DISTANCE_CLAUSE}, with ground breaking around ${o.start}.
+A ${o.projCost} development breaks ground around ${o.start} in the ${o.cityArea} area{DISTANCE_CLAUSE}. When it opens, somebody wins the grounds contract.
 
-Once complete, it will need year-round grounds maintenance:
+We measured the site from the air: ~${o.turf.toLocaleString()} sq ft of maintainable turf. At market rates that's ${usd(o.annualLo)}–${usd(o.annualHi)} a year — every year.
 
-  - ~${o.turf.toLocaleString()} sq ft of maintainable turf (we measured the site from the air)
-  - Estimated contract value: ${usd(o.annualLo)}–${usd(o.annualHi)}/yr
-  - The development plans include landscaping/site work
-
-The full job sheet unlocks everything you need to go win it:
+The job sheet puts everything a bidder needs on one page:
 
   - Exact address + aerial with the grounds highlighted
-  - The OWNER and ARCHITECT to contact, with the owner's mailing address
-  - Published phone/email/website where available
-  - Crew-hour + equipment sizing for your bid math
-  - Bid window: estimated completion date and when to engage
-  - Route intel: what other measured commercial work sits within 3 miles
+  - The owner and architect to contact (owner's mailing address included)
+  - A ready-to-send intro letter and exactly when to bid
+  - Crew-hour + equipment sizing for your math
+  - What other measured commercial work sits within 3 miles of it
 
-Reply "UNLOCK" and it's yours for {PRICE} — sold to one company only, first come.
-(Your first sheet is free — reply "SAMPLE" and we'll send one from a recent project so you can judge the quality.)
+Each job goes to ONE company. Reply "UNLOCK" and this one's yours for {PRICE}.
+First time? Reply "SAMPLE" instead and we'll send a recent sheet free, so you can judge the quality before spending a dime.
 
 — ${o.brand}
 {PHYSICAL_ADDRESS}
 Reply "STOP" to never hear from us again.
 
-[placeholders: {FIRST_NAME} {DISTANCE_CLAUSE} e.g. ", about 9 miles from your office" (haversine vs buyer office) {PRICE} {PHYSICAL_ADDRESS}]
+[placeholders: {FIRST_NAME} {DISTANCE_CLAUSE} e.g. ", about 9 miles from your office" {PRICE} {PHYSICAL_ADDRESS}]
 `;
 }
 
@@ -327,6 +322,60 @@ async function main() {
         brand: co.name,
         today,
       });
+      // Engagement kit: ships WITH the purchased sheet — who to approach, how,
+      // and a ready-to-send intro letter, so the buyer's path from "bought the
+      // lead" to "talking to the prospect" is one paste.
+      const isPublic = /\b(ISD|COUNTY|CITY OF|UNIVERSITY|STATE|DISTRICT|AUTHORITY|COLLEGE)\b/i.test(owner ?? "");
+      const facility = p.name.replace(/ \(TABS [^)]+\)$/, "");
+      const complete = proj?.est_end ? proj.est_end.slice(0, 10) : "completion";
+      const engageBy = proj?.est_end
+        ? new Date(new Date(proj.est_end).getTime() - 90 * 86400_000).toISOString().slice(0, 10)
+        : "as early as possible";
+      const guidance = isPublic
+        ? `${owner} is a public entity: grounds work is typically bid through their purchasing department. ` +
+          `Register as a vendor on their procurement site now, send the intro letter below to get on the bidder list, ` +
+          `and ask the architect's office which GC holds site work.`
+        : `Private owner: send the intro letter to the owner's mailing address (below) and call any published number. ` +
+          `The architect of record can route you to the GC or the property manager who will hold the maintenance contract.`;
+      const outreach = `ENGAGEMENT KIT — ${facility} (${gkRef})
+================================================================
+
+WHO TO APPROACH
+${contacts.map((c) => `  ${c.role}: ${c.value}`).join("\n")}
+
+HOW
+  ${guidance}
+
+WHEN
+  Est. completion ${complete}. Grounds contracts are usually awarded 1-3 months
+  prior — have your bid in front of the owner by ${engageBy}.
+
+READY-TO-SEND INTRO (email or letter — replace the [brackets])
+----------------------------------------------------------------
+Subject: Grounds maintenance for ${facility} — local contractor
+
+Dear ${owner ?? "Owner"},
+
+We understand ${facility} at ${p.address ?? "the project site"} is scheduled to
+complete construction around ${complete}. [YOUR COMPANY] is a licensed and
+insured commercial grounds contractor serving ${p.city ?? "the area"} and the
+surrounding communities, and we would welcome the opportunity to bid the
+property's year-round grounds maintenance.
+
+We are already familiar with the site — approximately ${turf.toLocaleString()} sq ft
+of maintained turf — and can provide a detailed proposal, references, and a
+certificate of insurance at your convenience.
+
+Could you direct us to the right person or process for grounds vendors on this
+project?
+
+Respectfully,
+[NAME]
+[YOUR COMPANY] · [PHONE] · [EMAIL]
+----------------------------------------------------------------
+Prepared by ${co.name}. Do not redistribute.
+`;
+
       const safe = gkRef.toLowerCase();
       await page.setContent(sheet, { waitUntil: "load" });
       await page.screenshot({ path: `jobsheets/${safe}-sheet.png` });
@@ -344,6 +393,7 @@ async function main() {
           brand: co.name,
         })
       );
+      await writeFile(`jobsheets/${safe}-outreach.txt`, outreach);
       n++;
       console.log(`  ✓  ${p.name} — turf ${turf.toLocaleString()} sf${projected ? " (projected)" : ""}, ${usd(annualLo)}–${usd(annualHi)}/yr`);
     } catch (e) {

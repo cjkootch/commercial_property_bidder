@@ -61,22 +61,29 @@ type SizedLead = {
 function message(o: {
   company: string;
   distClause: string;
+  distShort: string;
   lead: SizedLead;
   brand: string;
   replyEmail: string;
   price: number;
 }): string {
   const { lead } = o;
-  return `Hi ${o.company} team,
+  return `SUBJECT: ${usd(lead.annualHi)}/yr grounds contract coming${o.distShort}
 
-A ${lead.cost} commercial development is getting underway${o.distClause}${lead.city ? ` (${lead.city} area)` : ""}, with ground breaking around ${lead.start}.
+${o.company} team —
 
-Once it's complete, it will need year-round grounds maintenance. We've already measured the site from the air: roughly ${lead.turf.toLocaleString()} sq ft of maintainable turf — an estimated ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr contract.
+A ${lead.cost} development breaks ground around ${lead.start},${o.distClause}${lead.city ? ` (${lead.city} area)` : ""}. When it opens, somebody wins the grounds contract.
 
-We package opportunities like this into complete job sheets: the exact location, the owner and architect to contact, our site measurement, crew-hour sizing, and the right window to bid. YOUR FIRST SHEET IS FREE — reply to this message or email ${o.replyEmail} and it's yours, no strings attached.
+We measured the site from the air: ~${lead.turf.toLocaleString()} sq ft of maintainable turf. At market rates that's ${usd(lead.annualLo)}–${usd(lead.annualHi)} a year — every year.
+
+Everything a bidder needs is on one page: exact location, the owner and architect to contact, our measurement, crew sizing, and the window to bid. Each job goes to ONE company. First to claim it.
+
+Your first sheet is free. Reply "SEND IT" and it's in your inbox today — no card, no strings. After that they're $${o.price} each.
 
 — ${o.brand}
-${o.replyEmail} · after the free one, sheets are $${o.price} each and sold to one company only
+${o.replyEmail}
+
+P.S. If this one's too far or the wrong size, reply with your service area and we'll send the next match instead.
 `;
 }
 
@@ -179,11 +186,13 @@ async function main() {
     } else {
       lead = [...leads].sort((a, b2) => b2.annualHi - a.annualHi)[0];
     }
-    const distClause = dist != null ? ` about ${Math.max(1, Math.round(dist))} ${Math.round(dist) <= 1 ? "mile" : "miles"} from your office` : " in your service area";
+    const mi = dist != null ? Math.max(1, Math.round(dist)) : null;
+    const distClause = mi != null ? ` about ${mi} ${mi === 1 ? "mile" : "miles"} from your office` : " in your service area";
+    const distShort = mi != null ? `, ${mi} mi from your office` : " near you";
 
     const contact = b.website ? await scrapeBusinessContact(b.website) : { email: null, phone: null, contact_form_url: null };
 
-    const msg = message({ company: b.name, distClause, lead, brand: co.name, replyEmail, price: PRICE });
+    const msg = message({ company: b.name, distClause, distShort, lead, brand: co.name, replyEmail, price: PRICE });
     const safe = b.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
     await writeFile(`${dir}/messages/${safe}.txt`, msg);
 
