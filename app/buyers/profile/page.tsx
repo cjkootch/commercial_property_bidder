@@ -44,7 +44,7 @@ export default async function BuyerProfile({
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-100">
       <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-3.5">
           <Logo name={brand} />
@@ -73,7 +73,7 @@ export default async function BuyerProfile({
         ) : null}
 
         {/* Logo upload (own form — file upload; also prints on your postcards). */}
-        <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-6">
+        <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Company logo</h2>
           <p className="mt-1 text-xs text-gray-500">
             Shown on your dashboard and printed on the postcards you mail to owners.
@@ -114,7 +114,7 @@ export default async function BuyerProfile({
         </section>
 
         <form action={updateBuyerProfile} className="mt-5 space-y-5">
-          <section className="rounded-2xl border border-gray-200 bg-white p-6">
+          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Business</h2>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               {field("company_name", "Company name", me.company_name, "Cole's Landscaping")}
@@ -129,7 +129,7 @@ export default async function BuyerProfile({
             </p>
           </section>
 
-          <section className="rounded-2xl border border-gray-200 bg-white p-6">
+          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
               Office & service area
             </h2>
@@ -161,7 +161,7 @@ export default async function BuyerProfile({
             )}
           </section>
 
-          <section className="rounded-2xl border border-gray-200 bg-white p-6">
+          <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
               About you (optional)
             </h2>

@@ -278,6 +278,17 @@ export async function updateBuyerProfile(formData: FormData): Promise<void> {
   redirect("/buyers/profile?saved=1");
 }
 
+/** Mark the dashboard alert feed as read (clears the unread badge/dots). */
+export async function markAlertsSeen(): Promise<void> {
+  const buyerId = await currentBuyerId();
+  if (!buyerId) redirect("/buyers/login");
+  await db
+    .update(buyer)
+    .set({ alerts_seen_at: new Date(), updated_at: new Date() })
+    .where(eq(buyer.id, buyerId!));
+  revalidatePath("/buyers");
+}
+
 export async function buyerLogout(): Promise<void> {
   cookies().delete(BUYER_COOKIE);
   redirect("/buyers/login");

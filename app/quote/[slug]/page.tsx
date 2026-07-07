@@ -32,7 +32,7 @@ export default async function QuoteMicrosite({ params }: { params: { slug: strin
   const contactLine = [b.phone, b.email, b.website].filter(Boolean).join("  ·  ");
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10">
+    <div className="min-h-screen bg-gray-100 py-10">
       <div className="mx-auto max-w-2xl px-6">
         <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
           {/* Branded header — the landscaping company */}

@@ -101,7 +101,7 @@ export default async function LeadSheet({
   }));
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-100">
       <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3.5">
           <Logo name={brand} />
@@ -248,6 +248,14 @@ export default async function LeadSheet({
                     <div className="font-medium text-gray-900">{ownerName ?? "the owner"}</div>
                     <div className="text-gray-600">{ownerMail ?? "No mailing address on file for this owner."}</div>
                   </div>
+                  <a
+                    href={`/buyers/leads/${unlock.id}/postcard-preview`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-block text-sm font-semibold text-brand hover:underline"
+                  >
+                    Preview the postcard →
+                  </a>
                   {canMail ? (
                     <form action={startPostcardCheckout.bind(null, unlock.id)} className="mt-3">
                       <button className="rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark">
