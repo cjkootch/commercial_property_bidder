@@ -152,7 +152,10 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
   if (!avail.open) fail("This one just sold out.");
 
   const co = await getDefaultCompany();
-  const dossier = co ? await buildDossier(prop!, co.name).catch(() => null) : null;
+  const [meRow] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
+  const meLoc: [number, number] | null =
+    meRow?.lng != null && meRow?.lat != null ? [meRow.lng, meRow.lat] : null;
+  const dossier = co ? await buildDossier(prop!, co.name, meLoc).catch(() => null) : null;
   const [unlock] = await db
     .insert(leadUnlock)
     .values({ buyer_id: buyerId!, property_id: prop!.id, kind: "free", price_cents: 0, dossier })
@@ -175,6 +178,9 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
 async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string | null): Promise<void> {
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
   if (!prop || !prop.parcel_geojson) return;
+  const [buyerRow] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
+  const buyerLoc: [number, number] | null =
+    buyerRow?.lng != null && buyerRow?.lat != null ? [buyerRow.lng, buyerRow.lat] : null;
 
   const avail = await leadAvailability(prop);
   if (!avail.open) return;
@@ -190,7 +196,7 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
   // The dossier build touches TABS/Mapbox/county services — a hiccup there
   // must not 500 the signup. A null dossier is visible on /buyers as "being
   // prepared" and in the operator's court.
-  const dossier = brand ? await buildDossier(prop, brand).catch(() => null) : null;
+  const dossier = brand ? await buildDossier(prop, brand, buyerLoc).catch(() => null) : null;
 
   const [unlock] = await db
     .insert(leadUnlock)
@@ -283,7 +289,9 @@ export async function startCheckout(propertyId: string, kind: "paid" | "exclusiv
       .returning();
     if (debited) {
       const co = await getDefaultCompany();
-      const dossier = co ? await buildDossier(prop!, co.name).catch(() => null) : null;
+      const rowLoc: [number, number] | null =
+        row.lng != null && row.lat != null ? [row.lng, row.lat] : null;
+      const dossier = co ? await buildDossier(prop!, co.name, rowLoc).catch(() => null) : null;
       const recredit = () =>
         db
           .update(buyer)

@@ -189,6 +189,10 @@ export const property = pgTable("property", {
   // (sold once — exported leads are excluded from future packages). Sold leads
   // carry PUBLIC-RECORD data only; see lib/leads/package.ts.
   lead_exported_at: timestamp("lead_exported_at"),
+  // Marketplace teaser snapshot ({annual_lo, annual_hi, turf_sqft, projected,
+  // computed_at}) — sized ONCE at sourcing so dashboard cards can show the
+  // contract value without spending imagery quota per view.
+  lead_teaser: jsonb("lead_teaser"),
   lead_buyer: text("lead_buyer"),
   notes: text("notes"),
   ...timestamps,

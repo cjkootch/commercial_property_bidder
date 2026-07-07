@@ -444,7 +444,7 @@ export async function findPropertyContact(
   if (!prop) return null;
   const parcel =
     (prop.parcel_geojson as ParcelResult | null) ?? (await ensurePropertyParcel(propertyId));
-  const suggestion = await findContact(parcel);
+  const suggestion = await findContact(parcel, [prop.name, prop.owner_org]);
   await db
     .update(property)
     .set({ contact_suggestion: suggestion ?? null, updated_at: new Date() })

@@ -249,7 +249,7 @@ export async function runPipeline(caps: PipelineCaps = CRON_CAPS): Promise<Pipel
       if (n >= caps.contacts) break;
       if (hasEmail.has(prop.id) || !prop.parcel_geojson) continue;
       try {
-        const found = await findContact(prop.parcel_geojson as ParcelResult);
+        const found = await findContact(prop.parcel_geojson as ParcelResult, [prop.name, prop.owner_org]);
         n++;
         if (!found?.email) continue;
         // OSM tags sometimes point at registries, not the occupant (e.g. a

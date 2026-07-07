@@ -91,20 +91,25 @@ export default async function BuyerDashboard({
         (e?.count ?? 0) < cap
       );
     })
-    .map((p) => ({
-      p,
-      cost: note(p.notes, /est\. cost (\$[\d,]+)/),
-      workType: note(p.notes, /: ([^,]+), est\. cost/),
-      start: note(p.notes, /Est\. start ([\d-]+)/),
-      spotsLeft: cap - (byProp.get(p.id)?.count ?? 0),
-      exclusiveOpen: (byProp.get(p.id)?.count ?? 0) === 0,
-      miles:
-        me.lat != null && me.lng != null && p.lat != null && p.lng != null
-          ? Math.max(1, Math.round(haversineMiles([me.lng, me.lat], [p.lng, p.lat])))
-          : null,
-    }))
-    .sort((a, b) => (a.miles ?? 9999) - (b.miles ?? 9999))
+    .map((p) => {
+      const teaser = p.lead_teaser as { annual_lo?: number; annual_hi?: number; turf_sqft?: number } | null;
+      return {
+        p,
+        teaser,
+        cost: note(p.notes, /est\. cost (\$[\d,]+)/),
+        workType: note(p.notes, /: ([^,]+), est\. cost/),
+        start: note(p.notes, /Est\. start ([\d-]+)/),
+        spotsLeft: cap - (byProp.get(p.id)?.count ?? 0),
+        exclusiveOpen: (byProp.get(p.id)?.count ?? 0) === 0,
+        miles:
+          me.lat != null && me.lng != null && p.lat != null && p.lng != null
+            ? Math.max(1, Math.round(haversineMiles([me.lng, me.lat], [p.lng, p.lat])))
+            : null,
+      };
+    })
+    .sort((a, b) => (b.teaser?.annual_hi ?? 0) / ((b.miles ?? 30) + 20) - (a.teaser?.annual_hi ?? 0) / ((a.miles ?? 30) + 20))
     .slice(0, 12);
+  const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -220,50 +225,78 @@ export default async function BuyerDashboard({
             </p>
           ) : (
             <div className="mt-3 space-y-3">
-              {available.map(({ p, cost, workType, start, miles, spotsLeft, exclusiveOpen }) => (
-                <div key={p.id} className="rounded-xl border border-gray-200 bg-white p-5">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <div className="font-medium text-gray-900">
-                        {cost ?? "Large"} {workType ?? "commercial"} project
-                        {p.city ? ` — ${p.city} area` : ""}
-                      </div>
-                      <div className="mt-1 text-sm text-gray-500">
-                        {start ? `Breaks ground ~${start}` : "In development"}
-                        {miles != null ? ` · ~${miles} mi from your office` : ""}
+              {available.map(({ p, teaser, cost, workType, start, miles, spotsLeft, exclusiveOpen }) => (
+                <div
+                  key={p.id}
+                  className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md"
+                >
+                  <div className="flex flex-wrap items-stretch justify-between gap-x-6 gap-y-4 p-6">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {teaser?.annual_lo ? (
+                          <span className="text-2xl font-extrabold tracking-tight text-gray-900">
+                            {usd(teaser.annual_lo)}–{usd(teaser.annual_hi ?? teaser.annual_lo)}
+                            <span className="text-sm font-semibold text-gray-400">/yr</span>
+                          </span>
+                        ) : (
+                          <span className="text-2xl font-extrabold tracking-tight text-gray-900">
+                            {cost ?? "Large"} project
+                          </span>
+                        )}
                         <span
-                          className={
-                            spotsLeft === 1 ? "font-medium text-amber-600" : "text-gray-500"
-                          }
+                          className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                            spotsLeft === 1
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-brand/10 text-brand"
+                          }`}
                         >
-                          {` · ${spotsLeft === 1 ? "last spot" : `${spotsLeft} of ${cap} spots left`}`}
+                          {spotsLeft === 1 ? "LAST SPOT" : `${spotsLeft} of ${cap} spots left`}
                         </span>
                       </div>
-                      <div className="mt-1 text-xs text-gray-400">
-                        Unlock for the exact location, decision contacts, aerial measurement, and
-                        bid window.
+                      <div className="mt-1 text-sm font-medium text-gray-700">
+                        Grounds contract behind a {cost ?? "major"}{" "}
+                        {(workType ?? "commercial").toLowerCase()} project
+                        {p.city ? ` — ${p.city} area` : ""}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-gray-500">
+                        {miles != null ? (
+                          <span className="font-semibold text-brand">~{miles} mi from your office</span>
+                        ) : null}
+                        {start ? <span>breaks ground ~{start}</span> : <span>in development</span>}
+                        {teaser?.turf_sqft ? (
+                          <span>{teaser.turf_sqft.toLocaleString()} sf of grounds</span>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 text-xs text-gray-400">
+                        Sheet includes the exact address, aerial measurement, decision contacts,
+                        bid window, and intro letter.
                       </div>
                     </div>
-                    <div className="flex flex-col items-stretch gap-2">
+                    <div className="flex w-full flex-col justify-center gap-2 sm:w-56">
                       {freeAvailable ? (
                         <form action={claimFreeLead.bind(null, p.id)}>
-                          <button className="w-full rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark">
+                          <button className="w-full rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
                             Claim free — first sheet on us
                           </button>
                         </form>
                       ) : (
                         <form action={startCheckout.bind(null, p.id, "paid")}>
-                          <button className="w-full rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-dark">
-                            Unlock — ${price}
+                          <button className="w-full rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                            Unlock the sheet — ${price}
                           </button>
                         </form>
                       )}
                       {exclusiveOpen ? (
                         <form action={startCheckout.bind(null, p.id, "exclusive")}>
-                          <button className="w-full rounded-md border border-gray-300 px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50">
-                            Make it exclusive — ${exclusivePrice}
+                          <button className="w-full rounded-lg border border-gray-300 px-4 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50">
+                            Lock it down — ${exclusivePrice} exclusive
                           </button>
                         </form>
+                      ) : null}
+                      {teaser?.annual_lo && !freeAvailable ? (
+                        <p className="text-center text-[11px] text-gray-400">
+                          ${price} for a {usd(teaser.annual_lo)}+/yr contract lead
+                        </p>
                       ) : null}
                     </div>
                   </div>

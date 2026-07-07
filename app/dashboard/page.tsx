@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { db } from "@/lib/db";
+import { buyer, leadUnlock } from "@/lib/db/schema";
 import { getDefaultCompany, listDashboard, type DashboardRow } from "@/lib/db/queries";
 import { usd, titleCase } from "@/lib/format";
 import { isGrassQualified, grassPercentLabel, MIN_GRASS_FRACTION } from "@/lib/sourcing/criteria";
@@ -38,6 +40,15 @@ export default async function DashboardPage() {
   const needsReview = rows.filter((r) => r.needs_review).length;
   const grassQualified = rows.filter((r) => isGrassQualified(r.grass_fraction)).length;
 
+  // Marketplace: lead-sale revenue, buyers, and credit liability.
+  const unlocks = await db.select().from(leadUnlock);
+  const buyers = await db.select().from(buyer);
+  const leadRevenue = unlocks.reduce((s, u) => s + u.price_cents, 0) / 100;
+  const paidUnlocks = unlocks.filter((u) => u.kind !== "free").length;
+  const freeUnlocks = unlocks.length - paidUnlocks;
+  const creditOutstanding = buyers.reduce((s, b) => s + b.credit_cents, 0) / 100;
+  const alertsOn = buyers.filter((b) => b.notify).length;
+
   const byStatus = new Map<string, DashboardRow[]>();
   for (const r of rows) {
     const list = byStatus.get(r.status) ?? [];
@@ -63,6 +74,20 @@ export default async function DashboardPage() {
         <Metric label={`Grass-qualified (≥${Math.round(MIN_GRASS_FRACTION * 100)}%)`} value={String(grassQualified)} />
         <Metric label="Needs review" value={String(needsReview)} accent={needsReview > 0} />
       </div>
+
+      {/* Lead marketplace at a glance */}
+      <section>
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
+          Lead marketplace
+        </h2>
+        <div className="grid grid-cols-5 gap-4">
+          <Metric label="Lead revenue" value={`$${Math.round(leadRevenue).toLocaleString()}`} accent={leadRevenue > 0} />
+          <Metric label="Paid unlocks" value={String(paidUnlocks)} />
+          <Metric label="Free claims" value={String(freeUnlocks)} />
+          <Metric label="Buyers (alerts on)" value={`${buyers.length} (${alertsOn})`} />
+          <Metric label="Credit outstanding" value={`$${Math.round(creditOutstanding).toLocaleString()}`} accent={creditOutstanding > 0} />
+        </div>
+      </section>
 
       {rows.length === 0 ? (
         <EmptyState

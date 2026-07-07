@@ -1,0 +1,1 @@
+ALTER TABLE "property" ADD COLUMN "lead_teaser" jsonb;
