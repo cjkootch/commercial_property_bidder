@@ -56,6 +56,51 @@ type ApolloOrg = {
  * (just the raw name) when there's no API key or no match — so the operator
  * always gets at least the owner-of-record to confirm. Never throws.
  */
+export type BuyerCandidate = {
+  name: string;
+  website: string | null;
+  city: string | null;
+  state: string | null;
+};
+
+/**
+ * Discover prospective LEAD BUYERS (landscaping companies) in a metro via
+ * Apollo company search. Used only for OUR OWN outreach targeting — Apollo data
+ * never ships inside a sold lead. Returns [] without a key or on error.
+ */
+export async function searchLandscapers(
+  location = "Houston, Texas",
+  perPage = 25
+): Promise<BuyerCandidate[]> {
+  const key = getApolloKey();
+  if (!key) return [];
+  try {
+    const res = await fetch("https://api.apollo.io/api/v1/mixed_companies/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
+      body: JSON.stringify({
+        q_organization_keyword_tags: ["landscaping", "lawn care", "grounds maintenance"],
+        organization_locations: [location],
+        page: 1,
+        per_page: perPage,
+      }),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { organizations?: ApolloOrg[]; accounts?: ApolloOrg[] };
+    const orgs = [...(data.organizations ?? []), ...(data.accounts ?? [])];
+    return orgs
+      .filter((o) => o.name?.trim())
+      .map((o) => ({
+        name: o.name!.trim(),
+        website: o.website_url ?? (o.primary_domain ? `https://${o.primary_domain}` : null),
+        city: (o as { city?: string }).city ?? null,
+        state: (o as { state?: string }).state ?? null,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 export async function enrichCompanyByName(
   ownerName: string | null | undefined
 ): Promise<OwnerSuggestion | null> {

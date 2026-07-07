@@ -15,6 +15,7 @@
     "pipeline": "tsx scripts/run-pipeline.ts",
     "postcards": "tsx scripts/render-postcards.ts",
     "jobsheets": "tsx scripts/render-jobsheets.ts",
+    "campaign": "tsx scripts/campaign-kit.ts",
     "source": "tsx scripts/source-candidates.ts",
     "source:sports": "tsx scripts/source-sports.ts",
     "source:residential": "tsx scripts/source-residential.ts",
