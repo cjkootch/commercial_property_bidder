@@ -9,6 +9,7 @@ import * as schema from "../lib/db/schema";
 import { computeEffectiveTurf, roundSqft } from "../lib/geo/area";
 import { getActiveConfig, toEngineConfig } from "../lib/db/queries";
 import { computePricing } from "../lib/pricing/engine";
+import { draftConfidence } from "../lib/ml/confidence";
 import type { MapView, ServiceAreaCollection } from "../lib/geo/types";
 
 // Step 3 of the self-training loop: insert the Python predictions as editable
@@ -29,25 +30,6 @@ type Prediction = {
   confidence?: { turf_margin: number; mean_margin: number; veg_frac: number };
   map_view: MapView;
 };
-
-/**
- * Gate a model draft's measurement confidence. "Med" requires BOTH a decisive
- * model (high margin) AND agreement with the independent RGB vegetation
- * fraction — an uncalibrated margin alone can be confidently wrong. Anything
- * else stays "Low" (needs review). "High" is reserved for human labels.
- */
-function draftConfidence(
-  conf: Prediction["confidence"],
-  rgbVegFrac: number | null
-): { level: "Med" | "Low"; why: string } {
-  if (!conf) return { level: "Low", why: "no confidence data" };
-  const margin = conf.turf_margin;
-  if (rgbVegFrac == null) return { level: "Low", why: `margin ${margin.toFixed(2)}, no RGB cross-check` };
-  const disagree = Math.abs(conf.veg_frac - rgbVegFrac);
-  const why = `margin ${margin.toFixed(2)}, veg model ${(conf.veg_frac * 100).toFixed(0)}% vs RGB ${(rgbVegFrac * 100).toFixed(0)}%`;
-  if (margin >= 0.75 && disagree <= 0.15) return { level: "Med", why };
-  return { level: "Low", why };
-}
 
 async function main() {
   const preds: Prediction[] = JSON.parse(await readFile("ml/predictions.json", "utf8"));

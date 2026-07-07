@@ -3,3 +3,7 @@ torch
 torchvision
 numpy
 pillow
+opencv-python-headless
+# Inference service (ml/serve.py)
+fastapi
+uvicorn

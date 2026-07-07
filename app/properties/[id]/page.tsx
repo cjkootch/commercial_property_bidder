@@ -13,6 +13,7 @@ import {
   estimateServiceableArea,
   ensurePropertyGeocoded,
   ensurePropertyParcel,
+  ensurePropertyPrediction,
   ensurePropertyOwnerSuggestion,
   archiveProperty,
   unarchiveProperty,
@@ -31,28 +32,32 @@ import { getMapboxToken, DEFAULT_CENTER, DEFAULT_ZOOM } from "@/lib/integrations
 import { usd, pct, titleCase } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+// First open of an unmeasured property may run geocode + county parcel + the
+// hosted turf model (auto-draft) — don't die at the platform default.
+export const maxDuration = 60;
 
 export default async function PropertyWorkspace({
   params,
 }: {
   params: { id: string };
 }) {
+  // Lazy prep BEFORE the detail read (each is cached/no-op after first open):
+  // geocode -> parcel -> model auto-draft, so a brand-new property opens with
+  // the model's polygons already on the map, ready to correct.
+  const coords = await ensurePropertyGeocoded(params.id);
+  const parcel = await ensurePropertyParcel(params.id);
+  await ensurePropertyPrediction(params.id).catch(() => null);
+
   const detail = await getPropertyDetail(params.id);
   if (!detail) notFound();
 
   const { property: prop, measurement: meas, pricing, flags, serviceAreas, mapView } = detail;
   const save = saveMeasurement.bind(null, prop.id);
 
-  // Lazily geocode the address so the map can center on the property.
-  const coords = await ensurePropertyGeocoded(prop.id);
   const geocoded = coords != null;
   const center: [number, number] = mapView?.center ?? coords ?? DEFAULT_CENTER;
   const zoom = mapView?.zoom ?? DEFAULT_ZOOM;
   const mapToken = getMapboxToken();
-
-  // Resolve the county parcel boundary (cached after first fetch) for the
-  // reference overlay.
-  const parcel = await ensurePropertyParcel(prop.id);
 
   // Suggest an ownership company from the parcel owner-of-record + Apollo
   // (cached; a suggestion the operator confirms, never auto-applied).
