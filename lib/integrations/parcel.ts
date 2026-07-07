@@ -86,6 +86,27 @@ const COUNTY_SERVICES: CountyService[] = [
       owner_mailing_address: str(String(p.PartyAddress ?? "").replace(/\s*\n\s*/g, ", ")),
     }),
   },
+  {
+    county: "Fort Bend",
+    url: "https://gisweb.fbcad.org/arcgis/rest/services/Hosted/FBCAD_Public_Data/FeatureServer/0",
+    normalize: (p) => ({
+      owner: str(p.ownername),
+      parcel_id: str(p.quickrefid) ?? str(p.propnumber),
+      address: str(p.situs),
+      acres: numOrNull(p.landsizeac),
+      last_sale_date: dateOrNull(p.deeddate),
+      market_value: numOrNull(p.totalvalue),
+      owner_mailing_address: str(
+        [
+          [str(p.oaddr1), str(p.oaddr2), str(p.oaddr3)].filter(Boolean).join(" "),
+          str(p.ownercity),
+          [str(p.ownerstate), str(p.ownerzip)].filter(Boolean).join(" "),
+        ]
+          .filter(Boolean)
+          .join(", ")
+      ),
+    }),
+  },
 ];
 
 async function queryCounty(

@@ -75,3 +75,26 @@ export async function geocodeAddress(
     return null;
   }
 }
+
+/** Driving time/distance between two [lng,lat] points (Mapbox Directions). */
+export async function fetchDriveTime(
+  from: [number, number],
+  to: [number, number]
+): Promise<{ minutes: number; miles: number } | null> {
+  const token = getMapboxToken();
+  if (!token) return null;
+  const url =
+    `https://api.mapbox.com/directions/v5/mapbox/driving/` +
+    `${from[0]},${from[1]};${to[0]},${to[1]}` +
+    `?access_token=${encodeURIComponent(token)}&overview=false`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { routes?: Array<{ duration: number; distance: number }> };
+    const r = data.routes?.[0];
+    if (!r) return null;
+    return { minutes: Math.round(r.duration / 60), miles: Math.round((r.distance / 1609.34) * 10) / 10 };
+  } catch {
+    return null;
+  }
+}

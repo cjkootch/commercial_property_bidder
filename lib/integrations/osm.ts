@@ -313,11 +313,21 @@ export type OsmContact = {
  * usable contact info there. Prefers a POI that actually has a phone/email/site.
  */
 export async function fetchContactTagsInParcel(parcel: ParcelResult): Promise<OsmContact | null> {
+  const all = await fetchAllContactTagsInParcel(parcel);
+  if (!all.length) return null;
+  const withContact = all.find((c) => c.phone || c.email || c.website);
+  return withContact ?? all[0];
+}
+
+/** ALL named features in the parcel. A big property can contain unrelated
+ *  tenant businesses (a coffee kiosk inside a convention center), so callers
+ *  should score candidates against the expected owner/facility name instead
+ *  of taking the first hit. */
+export async function fetchAllContactTagsInParcel(parcel: ParcelResult): Promise<OsmContact[]> {
   const rings = parcelRings(parcel);
-  if (!rings.length) return null;
+  if (!rings.length) return [];
   const [s, w, n, e] = bboxOf(rings);
   const bb = `(${s},${w},${n},${e})`;
-  // Any named feature in the parcel that might carry contact info.
   const query = `[out:json][timeout:25];(nwr["name"]${bb};);out center tags;`;
 
   const elements = await overpassQuery(query);
@@ -337,10 +347,7 @@ export async function fetchContactTagsInParcel(parcel: ParcelResult): Promise<Os
       operator: tags.operator?.trim() ?? null,
     });
   }
-  if (!candidates.length) return null;
-  // Prefer a candidate that actually has reachable contact info.
-  const withContact = candidates.find((c) => c.phone || c.email || c.website);
-  return withContact ?? candidates[0];
+  return candidates;
 }
 
 function kindFromTags(tags?: Record<string, string>): "building" | "pavement" | "tree" | null {

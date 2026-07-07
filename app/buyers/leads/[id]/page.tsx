@@ -10,6 +10,7 @@ import { currentBuyerId, sendChatMessage } from "../../actions";
 import { Logo } from "@/components/Logo";
 import { ChatWidget, type ChatMsg } from "@/components/ChatWidget";
 import { BidCalculator } from "@/components/BidCalculator";
+import { PrintButton } from "@/components/PrintButton";
 
 // The full job sheet — the product a buyer paid for. Renders the dossier
 // SNAPSHOT from unlock time (aerial + vegetation mask + parcel outline
@@ -54,12 +55,15 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur print:hidden">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3.5">
           <Logo name={brand} />
-          <Link href="/buyers" className="text-sm text-gray-500 hover:text-gray-800">
-            ← All leads
-          </Link>
+          <div className="flex items-center gap-4">
+            <PrintButton />
+            <Link href="/buyers" className="text-sm text-gray-500 hover:text-gray-800">
+              ← All leads
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -92,6 +96,11 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
                 <p className="mt-1 text-sm text-gray-600">
                   {[d.address, d.city, d.zip].filter(Boolean).join(", ")}
                   {d.county ? ` · ${d.county} County` : ""}
+                  {d.drive ? (
+                    <span className="font-semibold" style={{ color: accent }}>
+                      {" "}· {d.drive.minutes} min drive from your office ({d.drive.miles} mi)
+                    </span>
+                  ) : null}
                 </p>
               </div>
             </div>
@@ -130,13 +139,17 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
                     </span>
                     {d.aerial.mask ? (
                       <span className="rounded-full bg-black/60 px-2.5 py-1 text-white">
-                        <span style={{ color: "#7ee2a0" }}>■</span> measured turf
+                        <span style={{ color: "#7ee2a0" }}>■</span>{" "}
+                        {d.projected
+                          ? `vegetation detected today${d.detected_sqft ? ` (${d.detected_sqft.toLocaleString()} sf)` : ""}`
+                          : "measured turf"}
                       </span>
-                    ) : (
+                    ) : null}
+                    {d.projected ? (
                       <span className="rounded-full bg-black/60 px-2.5 py-1 text-white">
-                        under construction — turf projected from parcel geometry
+                        site in buildout — full grounds projected at {d.turf_sqft.toLocaleString()} sf on completion
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </>
               ) : prop.lat != null && prop.lng != null ? (
@@ -165,7 +178,11 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
                 </div>
                 <div className="text-sm text-white/80">≈ {usd(d.monthly)}/mo · every year</div>
               </div>
-              <Stat label={d.projected ? "Turf (projected)" : "Turf (measured)"} value={`${d.turf_sqft.toLocaleString()} sf`} />
+              <Stat
+                label={d.projected ? "Turf (projected)" : "Turf (measured)"}
+                value={`${d.turf_sqft.toLocaleString()} sf`}
+                sub={d.projected && d.detected_sqft ? `${d.detected_sqft.toLocaleString()} sf visible today` : undefined}
+              />
               <Stat label="Parcel" value={`${d.acres.toFixed(1)} ac`} />
               <Stat label="Crew hrs / visit" value={`${d.crew_hours_per_visit}`} sub={`${d.visits_per_year ?? 32} visits/yr`} />
             </section>
@@ -209,6 +226,7 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
                     visitsPerYear={d.visits_per_year ?? 32}
                     marketLo={d.annual_lo}
                     marketHi={d.annual_hi}
+                    driveMinutes={d.drive ? Math.max(10, Math.round((d.drive.minutes * 2) / 5) * 5) : undefined}
                   />
                 </Card>
               </div>

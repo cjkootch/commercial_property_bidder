@@ -10,6 +10,7 @@ import { getActiveConfig, toEngineConfig } from "../db/queries";
 import { sizeLead } from "./sizing";
 import { estimateServiceableArea, fetchParcelTile } from "../integrations/imagery";
 import { findTabsByNumber, fetchTabsDetails } from "../integrations/tabs";
+import { fetchDriveTime } from "../integrations/geocoding";
 import { findContact } from "../integrations/contact";
 import { haversineMiles } from "../sourcing/criteria";
 import type { ParcelResult } from "../geo/types";
@@ -42,6 +43,8 @@ export type Dossier = {
   acres: number;
   turf_sqft: number;
   projected: boolean;
+  /** Vegetation actually detected in today's imagery (null = none readable). */
+  detected_sqft: number | null;
   annual_lo: number;
   annual_hi: number;
   monthly: number;
@@ -53,6 +56,8 @@ export type Dossier = {
   intro_letter: string;
   prepared_at: string;
   aerial: DossierAerial | null;
+  /** Driving time from the buyer's office (one-way), when their city is known. */
+  drive: { minutes: number; miles: number } | null;
 };
 
 const note = (notes: string | null, re: RegExp) => notes?.match(re)?.[1]?.trim() ?? null;
@@ -66,7 +71,12 @@ function parcelOuterRings(parcel: ParcelResult): [number, number][][] {
   return [];
 }
 
-export async function buildDossier(p: Property, brand: string): Promise<Dossier | null> {
+export async function buildDossier(
+  p: Property,
+  brand: string,
+  /** Buyer office [lng,lat] — adds drive time to the sheet. */
+  buyerLoc?: [number, number] | null
+): Promise<Dossier | null> {
   const parcel = p.parcel_geojson as ParcelResult | null;
   const token = process.env.MAPBOX_API ?? null;
   if (!parcel || !token) return null;
@@ -89,7 +99,9 @@ export async function buildDossier(p: Property, brand: string): Promise<Dossier 
     );
     aerial = {
       image: `data:image/jpeg;base64,${tile.jpeg.toString("base64")}`,
-      mask: !sizing.projected && est ? est.mask_data_url : null,
+      // Always show what we detected — on projected (low-veg) sites the mask
+      // plus the projected number tells the honest story together.
+      mask: est?.mask_data_url ?? null,
       width: tile.width,
       height: tile.height,
       outline,
@@ -101,13 +113,21 @@ export async function buildDossier(p: Property, brand: string): Promise<Dossier 
   const det = proj ? await fetchTabsDetails(proj.project_id) : null;
 
   const owner = det?.owner ?? note(p.notes, /Owner: ([^.]+)\./);
+  const facilityName = p.name.replace(/ \(TABS [^)]+\)$/, "");
   const contacts: { role: string; value: string }[] = [];
   if (owner) contacts.push({ role: "Owner", value: owner });
   if (parcel.owner_mailing_address) contacts.push({ role: "Owner mail (county)", value: parcel.owner_mailing_address });
   if (det?.tenant) contacts.push({ role: "Tenant", value: det.tenant });
   if (det?.architect) contacts.push({ role: "Architect", value: det.architect });
-  const pub = await findContact(parcel);
-  if (pub?.phone) contacts.push({ role: "Published phone", value: pub.phone });
+  // Published contacts are vetted against the facility/owner names — a tenant
+  // business on the parcel can only contribute a clearly-labeled phone.
+  const pub = await findContact(parcel, [facilityName, owner, det?.tenant]);
+  const unverified = pub?.sources.some((s) => s.includes("unverified"));
+  if (pub?.phone)
+    contacts.push({
+      role: unverified ? `On-site phone (${pub.name ?? "unverified"})` : "Published phone",
+      value: pub.phone,
+    });
   if (pub?.email) contacts.push({ role: "Published email", value: pub.email });
   if (pub?.website) contacts.push({ role: "Website", value: pub.website });
 
@@ -140,7 +160,7 @@ export async function buildDossier(p: Property, brand: string): Promise<Dossier 
     ? `${owner} is a public entity: grounds work is typically bid through their purchasing department. Register as a vendor on their procurement site now, send the intro letter to get on the bidder list, and ask the architect's office which GC holds site work.`
     : `Private owner: send the intro letter to the owner's mailing address and call any published number. The architect can route you to the GC or the property manager who will hold the maintenance contract.`;
 
-  const facility = p.name.replace(/ \(TABS [^)]+\)$/, "");
+  const facility = facilityName;
   const intro_letter = `Subject: Grounds maintenance for ${facility} — local contractor
 
 Dear ${owner ?? "Owner"},
@@ -171,6 +191,7 @@ Respectfully,
     acres: sizing.acres,
     turf_sqft: sizing.turf_sqft,
     projected: sizing.projected,
+    detected_sqft: est ? Math.round(est.turf_sqft) : null,
     annual_lo: sizing.annual_lo,
     annual_hi: sizing.annual_hi,
     monthly: Math.round(sizing.monthly),
@@ -182,5 +203,9 @@ Respectfully,
     intro_letter,
     prepared_at: new Date().toISOString().slice(0, 10),
     aerial,
+    drive:
+      buyerLoc && p.lng != null && p.lat != null
+        ? await fetchDriveTime(buyerLoc, [p.lng, p.lat]).catch(() => null)
+        : null,
   };
 }

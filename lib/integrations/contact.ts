@@ -8,7 +8,7 @@
 // fallbacks layered on top later.
 
 import type { ParcelResult } from "../geo/types";
-import { fetchContactTagsInParcel } from "./osm";
+import { fetchAllContactTagsInParcel, type OsmContact } from "./osm";
 
 export type ContactSuggestion = {
   name: string | null;
@@ -135,24 +135,78 @@ export async function scrapeBusinessContact(website: string): Promise<BusinessCo
   return { email, phone, contact_form_url: contactUrl };
 }
 
+/** Significant lowercase tokens of a name ("Houston First Corp" -> houston,first,corp). */
+function tokens(s: string | null | undefined): string[] {
+  return (s ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 2 && !["the", "and", "inc", "llc", "ltd", "corp", "corporation", "company"].includes(t));
+}
+
+/** How many expected-name tokens a candidate's name/operator shares. */
+function nameScore(c: OsmContact, expected: string[][]): number {
+  const cand = new Set([...tokens(c.name), ...tokens(c.operator)]);
+  let best = 0;
+  for (const exp of expected) {
+    const hits = exp.filter((t) => cand.has(t)).length;
+    if (hits > best) best = hits;
+  }
+  return best;
+}
+
 /**
  * Resolve a free contact suggestion for a property from its parcel: OSM contact
- * tags first, then a site scrape to recover an email/phone when only a website
- * is known. Never throws; returns null if nothing usable is found.
+ * tags scored against the EXPECTED names (facility, owner of record) so a
+ * tenant business inside the parcel (a kiosk in a convention center) can't
+ * masquerade as the decision-maker. Site scrape fills gaps only for a
+ * name-matched candidate. Never throws; null when nothing usable.
  */
-export async function findContact(parcel: ParcelResult | null): Promise<ContactSuggestion | null> {
+export async function findContact(
+  parcel: ParcelResult | null,
+  expectedNames: (string | null | undefined)[] = []
+): Promise<ContactSuggestion | null> {
   if (!parcel) return null;
-  const osm = await fetchContactTagsInParcel(parcel);
+  const candidates = await fetchAllContactTagsInParcel(parcel);
+  if (!candidates.length) return null;
+
+  const expected = [...expectedNames, parcel.owner]
+    .map((n) => tokens(n))
+    .filter((t) => t.length > 0);
+
+  let osm: OsmContact | null = null;
+  let matched = false;
+  if (expected.length) {
+    const scored = candidates
+      .map((c) => ({ c, score: nameScore(c, expected) }))
+      .sort((a, b) => b.score - a.score);
+    if (scored[0].score > 0) {
+      osm = scored[0].c;
+      matched = true;
+    } else {
+      // Nothing matches the owner/facility — every candidate is some other
+      // business on the parcel. Suggest the most contactable one, clearly
+      // labeled unverified, and DON'T scrape its site (a Starbucks email is
+      // worse than none).
+      osm = candidates.find((c) => c.phone || c.email || c.website) ?? candidates[0];
+    }
+  } else {
+    osm = candidates.find((c) => c.phone || c.email || c.website) ?? candidates[0];
+    matched = true; // nothing to check against — legacy behavior
+  }
 
   const sources: string[] = [];
-  let name = osm?.name ?? osm?.operator ?? null;
+  const name = osm?.name ?? osm?.operator ?? null;
   let phone = osm?.phone ?? null;
   let email = osm?.email ?? null;
   const website = osm?.website ?? null;
-  if (osm && (osm.phone || osm.email || osm.website)) sources.push("osm");
+  if (osm && (osm.phone || osm.email || osm.website)) {
+    sources.push(matched ? "osm" : "osm (unverified on-site business)");
+  }
 
-  // Fill gaps from the website if OSM gave one but no email/phone.
-  if (website && (!email || !phone)) {
+  // Fill gaps from the website — only when the candidate matched the expected
+  // owner/facility name.
+  if (matched && website && (!email || !phone)) {
     const scraped = await scrapeSite(website);
     if (scraped.email && !email) {
       email = scraped.email;
@@ -165,5 +219,10 @@ export async function findContact(parcel: ParcelResult | null): Promise<ContactS
   }
 
   if (!name && !phone && !email && !website) return null;
+  if (!matched && expected.length) {
+    // Unverified tenant: name + phone only (a human can vet); never its
+    // email/website — those actively mislead on a sold sheet.
+    return { name, phone, email: null, website: null, sources };
+  }
   return { name, phone, email, website, sources };
 }

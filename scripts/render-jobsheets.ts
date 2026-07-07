@@ -270,7 +270,7 @@ async function main() {
       }
       if (det?.tenant) contacts.push({ role: "Tenant", value: det.tenant });
       if (det?.architect) contacts.push({ role: "Architect of record", value: det.architect });
-      const pub = await findContact(parcel);
+      const pub = await findContact(parcel, [p.name.replace(/ \(TABS [^)]+\)$/, ""), owner, det?.tenant]);
       if (pub?.phone) contacts.push({ role: "Published phone", value: pub.phone });
       if (pub?.email) contacts.push({ role: "Published email", value: pub.email });
       if (pub?.website) contacts.push({ role: "Website", value: pub.website });

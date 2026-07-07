@@ -96,7 +96,8 @@ export async function POST(req: NextRequest) {
   if (lost) return creditAndNotify(session, b, lost);
 
   const co = await getDefaultCompany();
-  const dossier = co ? await buildDossier(prop, co.name).catch(() => null) : null;
+  const buyerLoc: [number, number] | null = b.lng != null && b.lat != null ? [b.lng, b.lat] : null;
+  const dossier = co ? await buildDossier(prop, co.name, buyerLoc).catch(() => null) : null;
 
   const [unlock] = await db
     .insert(leadUnlock)
