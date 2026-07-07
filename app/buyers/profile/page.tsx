@@ -6,9 +6,11 @@ import { buyer } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { profileComplete } from "@/lib/leads/personalize";
 import { zoomForRadius } from "@/lib/geo/radius";
-import { currentBuyerId, updateBuyerProfile, uploadBuyerLogo } from "../actions";
+import { currentBuyerId, sendChatMessage, updateBuyerProfile, uploadBuyerLogo } from "../actions";
 import { Logo } from "@/components/Logo";
 import { ServiceRadiusMap } from "@/components/ServiceRadiusMap";
+import { ChatWidget } from "@/components/ChatWidget";
+import { loadBuyerChat } from "@/lib/buyer-chat";
 
 // Landscaper profile: the details here auto-fill the intro letter on every job
 // sheet (so the outreach is ready to send the moment they open it).
@@ -29,6 +31,7 @@ export default async function BuyerProfile({
   const complete = profileComplete(me);
   const hasLocation = me.lat != null && me.lng != null;
   const mapZoom = hasLocation ? zoomForRadius(me.lat!) : 9;
+  const chat = await loadBuyerChat(buyerId!);
 
   const field = (name: string, label: string, value: string | null, placeholder: string, type = "text") => (
     <label className="block">
@@ -184,6 +187,8 @@ export default async function BuyerProfile({
           </button>
         </form>
       </main>
+
+      <ChatWidget mode="buyer" messages={chat} sendAction={sendChatMessage} />
     </div>
   );
 }

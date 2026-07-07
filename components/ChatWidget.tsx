@@ -53,8 +53,9 @@ export function ChatWidget(props: {
 
       {open ? (
         <div className="fixed bottom-24 right-5 z-50 flex max-h-[70vh] w-[22rem] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl print:hidden">
-          <div className="px-4 py-3 text-sm font-semibold text-white" style={{ backgroundColor: accent }}>
-            Questions? We answer fast.
+          <div className="px-4 py-3 text-white" style={{ backgroundColor: accent }}>
+            <div className="text-sm font-semibold">Support</div>
+            <div className="text-xs opacity-90">Questions or problems — we answer fast.</div>
           </div>
 
           {props.mode === "buyer" ? (
@@ -62,8 +63,8 @@ export function ChatWidget(props: {
               <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto p-3">
                 {(props.messages ?? []).length === 0 ? (
                   <p className="p-2 text-center text-xs text-gray-400">
-                    Ask about any job, pricing, or your account — replies land here and in your
-                    email.
+                    Ask about any job, pricing, or a problem with your account — replies land here
+                    and in your email.
                   </p>
                 ) : (
                   (props.messages ?? []).map((m) => (
