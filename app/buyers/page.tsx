@@ -153,7 +153,7 @@ export default async function BuyerDashboard({
               {me.contact_name ? <div className="text-sm text-gray-600">{me.contact_name}</div> : null}
               <div className="mt-1 space-y-0.5 text-sm text-gray-500">
                 <div className="truncate">{me.email}</div>
-                {me.service_area ? <div>{me.service_area}</div> : me.city ? <div>{me.city}</div> : null}
+                {me.city ? <div>{me.city} · within {me.service_radius_mi} mi</div> : null}
                 {me.phone ? <div>{me.phone}</div> : null}
               </div>
 

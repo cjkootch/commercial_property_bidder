@@ -368,6 +368,10 @@ export const buyer = pgTable("buyer", {
   phone: text("phone"),
   website: text("website"),
   license_number: text("license_number"),
+  // Office address (geocoded to lat/lng) + how far they'll travel. The radius
+  // anchors the "open near you" distances and the coverage map on the profile.
+  address: text("address"),
+  service_radius_mi: integer("service_radius_mi").notNull().default(25),
   service_area: text("service_area"),
   bio: text("bio"),
   // No-refunds policy: when a paid lead can't be delivered (sold out mid-

@@ -5,8 +5,10 @@ import { db } from "@/lib/db";
 import { buyer } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { profileComplete } from "@/lib/leads/personalize";
+import { zoomForRadius } from "@/lib/geo/radius";
 import { currentBuyerId, updateBuyerProfile } from "../actions";
 import { Logo } from "@/components/Logo";
+import { ServiceRadiusMap } from "@/components/ServiceRadiusMap";
 
 // Landscaper profile: the details here auto-fill the intro letter on every job
 // sheet (so the outreach is ready to send the moment they open it).
@@ -19,7 +21,10 @@ export default async function BuyerProfile({ searchParams }: { searchParams: { s
   if (!me) redirect("/buyers/login");
   const co = await getDefaultCompany();
   const brand = co?.name ?? "Greenkeep";
+  const accent = co?.brand_color || "#2f7d4f";
   const complete = profileComplete(me);
+  const hasLocation = me.lat != null && me.lng != null;
+  const mapZoom = hasLocation ? zoomForRadius(me.lat!) : 9;
 
   const field = (name: string, label: string, value: string | null, placeholder: string, type = "text") => (
     <label className="block">
@@ -72,7 +77,6 @@ export default async function BuyerProfile({ searchParams }: { searchParams: { s
               {field("phone", "Phone", me.phone, "(281) 555-0100", "tel")}
               {field("website", "Website", me.website, "coleslandscaping.com")}
               {field("license_number", "License # (optional)", me.license_number, "TX-12345")}
-              {field("city", "Office city", me.city, "Houston")}
             </div>
             <p className="mt-3 text-xs text-gray-400">
               Sign-in email: <span className="font-medium text-gray-600">{me.email}</span> (this is
@@ -82,23 +86,52 @@ export default async function BuyerProfile({ searchParams }: { searchParams: { s
 
           <section className="rounded-2xl border border-gray-200 bg-white p-6">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-              Service area & pitch
+              Office & service area
             </h2>
-            <div className="mt-4 space-y-4">
-              {field("service_area", "Service area", me.service_area, "Greater Houston, within 30 mi")}
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  Short bio (optional)
-                </span>
-                <textarea
-                  name="bio"
-                  defaultValue={me.bio ?? ""}
-                  rows={3}
-                  placeholder="Family-owned, 12 years serving Houston commercial properties…"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
-                />
-              </label>
+            <p className="mt-1 text-xs text-gray-500">
+              We center your job matches and distances on this address. Drag the slider to set how
+              far you&apos;ll travel.
+            </p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-[2fr_1fr]">
+              {field("address", "Office address", me.address, "123 Main St")}
+              {field("city", "City", me.city, "Houston")}
             </div>
+
+            {hasLocation ? (
+              <div className="mt-5">
+                <ServiceRadiusMap
+                  lat={me.lat!}
+                  lng={me.lng!}
+                  zoom={mapZoom}
+                  initialRadius={me.service_radius_mi}
+                  accent={accent}
+                  mapUrl={`/api/area-map?lng=${me.lng}&lat=${me.lat}&zoom=${mapZoom}`}
+                />
+              </div>
+            ) : (
+              <div className="mt-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-sm text-gray-500">
+                Enter your office address and save — your coverage map appears here.
+                <input type="hidden" name="service_radius_mi" value={me.service_radius_mi} />
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-gray-200 bg-white p-6">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+              About you (optional)
+            </h2>
+            <label className="mt-4 block">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Short bio
+              </span>
+              <textarea
+                name="bio"
+                defaultValue={me.bio ?? ""}
+                rows={3}
+                placeholder="Family-owned, 12 years serving Houston commercial properties…"
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+              />
+            </label>
           </section>
 
           <button className="rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark">
