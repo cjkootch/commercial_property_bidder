@@ -288,11 +288,22 @@ export async function deleteProspect(prospectId: string): Promise<void> {
   redirect("/buyers/prospects");
 }
 
+/** How long a prospect's quote page stays "recently opened" before another
+ *  open triggers a fresh email (prevents a re-reading owner from spamming). */
+const QUOTE_OPEN_EMAIL_DEBOUNCE_MS = 12 * 3600_000;
+
 /** Public microsite view tracking (called from /quote/[slug]). Best-effort. */
 export async function recordProspectView(slug: string, userAgent: string | null): Promise<void> {
   try {
     const [p] = await db.select().from(prospect).where(eq(prospect.proposal_slug, slug)).limit(1);
     if (!p) return;
+
+    // The owner checking their own quote page is not a prospect open — skip
+    // entirely so the stats stay honest and they never get self-notified.
+    const viewerId = await currentBuyerId().catch(() => null);
+    if (viewerId === p.buyer_id) return;
+
+    const prevViewedAt = p.last_viewed_at;
     await db
       .update(prospect)
       .set({
@@ -302,6 +313,27 @@ export async function recordProspectView(slug: string, userAgent: string | null)
       })
       .where(eq(prospect.id, p.id));
     await db.insert(prospectView).values({ prospect_id: p.id, user_agent: userAgent?.slice(0, 300) ?? null });
+
+    // Hot-signal email: the owner is LOOKING at the quote right now. Send on
+    // the first open, then at most once per debounce window; respects the
+    // buyer's alerts toggle. Best-effort — never blocks the public page.
+    const fresh =
+      !prevViewedAt || Date.now() - prevViewedAt.getTime() > QUOTE_OPEN_EMAIL_DEBOUNCE_MS;
+    if (!fresh) return;
+    const [b] = await db.select().from(buyer).where(eq(buyer.id, p.buyer_id)).limit(1);
+    if (!b?.notify) return;
+    const label = p.name || p.address;
+    const opens = (p.view_count ?? 0) + 1;
+    const { sendEmail } = await import("@/lib/integrations/resend");
+    await sendEmail({
+      to: b.email,
+      subject: `Your quote for ${label} was just opened`,
+      html:
+        `<p><strong>${label}</strong>${p.city ? ` in ${p.city}` : ""} just opened your quote page${opens > 1 ? ` (${opens} opens so far)` : ""}.</p>` +
+        `<p>Owners read quotes when they're deciding — a call while it's in front of them beats a voicemail tomorrow.</p>` +
+        `<p><a href="${baseUrl()}/buyers/prospects/${p.id}">Open this prospect</a></p>`,
+      tags: { kind: "quote_open" },
+    }).catch(() => null);
   } catch {
     // Never break the public page on a tracking failure.
   }
