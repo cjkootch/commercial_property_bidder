@@ -6,6 +6,8 @@ import { resolveTenant } from "@/lib/tenant";
 import { exclusivePriceCents, leadPriceCents } from "@/lib/integrations/stripe";
 import { leadMaxBuyers } from "@/lib/leads/availability";
 import { Logo } from "@/components/Logo";
+import { ChatWidget } from "@/components/ChatWidget";
+import { startChat } from "./buyers/actions";
 
 // Homepage for the PIVOT: job intelligence for commercial landscaping
 // companies. Sells the WHAT (high-value leads, measured, priced, contacts,
@@ -198,16 +200,17 @@ export default async function Home() {
         <div className="relative mx-auto grid max-w-6xl items-center gap-14 lg:grid-cols-[1.05fr_0.95fr]">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.2em]" style={{ color: "#7fc79b" }}>
-              For commercial landscaping companies
+              High-intent leads for commercial landscapers
             </p>
             <h1 className="mt-4 text-4xl font-extrabold leading-[1.08] tracking-tight sm:text-[3.4rem]">
               Your next commercial contract,{" "}
               <span style={{ color: "#8fd6ab" }}>on one page.</span>
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-relaxed text-gray-300">
-              {name} sells high-value commercial grounds leads — measured from the air, priced at
-              market rates, decision-maker included. Each one goes to no more than {cap} companies,
-              ever.
+              Every job on your dashboard is a verified commercial property that&apos;s about to
+              need a grounds crew. <strong className="text-white">Somebody wins that contract.</strong>{" "}
+              {name} puts you in the room first — site measured from the air, value priced, the
+              decision-maker&apos;s name on one page.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <Link
@@ -266,7 +269,7 @@ export default async function Home() {
           <div className="relative mt-12 grid gap-6 md:grid-cols-3">
             <div className="absolute left-[16.6%] right-[16.6%] top-9 hidden border-t-2 border-dashed border-gray-200 md:block" />
             {[
-              ["Tell us where you work", "Create a free profile with your office city. Your dashboard fills with high-value commercial jobs near you — contract value shown up front."],
+              ["Tell us where you work", "Create a free profile with your office city. Your dashboard fills with high-intent jobs near you — real properties that will award a grounds contract, value shown up front."],
               ["Unlock the full sheet", "One page per job: exact address with the grounds measured from the air, estimated annual value, the decision contacts, crew sizing, and when to act."],
               ["Bid nearly alone", `You're one of at most ${cap} companies that will ever see it. Send the included intro letter and be the first bid on the owner's desk.`],
             ].map(([title, body], i) => (
@@ -295,7 +298,8 @@ export default async function Home() {
             Everything a bidder needs, on one page
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-center text-gray-600">
-            A job sheet isn&apos;t a name and a phone number. It&apos;s the whole play.
+            This isn&apos;t a list of businesses that might want a quote someday. Each sheet is a
+            property that&apos;s about to award a grounds contract — and the whole play to win it.
           </p>
           <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {sheetItems.map(([title, body]) => (
@@ -402,7 +406,7 @@ export default async function Home() {
           <h2 className="text-center text-3xl font-extrabold tracking-tight">Questions</h2>
           <div className="mt-10 space-y-4">
             {[
-              ["Where do these leads come from?", "That's the trade secret — and the reason a sheet is worth paying for. What matters to you: every lead is a real, verified commercial project, measured and priced before it reaches your dashboard. Judge us on the free one."],
+              ["Where do these leads come from?", "That's the trade secret — and the reason a sheet is worth paying for. What matters to you: every lead is a real, verified commercial property that is going to need grounds maintenance — measured and priced before it reaches your dashboard. Judge us on the free one."],
               [`Why cap a job at ${cap} companies?`, "Because a lead shared with fifty companies is worthless. A tight cap keeps every sheet worth bidding on, and the exclusive option exists when you want zero competition."],
               ["What if the free sheet isn't good?", "Then you close the tab and you've lost nothing. We put a real job — measurement, contacts, letter — in your hands first because the sheet is the sales pitch."],
             ].map(([q, a]) => (
@@ -476,6 +480,8 @@ export default async function Home() {
           </div>
         </div>
       </footer>
+
+      <ChatWidget mode="anon" accent={accent} startAction={startChat} />
     </div>
   );
 }

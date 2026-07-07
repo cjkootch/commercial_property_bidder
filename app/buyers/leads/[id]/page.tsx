@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, leadUnlock, property } from "@/lib/db/schema";
+import { buyer, chatMessage, leadUnlock, property } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { leadMaxBuyers } from "@/lib/leads/availability";
 import type { Dossier } from "@/lib/leads/dossier";
-import { currentBuyerId } from "../../actions";
+import { currentBuyerId, sendChatMessage } from "../../actions";
 import { Logo } from "@/components/Logo";
+import { ChatWidget, type ChatMsg } from "@/components/ChatWidget";
 
 // Full job sheet for an unlocked lead. Renders the dossier SNAPSHOT taken at
 // unlock time — the buyer keeps exactly what they bought; no API quota is
@@ -34,6 +35,20 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
   const [me] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
   const co = await getDefaultCompany();
   const brand = co?.name ?? "Greenkeep";
+
+  const chat: ChatMsg[] = (
+    await db
+      .select()
+      .from(chatMessage)
+      .where(eq(chatMessage.buyer_id, buyerId!))
+      .orderBy(asc(chatMessage.created_at))
+      .limit(200)
+  ).map((m) => ({
+    id: m.id,
+    sender: m.sender,
+    body: m.body,
+    at: m.created_at.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+  }));
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -148,6 +163,8 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
           </>
         )}
       </main>
+
+      <ChatWidget mode="buyer" messages={chat} sendAction={sendChatMessage} />
     </div>
   );
 }

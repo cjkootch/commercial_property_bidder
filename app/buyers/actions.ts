@@ -2,9 +2,10 @@
 
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, leadUnlock, property, suppression } from "@/lib/db/schema";
+import { buyer, chatMessage, leadUnlock, property, suppression } from "@/lib/db/schema";
 import {
   BUYER_COOKIE,
   BUYER_SESSION_MAX_AGE,
@@ -318,4 +319,61 @@ export async function startCheckout(propertyId: string, kind: "paid" | "exclusiv
   });
   if (!res.ok) fail(res.error);
   redirect((res as { ok: true; url: string }).url);
+}
+
+// --- chat -------------------------------------------------------------------
+
+async function notifyOperatorOfChat(from: string, body: string): Promise<void> {
+  const co = await getDefaultCompany();
+  if (!co?.email) return; // no operator inbox configured — message waits in /messages
+  await sendEmail({
+    to: co.email,
+    subject: `New buyer message — ${from}`,
+    html: `<p><strong>${from}</strong> wrote:</p><blockquote>${body
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")}</blockquote><p><a href="${baseUrl()}/messages">Reply from the operator dashboard</a></p>`,
+    tags: { kind: "chat_operator" },
+  }).catch(() => null);
+}
+
+/** Signed-in buyer sends a chat message (widget on the buyer portal). */
+export async function sendChatMessage(formData: FormData): Promise<void> {
+  const buyerId = await currentBuyerId();
+  if (!buyerId) redirect("/buyers/login");
+  const body = ((formData.get("body") as string) || "").trim().slice(0, 2000);
+  if (!body) return;
+  const rl = await rateLimit(`chat:buyer:${buyerId}`, 30, 3600);
+  if (!rl.ok) return;
+  const [me] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
+  if (!me) redirect("/buyers/login");
+  await db.insert(chatMessage).values({ buyer_id: me.id, sender: "buyer", body });
+  await notifyOperatorOfChat(`${me.company_name} (${me.email})`, body);
+  revalidatePath("/buyers");
+}
+
+/**
+ * Anonymous chat (homepage widget): email + message. Finds or creates the
+ * buyer row by email but NEVER mints a session — an existing buyer's account
+ * can't be hijacked by typing their address. Replies arrive by email.
+ * Chat-created profiles start with alerts OFF (they only asked a question).
+ */
+export async function startChat(formData: FormData): Promise<{ ok: boolean }> {
+  const email = ((formData.get("email") as string) || "").trim().toLowerCase();
+  const body = ((formData.get("body") as string) || "").trim().slice(0, 2000);
+  if (!email.includes("@") || !body) return { ok: false };
+  const rl = await rateLimit(`chat:ip:${clientIp()}`, 10, 3600);
+  if (!rl.ok) return { ok: false };
+
+  const [existing] = await db.select().from(buyer).where(eq(buyer.email, email)).limit(1);
+  const row =
+    existing ??
+    (
+      await db
+        .insert(buyer)
+        .values({ company_name: email.split("@")[0], email, notify: false })
+        .returning()
+    )[0];
+  await db.insert(chatMessage).values({ buyer_id: row.id, sender: "buyer", body });
+  await notifyOperatorOfChat(email, body);
+  return { ok: true };
 }

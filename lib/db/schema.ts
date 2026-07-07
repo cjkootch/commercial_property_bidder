@@ -389,6 +389,22 @@ export const leadUnlock = pgTable(
   (t) => [unique("lead_unlock_property_buyer").on(t.property_id, t.buyer_id)]
 );
 
+// --- chat (buyer <-> operator messaging) ------------------------------------
+// One thread per buyer. Anonymous homepage chats find-or-create the buyer row
+// by email but NEVER mint a session (account-takeover guard) — those get
+// replies by email. Operator replies from /messages.
+
+export const chatMessage = pgTable("chat_message", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  buyer_id: uuid("buyer_id")
+    .notNull()
+    .references(() => buyer.id),
+  sender: text("sender").notNull(), // buyer | operator
+  body: text("body").notNull(),
+  read_at: timestamp("read_at"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // --- usage counters (rate limiting + tenant metering) ----------------------
 // Fixed-window counters, serverless-friendly (one upsert per check, no Redis).
 // key examples: "quote:ip:1.2.3.4", "tenant:<uuid>:quotes". Old windows are

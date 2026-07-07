@@ -41,6 +41,9 @@ export function Chrome({ children }: { children: React.ReactNode }) {
             <Link href="/leads" className="hover:text-brand">
               Leads
             </Link>
+            <Link href="/messages" className="hover:text-brand">
+              Messages
+            </Link>
             <Link href="/properties/new" className="hover:text-brand">
               Add property
             </Link>
