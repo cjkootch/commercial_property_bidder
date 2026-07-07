@@ -393,6 +393,55 @@ export const leadUnlock = pgTable(
   (t) => [unique("lead_unlock_property_buyer").on(t.property_id, t.buyer_id)]
 );
 
+// --- outreach campaigns (operator review workflow) --------------------------
+// A campaign moves through operator approval GATES before anything sends:
+//   properties -> recipients -> messaging -> ready -> sent
+// Each gate is a human sign-off today; `auto_advance` is the seam for eventual
+// full automation (cron creates a campaign and walks it through untouched).
+// The runner still NEVER sends until the campaign reaches "ready" and execute
+// is invoked (build spec §9 — no send without approval).
+
+export const outreachCampaign = pgTable("outreach_campaign", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  label: text("label").notNull(),
+  // properties | recipients | messaging | ready | sent | canceled
+  stage: text("stage").notNull().default("properties"),
+  // snapshot of the selected open leads (property ids) approved at gate 1
+  property_ids: jsonb("property_ids").$type<string[]>().default([]),
+  price_cents: integer("price_cents").notNull().default(7900),
+  exclusive_price_cents: integer("exclusive_price_cents").notNull().default(19900),
+  auto_advance: boolean("auto_advance").notNull().default(false),
+  sent_at: timestamp("sent_at"),
+  ...timestamps,
+});
+
+// One row per company in a campaign. Carries the matched lead, the resolved
+// send channel, and the (editable) message — so gate 2 reviews the list and
+// gate 3 reviews/edits copy, all persisted.
+export const outreachRecipient = pgTable("outreach_recipient", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  campaign_id: uuid("campaign_id")
+    .notNull()
+    .references(() => outreachCampaign.id, { onDelete: "cascade" }),
+  company_name: text("company_name").notNull(),
+  email: text("email"),
+  website: text("website"),
+  contact_form_url: text("contact_form_url"),
+  city: text("city"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  property_id: uuid("property_id").references(() => property.id),
+  distance_mi: doublePrecision("distance_mi"),
+  subject: text("subject"),
+  body: text("body"),
+  claim_token: text("claim_token"),
+  included: boolean("included").notNull().default(true), // operator kept them at gate 2
+  // pending | sent | manual (no email — paste into their form) | failed | skipped
+  status: text("status").notNull().default("pending"),
+  sent_at: timestamp("sent_at"),
+  ...timestamps,
+});
+
 // --- chat (buyer <-> operator messaging) ------------------------------------
 // One thread per buyer. Anonymous homepage chats find-or-create the buyer row
 // by email but NEVER mint a session (account-takeover guard) — those get
