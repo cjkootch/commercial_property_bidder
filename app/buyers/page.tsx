@@ -189,12 +189,21 @@ export default async function BuyerDashboard({
           <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
             <div className="h-16" style={{ background: `linear-gradient(120deg, ${accent}, ${accent}b0)` }} />
             <div className="px-5 pb-5">
-              <div
-                className="-mt-8 flex h-16 w-16 items-center justify-center rounded-full border-4 border-white text-xl font-bold text-white shadow"
-                style={{ backgroundColor: accent }}
-              >
-                {initials || "🌿"}
-              </div>
+              {me.logo_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={me.logo_url}
+                  alt={me.company_name}
+                  className="-mt-8 h-16 w-16 rounded-full border-4 border-white bg-white object-contain shadow"
+                />
+              ) : (
+                <div
+                  className="-mt-8 flex h-16 w-16 items-center justify-center rounded-full border-4 border-white text-xl font-bold text-white shadow"
+                  style={{ backgroundColor: accent }}
+                >
+                  {initials || "🌿"}
+                </div>
+              )}
               <div className="mt-3 text-lg font-bold leading-tight text-gray-900">{me.company_name}</div>
               {me.contact_name ? <div className="text-sm text-gray-600">{me.contact_name}</div> : null}
               <div className="mt-1 space-y-0.5 text-sm text-gray-500">

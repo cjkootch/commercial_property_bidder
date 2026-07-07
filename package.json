@@ -31,6 +31,7 @@
   "dependencies": {
     "@mapbox/mapbox-gl-draw": "^1.5.1",
     "@neondatabase/serverless": "^1.1.0",
+    "@react-pdf/renderer": "^4.5.1",
     "@turf/area": "^7.3.5",
     "@turf/difference": "^7.3.5",
     "@turf/helpers": "^7.3.5",

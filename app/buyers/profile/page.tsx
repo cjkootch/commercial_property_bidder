@@ -106,7 +106,9 @@ export default async function BuyerProfile({
                   ? "Use a PNG, JPG, WEBP, or SVG."
                   : searchParams.logoerr === "upload"
                     ? "Logo storage isn't set up yet — connect a Vercel Blob store."
-                    : "Please choose an image."}
+                    : searchParams.logoerr === "failed"
+                      ? "Upload failed — please try again in a moment."
+                      : "Please choose an image."}
             </p>
           ) : null}
         </section>
