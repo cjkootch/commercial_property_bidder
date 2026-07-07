@@ -88,6 +88,83 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
 }
 
 /**
+ * Public signup (homepage): same 3-field profile, no campaign token and no
+ * lead attached — the buyer picks their free first sheet from the dashboard.
+ */
+export async function createBuyerAccount(formData: FormData): Promise<void> {
+  const email = ((formData.get("email") as string) || "").trim().toLowerCase();
+  const company = ((formData.get("company") as string) || "").trim();
+  const city = ((formData.get("city") as string) || "").trim();
+  if (!email.includes("@") || !company) redirect("/buyers/signup?error=1");
+
+  const rl = await rateLimit(`buyersignup:ip:${clientIp()}`, 10, 3600);
+  if (!rl.ok) redirect("/buyers/signup?error=1");
+
+  const coords = city ? await geocodeAddress(`${city}, TX`, "place,address,poi") : null;
+  const [existing] = await db.select().from(buyer).where(eq(buyer.email, email)).limit(1);
+  const row =
+    existing ??
+    (
+      await db
+        .insert(buyer)
+        .values({
+          company_name: company,
+          email,
+          city: city || null,
+          lng: coords?.[0] ?? null,
+          lat: coords?.[1] ?? null,
+        })
+        .returning()
+    )[0];
+
+  cookies().set(BUYER_COOKIE, signBuyerSession(row.id), {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: BUYER_SESSION_MAX_AGE,
+    path: "/",
+  });
+  redirect("/buyers");
+}
+
+/**
+ * "Your first sheet is free" from the dashboard (organic signups have no
+ * campaign token). Same guards as the token path, but failures surface as a
+ * banner instead of silently no-oping.
+ */
+export async function claimFreeLead(propertyId: string): Promise<void> {
+  const buyerId = await currentBuyerId();
+  if (!buyerId) redirect("/buyers/login");
+  const fail = (msg: string): never => redirect(`/buyers?err=${encodeURIComponent(msg)}`);
+
+  const [priorFree] = await db
+    .select()
+    .from(leadUnlock)
+    .where(and(eq(leadUnlock.buyer_id, buyerId!), eq(leadUnlock.kind, "free")))
+    .limit(1);
+  if (priorFree) fail("Your free sheet has been used — this one would be a paid unlock.");
+
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop || !prop.parcel_geojson) fail("This lead isn't ready for sale yet — check back soon.");
+  const avail = await leadAvailability(prop!);
+  if (!avail.open) fail("This one just sold out.");
+
+  const co = await getDefaultCompany();
+  const dossier = co ? await buildDossier(prop!, co.name).catch(() => null) : null;
+  const [unlock] = await db
+    .insert(leadUnlock)
+    .values({ buyer_id: buyerId!, property_id: prop!.id, kind: "free", price_cents: 0, dossier })
+    .onConflictDoNothing({ target: [leadUnlock.property_id, leadUnlock.buyer_id] })
+    .returning();
+  if (!unlock) fail("You already have this lead — it's in your unlocked list.");
+  if (!(await confirmUnlockWithinCap(unlock.id, prop!.id))) {
+    fail("The last spot just went to another company.");
+  }
+  await closeLeadIfDone(prop!.id);
+  redirect("/buyers");
+}
+
+/**
  * Free unlock, guarded: shared spot open, lead is sellable (has a parcel to
  * measure), one free claim per buyer, and races resolve gracefully instead of
  * crashing the signup. Failures are silent — the buyer still gets their

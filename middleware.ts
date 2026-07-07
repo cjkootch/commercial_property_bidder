@@ -19,6 +19,7 @@ const PUBLIC_PREFIXES = [
   "/customer/login",
   "/customer/verify",
   "/buyers/claim", // campaign claim links (token-authenticated)
+  "/buyers/signup",
   "/buyers/login",
   "/buyers/verify",
   "/api/unsubscribe",
