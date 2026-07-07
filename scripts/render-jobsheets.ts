@@ -135,7 +135,7 @@ function sheetHtml(o: {
         <div><div class="k">Estimated maintenance contract value</div><div class="v">${usd(o.annualLo)}–${usd(o.annualHi)}<span style="font-size:20px;color:#cfe8d8">/yr</span></div></div>
         <div class="m">≈ ${usd(o.monthly)}/mo<br/>at market pricing</div>
       </div>
-      <div class="scope"><b>Registered scope:</b> ${esc(o.scope)}</div>
+      <div class="scope"><b>Project scope:</b> ${esc(o.scope)}</div>
       <div class="two">
         <div class="panelbox">
           <div class="k">Decision contacts <small>(public record / self-published)</small></div>
