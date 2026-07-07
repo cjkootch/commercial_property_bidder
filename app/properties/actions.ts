@@ -53,6 +53,7 @@ const ICP_VALUES = [
   "daycare",
   "retail_strip",
   "industrial",
+  "residential",
   "other",
 ] as const;
 
@@ -122,51 +123,61 @@ async function persistMeasurementAndPrice(propertyId: string, input: Measurement
 
   const complexity = input.complexity || 1.0;
 
-  const [meas] = await db
-    .insert(measurement)
-    .values({
+  await db.transaction(async (tx) => {
+    const [meas] = await tx
+      .insert(measurement)
+      .values({
+        property_id: propertyId,
+        turf_sqft: input.turf_sqft,
+        bed_sqft: input.bed_sqft,
+        shrub_count: input.shrub_count ?? null,
+        tree_count: input.tree_count ?? null,
+        edging_lf: input.edging_lf ?? null,
+        complexity: complexity.toFixed(2),
+        confidence: input.confidence,
+        source: input.source ?? "manual",
+        service_areas: input.service_areas ?? null,
+        map_view: input.map_view ?? null,
+      })
+      .returning();
+
+    const result = computePricing(
+      {
+        turf_sqft: input.turf_sqft,
+        bed_sqft: input.bed_sqft,
+        complexity,
+        confidence: input.confidence,
+      },
+      toEngineConfig(cfgRow)
+    );
+
+    await tx.insert(pricingResult).values({
       property_id: propertyId,
-      turf_sqft: input.turf_sqft,
-      bed_sqft: input.bed_sqft,
-      shrub_count: input.shrub_count ?? null,
-      tree_count: input.tree_count ?? null,
-      edging_lf: input.edging_lf ?? null,
-      complexity: complexity.toFixed(2),
-      confidence: input.confidence,
-      source: input.source ?? "manual",
-      service_areas: input.service_areas ?? null,
-      map_view: input.map_view ?? null,
-    })
-    .returning();
+      measurement_id: meas.id,
+      config_id: cfgRow.id,
+      cost_per_visit: result.cost_per_visit,
+      price_per_visit: result.price_per_visit,
+      gross_profit_per_visit: result.gross_profit_per_visit,
+      gross_margin_pct: result.gross_margin_pct,
+      min_acceptable_price: result.min_acceptable_price,
+      monthly_price: result.monthly_price,
+      annual_price: result.annual_price,
+      annual_gross_profit: result.annual_gross_profit,
+      cole_annual_cut: result.cole_annual_cut,
+      implied_per_acre_visit: result.implied_per_acre_visit,
+      crew_hours_per_visit: result.crew_hours_per_visit,
+      flags: result.flags,
+      needs_review: result.needs_review,
+    });
 
-  const result = computePricing(
-    { turf_sqft: input.turf_sqft, bed_sqft: input.bed_sqft, complexity, confidence: input.confidence },
-    toEngineConfig(cfgRow)
-  );
-
-  await db.insert(pricingResult).values({
-    property_id: propertyId,
-    measurement_id: meas.id,
-    config_id: cfgRow.id,
-    cost_per_visit: result.cost_per_visit,
-    price_per_visit: result.price_per_visit,
-    gross_profit_per_visit: result.gross_profit_per_visit,
-    gross_margin_pct: result.gross_margin_pct,
-    min_acceptable_price: result.min_acceptable_price,
-    monthly_price: result.monthly_price,
-    annual_price: result.annual_price,
-    annual_gross_profit: result.annual_gross_profit,
-    cole_annual_cut: result.cole_annual_cut,
-    implied_per_acre_visit: result.implied_per_acre_visit,
-    crew_hours_per_visit: result.crew_hours_per_visit,
-    flags: result.flags,
-    needs_review: result.needs_review,
+    // Advance pipeline to "priced" only from the initial stage; never downgrade.
+    if (prop.status === "sourced") {
+      await tx
+        .update(property)
+        .set({ status: "priced", updated_at: new Date() })
+        .where(eq(property.id, propertyId));
+    }
   });
-
-  // Advance pipeline to "priced" only from the initial stage; never downgrade.
-  if (prop.status === "sourced") {
-    await db.update(property).set({ status: "priced", updated_at: new Date() }).where(eq(property.id, propertyId));
-  }
 
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath("/dashboard");

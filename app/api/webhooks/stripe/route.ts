@@ -11,6 +11,7 @@ import {
 } from "@/lib/leads/availability";
 import { sendEmail } from "@/lib/integrations/resend";
 import { getDefaultCompany } from "@/lib/db/queries";
+import { usd as formatUsd } from "@/lib/format";
 
 // Stripe webhook: on checkout.session.completed, unlock the lead for the
 // paying buyer — build the dossier snapshot, close the lead if the cap filled
@@ -39,8 +40,6 @@ function appUrl(): string {
   const envBase = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
   return envBase && !/localhost|127\.0\.0\.1/.test(envBase) ? envBase : "https://greenkeep.us";
 }
-
-const usd = (cents: number) => `$${Math.round(cents / 100).toLocaleString()}`;
 
 export async function POST(req: NextRequest) {
   const payload = await req.text();
@@ -168,9 +167,9 @@ async function creditAndNotify(
   }
   await sendEmail({
     to: b.email,
-    subject: `That job sold out — your ${usd(amount)} credit is ready`,
+    subject: `That job sold out — your ${formatUsd(amount / 100)} credit is ready`,
     html:
-      `<p>${b.company_name} — ${reason}. Your payment is now a <strong>${usd(amount)} credit</strong> on your account.</p>` +
+      `<p>${b.company_name} — ${reason}. Your payment is now a <strong>${formatUsd(amount / 100)} credit</strong> on your account.</p>` +
       `<p>It applies automatically: pick any open job in <a href="${appUrl()}/buyers">your dashboard</a> and it's yours — no card needed.</p>` +
       `<p style="color:#888;font-size:12px">We cap every job at a fixed number of companies and never oversell — that's why spots can go fast.</p>`,
     tags: { kind: "lead_credit" },

@@ -155,40 +155,47 @@ export async function runPipeline(caps: PipelineCaps = CRON_CAPS): Promise<Pipel
           const est = await estimateServiceableArea(prop.parcel_geojson as ParcelResult, token);
           if (!est || est.turf_sqft <= 0) continue;
           const turf = Math.round(est.turf_sqft);
-          const [meas] = await db
-            .insert(measurement)
-            .values({
+
+          await db.transaction(async (tx) => {
+            const [meas] = await tx
+              .insert(measurement)
+              .values({
+                property_id: prop.id,
+                turf_sqft: turf,
+                bed_sqft: 0,
+                complexity: "1.00",
+                confidence: "Low",
+                source: "siterecon",
+              })
+              .returning();
+            const result = computePricing(
+              { turf_sqft: turf, bed_sqft: 0, complexity: 1.0, confidence: "Low" },
+              toEngineConfig(cfgRow)
+            );
+            await tx.insert(pricingResult).values({
               property_id: prop.id,
-              turf_sqft: turf,
-              bed_sqft: 0,
-              complexity: "1.00",
-              confidence: "Low",
-              source: "siterecon",
-            })
-            .returning();
-          const result = computePricing(
-            { turf_sqft: turf, bed_sqft: 0, complexity: 1.0, confidence: "Low" },
-            toEngineConfig(cfgRow)
-          );
-          await db.insert(pricingResult).values({
-            property_id: prop.id,
-            measurement_id: meas.id,
-            config_id: cfgRow.id,
-            cost_per_visit: result.cost_per_visit,
-            price_per_visit: result.price_per_visit,
-            gross_profit_per_visit: result.gross_profit_per_visit,
-            gross_margin_pct: result.gross_margin_pct,
-            min_acceptable_price: result.min_acceptable_price,
-            monthly_price: result.monthly_price,
-            annual_price: result.annual_price,
-            annual_gross_profit: result.annual_gross_profit,
-            cole_annual_cut: result.cole_annual_cut,
-            implied_per_acre_visit: result.implied_per_acre_visit,
-            crew_hours_per_visit: result.crew_hours_per_visit,
-            flags: result.flags,
-            needs_review: result.needs_review,
+              measurement_id: meas.id,
+              config_id: cfgRow.id,
+              cost_per_visit: result.cost_per_visit,
+              price_per_visit: result.price_per_visit,
+              gross_profit_per_visit: result.gross_profit_per_visit,
+              gross_margin_pct: result.gross_margin_pct,
+              min_acceptable_price: result.min_acceptable_price,
+              monthly_price: result.monthly_price,
+              annual_price: result.annual_price,
+              annual_gross_profit: result.annual_gross_profit,
+              cole_annual_cut: result.cole_annual_cut,
+              implied_per_acre_visit: result.implied_per_acre_visit,
+              crew_hours_per_visit: result.crew_hours_per_visit,
+              flags: result.flags,
+              needs_review: result.needs_review,
+            });
+            await tx
+              .update(property)
+              .set({ status: "priced", updated_at: new Date() })
+              .where(eq(property.id, prop.id));
           });
-          await db.update(property).set({ status: "priced", updated_at: new Date() }).where(eq(property.id, prop.id));
+
           out.priced.push(prop.name);
           n++;
         } catch (e) {
