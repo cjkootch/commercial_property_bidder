@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, chatMessage, leadUnlock, property, suppression } from "@/lib/db/schema";
+import { buyer, chatMessage, leadActivity, leadUnlock, property, suppression } from "@/lib/db/schema";
 import {
   BUYER_COOKIE,
   BUYER_SESSION_MAX_AGE,
@@ -426,4 +426,64 @@ export async function startChat(formData: FormData): Promise<{ ok: boolean }> {
   await db.insert(chatMessage).values({ buyer_id: row.id, sender: "buyer", body });
   await notifyOperatorOfChat(email, body);
   return { ok: true };
+}
+
+// --- outreach tracker -------------------------------------------------------
+
+const OUTREACH_STATUSES = [
+  "new",
+  "letter_sent",
+  "postcard_sent",
+  "contacted",
+  "bidding",
+  "won",
+  "lost",
+] as const;
+type OutreachStatus = (typeof OUTREACH_STATUSES)[number];
+
+const STATUS_LABEL: Record<string, string> = {
+  new: "New",
+  letter_sent: "Letter sent",
+  postcard_sent: "Postcard mailed",
+  contacted: "Contacted",
+  bidding: "Bidding",
+  won: "Won",
+  lost: "Lost",
+};
+
+/** Advance/set a buyer's outreach status on one of their unlocked leads. */
+export async function setLeadStatus(unlockId: string, status: string): Promise<void> {
+  const buyerId = await currentBuyerId();
+  if (!buyerId) redirect("/buyers/login");
+  if (!OUTREACH_STATUSES.includes(status as OutreachStatus)) return;
+  const [u] = await db
+    .select()
+    .from(leadUnlock)
+    .where(and(eq(leadUnlock.id, unlockId), eq(leadUnlock.buyer_id, buyerId!)))
+    .limit(1);
+  if (!u || u.outreach_status === status) return;
+  await db.update(leadUnlock).set({ outreach_status: status, updated_at: new Date() }).where(eq(leadUnlock.id, unlockId));
+  await db.insert(leadActivity).values({
+    unlock_id: unlockId,
+    kind: "status",
+    detail: `Moved to ${STATUS_LABEL[status] ?? status}`,
+  });
+  revalidatePath(`/buyers/leads/${unlockId}`);
+  revalidatePath("/buyers");
+}
+
+/** Add a free-text note to a lead's timeline. */
+export async function addLeadNote(unlockId: string, formData: FormData): Promise<void> {
+  const buyerId = await currentBuyerId();
+  if (!buyerId) redirect("/buyers/login");
+  const body = ((formData.get("note") as string) || "").trim().slice(0, 1000);
+  if (!body) return;
+  const [u] = await db
+    .select({ id: leadUnlock.id })
+    .from(leadUnlock)
+    .where(and(eq(leadUnlock.id, unlockId), eq(leadUnlock.buyer_id, buyerId!)))
+    .limit(1);
+  if (!u) return;
+  await db.insert(leadActivity).values({ unlock_id: unlockId, kind: "note", detail: body });
+  revalidatePath(`/buyers/leads/${unlockId}`);
 }

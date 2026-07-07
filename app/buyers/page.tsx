@@ -22,6 +22,25 @@ export const maxDuration = 60;
 
 const note = (notes: string | null, re: RegExp) => notes?.match(re)?.[1]?.trim() ?? null;
 
+const STATUS_LABEL: Record<string, string> = {
+  new: "New",
+  letter_sent: "Letter sent",
+  postcard_sent: "Postcard mailed",
+  contacted: "Contacted",
+  bidding: "Bidding",
+  won: "Won 🏆",
+  lost: "Lost",
+};
+const STATUS_STYLE: Record<string, string> = {
+  new: "bg-gray-100 text-gray-500",
+  letter_sent: "bg-blue-50 text-blue-700",
+  postcard_sent: "bg-blue-50 text-blue-700",
+  contacted: "bg-indigo-50 text-indigo-700",
+  bidding: "bg-amber-100 text-amber-800",
+  won: "bg-green-100 text-green-800",
+  lost: "bg-gray-100 text-gray-400",
+};
+
 export default async function BuyerDashboard({
   searchParams,
 }: {
@@ -297,7 +316,14 @@ export default async function BuyerDashboard({
                             : "Purchased"}
                       </span>
                     </div>
-                    <div className="mt-2 text-sm font-medium text-brand">View full sheet →</div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-sm font-medium text-brand">View full sheet →</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLE[unlock.outreach_status] ?? "bg-gray-100 text-gray-500"}`}
+                      >
+                        {STATUS_LABEL[unlock.outreach_status] ?? "New"}
+                      </span>
+                    </div>
                   </Link>
                 );
               })}

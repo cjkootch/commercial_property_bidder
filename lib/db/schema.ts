@@ -402,10 +402,26 @@ export const leadUnlock = pgTable(
     price_cents: integer("price_cents").notNull().default(0),
     stripe_session_id: text("stripe_session_id"),
     dossier: jsonb("dossier"),
+    // Outreach pipeline the buyer drives on each lead — turns Greenkeep into
+    // their CRM (stickiness) and gives us win/loss signal for pricing.
+    // new | letter_sent | postcard_sent | contacted | bidding | won | lost
+    outreach_status: text("outreach_status").notNull().default("new"),
     ...timestamps,
   },
   (t) => [unique("lead_unlock_property_buyer").on(t.property_id, t.buyer_id)]
 );
+
+// Append-only activity log per unlocked lead: status changes, notes, and
+// (later) postcard mailings. Powers the timeline on the sheet.
+export const leadActivity = pgTable("lead_activity", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  unlock_id: uuid("unlock_id")
+    .notNull()
+    .references(() => leadUnlock.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(), // status | note
+  detail: text("detail").notNull(),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 // --- outreach campaigns (operator review workflow) --------------------------
 // A campaign moves through operator approval GATES before anything sends:
