@@ -60,7 +60,7 @@ export default async function Home() {
     ["Exact address + aerial", "The site from above with the maintainable grounds measured — before you ever roll a truck."],
     ["Contract value estimate", "Annual and monthly maintenance value at market rates, from our measurement."],
     ["Decision contacts", "The owner (with mailing address), tenant, and architect — who actually awards the work."],
-    ["The window to bid", "When the property opens and the date to be in front of the owner by."],
+    ["When to act", "The date to be in front of the owner by — so you're not too early and never too late."],
     ["Crew sizing", "Estimated crew-hours per visit so you can price it profitably in minutes."],
     ["Ready-to-send intro letter", "Fill in your letterhead and send — the first touch is written for you."],
     ["Route intelligence", "What other measured commercial work sits within 3 miles, so one contract anchors a route."],
@@ -97,12 +97,12 @@ export default async function Home() {
               For commercial landscaping companies
             </p>
             <h1 className="mt-3 text-4xl font-bold leading-tight sm:text-5xl">
-              Win grounds contracts before your competitors know they exist.
+              Your next commercial contract, on one page.
             </h1>
             <p className="mt-4 max-w-xl text-lg text-gray-600">
-              {name} finds commercial properties months before they need a landscaper — measures
-              the grounds from the air, estimates the contract value, and puts the decision-maker
-              on one page. You bid first.
+              {name} sells high-value commercial grounds leads — measured from the air, priced at
+              market rates, decision-maker included. Each one goes to no more than {cap} companies,
+              ever. First come, first served.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <Link
@@ -145,8 +145,9 @@ export default async function Home() {
             </span>
             {devValue > 0 ? (
               <span>
+                backed by{" "}
                 <strong className="text-gray-900">${Math.round(devValue / 1_000_000).toLocaleString()}M</strong>{" "}
-                in commercial development behind them
+                in verified commercial projects
               </span>
             ) : null}
             <span>Houston metro</span>
@@ -160,9 +161,9 @@ export default async function Home() {
           <h2 className="text-center text-3xl font-bold">How it works</h2>
           <div className="mt-10 grid gap-8 md:grid-cols-3">
             {[
-              ["We find the job early", "Our models track new commercial development across the metro — months before the grounds contract is awarded, while the site is still dirt."],
-              ["We measure and price it", "Every property is measured from the air and priced at market rates, so you know the contract value before you spend a minute on it."],
-              ["You bid first", "One page: location, decision contacts, sizing, and the window to act. Send the included intro letter and be the first bid on the owner's desk."],
+              ["Tell us where you work", "Create a free profile with your office city. Your dashboard fills with high-value commercial jobs near you — contract value shown up front."],
+              ["Unlock the full sheet", "One page per job: exact address with the grounds measured from the air, estimated annual value, the decision contacts, crew sizing, and when to act."],
+              ["Bid nearly alone", `You're one of at most ${cap} companies that will ever see it. Send the included intro letter and be the first bid on the owner's desk.`],
             ].map(([title, body], i) => (
               <div key={title} className="rounded-2xl border border-gray-200 p-6">
                 <div
@@ -249,7 +250,7 @@ export default async function Home() {
           <h2 className="text-center text-3xl font-bold">Questions</h2>
           <div className="mt-8 space-y-4">
             {[
-              ["Where do these jobs come from?", `${name} runs its own detection and aerial-measurement stack over the metro's commercial development pipeline. Finding jobs early — and measuring them accurately — is the product.`],
+              ["Where do these leads come from?", "That's the trade secret — and the reason a sheet is worth paying for. What matters to you: every lead is a real, verified commercial project, measured and priced before it reaches your dashboard. Judge us on the free one."],
               [`Why cap a job at ${cap} companies?`, "Because a lead shared with fifty companies is worthless. A tight cap keeps every sheet worth bidding on, and the exclusive option exists when you want zero competition."],
               ["What if the free sheet isn't good?", "Then you close the tab and you've lost nothing. We put a real job — measurement, contacts, letter — in your hands first because the sheet is the sales pitch."],
             ].map(([q, a]) => (
