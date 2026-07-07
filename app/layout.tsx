@@ -3,8 +3,8 @@ import "./globals.css";
 import { Chrome } from "@/components/Chrome";
 
 export const metadata: Metadata = {
-  title: "Grounds Acquisition Engine",
-  description: "Commercial landscaping contract pricing & outreach",
+  title: "Greenkeep",
+  description: "High-intent commercial grounds leads for landscaping companies.",
 };
 
 export default function RootLayout({

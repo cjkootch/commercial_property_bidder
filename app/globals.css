@@ -30,3 +30,27 @@ body {
     @apply w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand;
   }
 }
+
+/* --- Print: branded, color-faithful job sheet ---------------------------- */
+@media print {
+  /* Keep our greens, aerials, and mask overlays in the printout. */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  @page {
+    margin: 12mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+  }
+  /* Anything explicitly marked print:hidden is already dropped by Tailwind;
+     these keep cards from splitting awkwardly across pages. */
+  .print-avoid-break {
+    break-inside: avoid;
+  }
+  .print-brand-header {
+    display: flex !important;
+  }
+}

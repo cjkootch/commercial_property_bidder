@@ -230,6 +230,39 @@ export async function requestBuyerLink(formData: FormData): Promise<void> {
   redirect("/buyers/login?sent=1");
 }
 
+/** Update the landscaper profile (auto-fills their outreach letters). */
+export async function updateBuyerProfile(formData: FormData): Promise<void> {
+  const buyerId = await currentBuyerId();
+  if (!buyerId) redirect("/buyers/login");
+  const s = (k: string) => ((formData.get(k) as string) || "").trim().slice(0, 300) || null;
+  const company = s("company_name");
+  const city = s("city");
+  // Re-geocode if the city changed so job distances stay accurate.
+  const [me] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
+  let coords: [number, number] | null = null;
+  if (city && city !== me?.city) {
+    coords = await geocodeAddress(`${city}, TX`, "place,address,poi");
+  }
+  await db
+    .update(buyer)
+    .set({
+      company_name: company || me?.company_name || "My company",
+      contact_name: s("contact_name"),
+      phone: s("phone"),
+      website: s("website"),
+      license_number: s("license_number"),
+      service_area: s("service_area"),
+      bio: s("bio"),
+      city,
+      ...(coords ? { lng: coords[0], lat: coords[1] } : {}),
+      updated_at: new Date(),
+    })
+    .where(eq(buyer.id, buyerId!));
+  revalidatePath("/buyers");
+  revalidatePath("/buyers/profile");
+  redirect("/buyers/profile?saved=1");
+}
+
 export async function buyerLogout(): Promise<void> {
   cookies().delete(BUYER_COOKIE);
   redirect("/buyers/login");

@@ -5,12 +5,16 @@ import { db } from "@/lib/db";
 import { buyer, chatMessage, leadUnlock, property } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { leadMaxBuyers } from "@/lib/leads/availability";
+import type { Metadata } from "next";
 import type { Dossier } from "@/lib/leads/dossier";
+import { personalizeLetter, profileComplete } from "@/lib/leads/personalize";
 import { currentBuyerId, sendChatMessage } from "../../actions";
+import { LogoMark } from "@/components/Logo";
 import { Logo } from "@/components/Logo";
 import { ChatWidget, type ChatMsg } from "@/components/ChatWidget";
 import { BidCalculator } from "@/components/BidCalculator";
 import { PrintButton } from "@/components/PrintButton";
+import { CopyLetter } from "@/components/CopyLetter";
 
 // The full job sheet — the product a buyer paid for. Renders the dossier
 // SNAPSHOT from unlock time (aerial + vegetation mask + parcel outline
@@ -18,6 +22,18 @@ import { PrintButton } from "@/components/PrintButton";
 export const dynamic = "force-dynamic";
 
 const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
+
+export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+  const buyerId = await currentBuyerId();
+  if (!buyerId) return { title: "Greenkeep job sheet" };
+  const [row] = await db
+    .select({ dossier: leadUnlock.dossier })
+    .from(leadUnlock)
+    .where(and(eq(leadUnlock.id, params.id), eq(leadUnlock.buyer_id, buyerId)))
+    .limit(1);
+  const name = (row?.dossier as Dossier | null)?.name;
+  return { title: name ? `Greenkeep · ${name} — job sheet` : "Greenkeep job sheet" };
+}
 
 export default async function LeadSheet({ params }: { params: { id: string } }) {
   const buyerId = await currentBuyerId();
@@ -38,6 +54,10 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
   const brand = co?.name ?? "Greenkeep";
   const accent = co?.brand_color || "#2f7d4f";
   const cap = leadMaxBuyers();
+  // The intro letter is personalized from the buyer's LIVE profile so editing
+  // their profile updates every letter they hold.
+  const letter = d?.intro_letter ? personalizeLetter(d.intro_letter, me ?? {}) : "";
+  const letterReady = profileComplete(me ?? {});
 
   const chat: ChatMsg[] = (
     await db
@@ -68,6 +88,20 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-10">
+        {/* Print-only branded masthead (this is what a buyer prints for the truck). */}
+        <div className="print-brand-header mb-6 hidden items-center justify-between border-b-2 pb-4" style={{ borderColor: accent }}>
+          <div className="flex items-center gap-2">
+            <LogoMark size={26} color={accent} />
+            <span className="text-lg font-bold tracking-tight">{brand}</span>
+            <span className="ml-2 text-xs uppercase tracking-widest text-gray-400">Job intelligence sheet</span>
+          </div>
+          <div className="text-right text-[11px] text-gray-500">
+            {d?.gk_ref ? <div className="font-semibold text-gray-700">{d.gk_ref}</div> : null}
+            <div>Prepared for {me?.company_name ?? "your company"}</div>
+            {d?.prepared_at ? <div>{d.prepared_at}</div> : null}
+          </div>
+        </div>
+
         {!d ? (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
             <div className="font-semibold">Your sheet is being prepared.</div>
@@ -240,12 +274,25 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
                 </Card>
 
                 <Card title="Ready-to-send intro letter">
-                  <p className="mb-3 text-xs text-gray-400">
-                    Fill in the bracketed fields and send on your letterhead.
-                  </p>
+                  {letterReady ? (
+                    <p className="mb-3 text-xs text-gray-500">
+                      Filled in from your profile — copy and send on your letterhead.
+                    </p>
+                  ) : (
+                    <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 print:hidden">
+                      This letter fills in automatically from your{" "}
+                      <Link href="/buyers/profile" className="font-semibold underline">
+                        company profile
+                      </Link>{" "}
+                      — add your name, phone, and email once and every lead comes pre-addressed.
+                    </p>
+                  )}
                   <pre className="overflow-x-auto whitespace-pre-wrap rounded-xl border border-gray-100 bg-gray-50 p-4 text-xs leading-relaxed text-gray-700">
-                    {d.intro_letter}
+                    {letter}
                   </pre>
+                  <div className="mt-3 print:hidden">
+                    <CopyLetter text={letter} accent={accent} />
+                  </div>
                 </Card>
               </div>
             </div>
@@ -278,7 +325,7 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 
 function Card({ title, eyebrow, children }: { title: string; eyebrow?: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+    <section className="print-avoid-break rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
       {eyebrow ? (
         <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-gray-400">{eyebrow}</div>
       ) : null}

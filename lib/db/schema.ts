@@ -360,6 +360,16 @@ export const buyer = pgTable("buyer", {
   lat: doublePrecision("lat"),
   lng: doublePrecision("lng"),
   notify: boolean("notify").notNull().default(true),
+  // Landscaper profile — fills the [NAME]/[PHONE]/[EMAIL]/[YOUR COMPANY]/
+  // [LICENSE] placeholders in every job sheet's ready-to-send intro letter, so
+  // the outreach is theirs the moment they open it. Substituted at render time
+  // from the live profile (editing it updates all their letters).
+  contact_name: text("contact_name"),
+  phone: text("phone"),
+  website: text("website"),
+  license_number: text("license_number"),
+  service_area: text("service_area"),
+  bio: text("bio"),
   // No-refunds policy: when a paid lead can't be delivered (sold out mid-
   // payment, duplicate purchase), the money becomes account credit that
   // auto-applies to the next unlock. Disclosed at the point of sale.
