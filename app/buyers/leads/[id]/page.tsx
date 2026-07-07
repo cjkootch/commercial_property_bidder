@@ -8,8 +8,9 @@ import { leadMaxBuyers } from "@/lib/leads/availability";
 import type { Metadata } from "next";
 import type { Dossier } from "@/lib/leads/dossier";
 import { personalizeLetter, profileComplete } from "@/lib/leads/personalize";
-import { addLeadNote, currentBuyerId, sendChatMessage, setLeadStatus } from "../../actions";
-import { leadActivity } from "@/lib/db/schema";
+import { addLeadNote, currentBuyerId, sendChatMessage, setLeadStatus, startPostcardCheckout } from "../../actions";
+import { leadActivity, postcard } from "@/lib/db/schema";
+import { postcardPriceCents } from "@/lib/integrations/stripe";
 import { LogoMark } from "@/components/Logo";
 import { Logo } from "@/components/Logo";
 import { ChatWidget, type ChatMsg } from "@/components/ChatWidget";
@@ -37,7 +38,13 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   return { title: name ? `Greenkeep · ${name} — job sheet` : "Greenkeep job sheet" };
 }
 
-export default async function LeadSheet({ params }: { params: { id: string } }) {
+export default async function LeadSheet({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams: { mailed?: string; canceled?: string; perr?: string };
+}) {
   const buyerId = await currentBuyerId();
   if (!buyerId) redirect("/buyers/login");
 
@@ -67,6 +74,18 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
     .where(eq(leadActivity.unlock_id, unlock.id))
     .orderBy(desc(leadActivity.created_at))
     .limit(50);
+
+  // Postcard state (already mailed?) + who it'd go to.
+  const [mailed] = await db
+    .select()
+    .from(postcard)
+    .where(and(eq(postcard.unlock_id, unlock.id), eq(postcard.status, "created")))
+    .orderBy(desc(postcard.created_at))
+    .limit(1);
+  const ownerName = d?.contacts.find((c) => c.role === "Owner")?.value ?? null;
+  const ownerMail = d?.contacts.find((c) => c.role.startsWith("Owner mail"))?.value ?? null;
+  const postcardPrice = Math.round(postcardPriceCents() / 100);
+  const canMail = Boolean(ownerMail && (me?.address && me?.city));
 
   const chat: ChatMsg[] = (
     await db
@@ -185,6 +204,73 @@ export default async function LeadSheet({ params }: { params: { id: string } }) 
                   ))}
                 </ul>
               ) : null}
+            </section>
+
+            {/* Mail the owner a postcard (Lob) */}
+            <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm print:hidden">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold uppercase tracking-wide text-gray-700">Mail the owner</h2>
+                <span className="text-xs text-gray-400">Printed & mailed by us — from you.</span>
+              </div>
+
+              {searchParams.mailed ? (
+                <p className="mt-3 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+                  Payment received — your postcard is being sent to print. It&apos;ll show below once confirmed.
+                </p>
+              ) : null}
+              {searchParams.perr ? (
+                <p className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{searchParams.perr}</p>
+              ) : null}
+
+              {mailed ? (
+                <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">
+                  <div className="font-semibold">Postcard mailed ✓</div>
+                  <div className="mt-0.5">
+                    To {mailed.to_name}
+                    {mailed.expected_delivery ? ` — arrives around ${mailed.expected_delivery}` : ""}.
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3">
+                  <p className="text-sm text-gray-600">
+                    Send a branded postcard (your logo, your return address) straight to the owner&apos;s
+                    mailbox — a physical touch most competitors skip. Prints and mails within one
+                    business day.
+                  </p>
+                  <div className="mt-3 rounded-lg bg-gray-50 p-3 text-sm">
+                    <div className="text-gray-500">Would mail to:</div>
+                    <div className="font-medium text-gray-900">{ownerName ?? "the owner"}</div>
+                    <div className="text-gray-600">{ownerMail ?? "No mailing address on file for this owner."}</div>
+                  </div>
+                  {canMail ? (
+                    <form action={startPostcardCheckout.bind(null, unlock.id)} className="mt-3">
+                      <button className="rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark">
+                        Mail this owner — ${postcardPrice}
+                      </button>
+                    </form>
+                  ) : (
+                    <p className="mt-3 text-xs text-amber-700">
+                      {!ownerMail
+                        ? "We don't have a mailing address for this owner, so a postcard can't be sent."
+                        : (
+                          <>
+                            Add your office address in your{" "}
+                            <Link href="/buyers/profile" className="font-semibold underline">
+                              profile
+                            </Link>{" "}
+                            first — it&apos;s the postcard&apos;s return address.
+                          </>
+                        )}
+                    </p>
+                  )}
+                  {!me?.logo_url ? (
+                    <p className="mt-2 text-xs text-gray-400">
+                      Tip: add your logo in your{" "}
+                      <Link href="/buyers/profile" className="underline">profile</Link> so it prints on the card.
+                    </p>
+                  ) : null}
+                </div>
+              )}
             </section>
 
             {/* Aerial with measurement overlay */}

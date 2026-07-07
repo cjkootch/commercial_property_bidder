@@ -21,8 +21,52 @@ export function exclusivePriceCents(): number {
   const usd = Number(process.env.LEAD_EXCLUSIVE_PRICE_USD);
   return Number.isFinite(usd) && usd > 0 ? Math.round(usd * 100) : 19900;
 }
+/** Price to print + mail one owner postcard (Lob cost + margin). */
+export function postcardPriceCents(): number {
+  const usd = Number(process.env.POSTCARD_PRICE_USD);
+  return Number.isFinite(usd) && usd > 0 ? Math.round(usd * 100) : 900;
+}
 
 export type CheckoutResult = { ok: true; url: string } | { ok: false; error: string };
+
+/** Checkout Session for a postcard mailing (metadata routes the webhook). */
+export async function createPostcardCheckout(opts: {
+  amountCents: number;
+  leadName: string;
+  buyerEmail: string;
+  buyerId: string;
+  unlockId: string;
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<CheckoutResult> {
+  const key = getStripeKey();
+  if (!key) return { ok: false, error: "Payments not configured (STRIPE_SECRET_KEY)." };
+  const params = new URLSearchParams({
+    mode: "payment",
+    customer_email: opts.buyerEmail,
+    success_url: opts.successUrl,
+    cancel_url: opts.cancelUrl,
+    "line_items[0][quantity]": "1",
+    "line_items[0][price_data][currency]": "usd",
+    "line_items[0][price_data][unit_amount]": String(opts.amountCents),
+    "line_items[0][price_data][product_data][name]": `Owner postcard — ${opts.leadName}`.slice(0, 120),
+    "metadata[type]": "postcard",
+    "metadata[unlock_id]": opts.unlockId,
+    "metadata[buyer_id]": opts.buyerId,
+  });
+  try {
+    const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
+    const data = (await res.json()) as { url?: string; error?: { message?: string } };
+    if (!res.ok || !data.url) return { ok: false, error: data.error?.message ?? `Stripe error (${res.status}).` };
+    return { ok: true, url: data.url };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Stripe request failed." };
+  }
+}
 
 /** Create a one-time-payment Checkout Session for a lead unlock. */
 export async function createLeadCheckout(opts: {

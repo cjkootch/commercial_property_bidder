@@ -32,7 +32,7 @@ type CheckoutSession = {
   amount_total: number | null;
   payment_status?: string;
   payment_intent?: string | null;
-  metadata?: { buyer_id?: string; property_id?: string; kind?: string };
+  metadata?: { buyer_id?: string; property_id?: string; kind?: string; type?: string; unlock_id?: string };
 };
 
 function appUrl(): string {
@@ -62,14 +62,45 @@ export async function POST(req: NextRequest) {
   const buyerId = session?.metadata?.buyer_id;
   const propertyId = session?.metadata?.property_id;
   const kind = session?.metadata?.kind === "exclusive" ? "exclusive" : "paid";
-  if (!session || !buyerId || !propertyId) {
-    return NextResponse.json({ received: true, skipped: "no lead metadata" });
+  if (!session || !buyerId) {
+    return NextResponse.json({ received: true, skipped: "no metadata" });
   }
   // Async payment methods complete the session before funds settle — only
-  // unlock on settled money (card sessions are always "paid" here).
+  // fulfill on settled money (card sessions are always "paid" here).
   if (session.payment_status && session.payment_status !== "paid") {
     return NextResponse.json({ received: true, skipped: `payment_status ${session.payment_status}` });
   }
+
+  // Postcard purchase (not a lead unlock) — fulfill via Lob.
+  if (session.metadata?.type === "postcard") {
+    const unlockId = session.metadata?.unlock_id;
+    if (!unlockId) return NextResponse.json({ received: true, skipped: "no unlock for postcard" });
+    const [b] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
+    const { fulfillPostcard } = await import("@/lib/leads/postcard");
+    const r = await fulfillPostcard({
+      unlockId,
+      buyerId,
+      priceCents: session.amount_total ?? 0,
+      stripeSessionId: session.id,
+    });
+    if (!r.ok) {
+      // Paid but couldn't mail — credit the buyer (no-refund policy) + notify.
+      if (b) await creditAndNotify(session, b, `we couldn't mail that postcard (${r.error})`);
+      else console.error(`[stripe] postcard failed, no buyer to credit — ${session.id}: ${r.error}`);
+      return NextResponse.json({ received: true, postcard: "failed", error: r.error });
+    }
+    if (b) {
+      await sendEmail({
+        to: b.email,
+        subject: "Your postcard is on its way",
+        html: `<p>${b.company_name} — your postcard to the property owner has been sent to print${r.expectedDelivery ? ` and should arrive around <strong>${r.expectedDelivery}</strong>` : ""}.</p><p><a href="${appUrl()}/buyers/leads/${unlockId}">View the lead</a></p>`,
+        tags: { kind: "postcard" },
+      }).catch(() => null);
+    }
+    return NextResponse.json({ received: true, postcard: r.postcardId });
+  }
+
+  if (!propertyId) return NextResponse.json({ received: true, skipped: "no property" });
 
   // Idempotency: this exact session already produced an unlock.
   const [done] = await db.select().from(leadUnlock).where(eq(leadUnlock.stripe_session_id, session.id)).limit(1);

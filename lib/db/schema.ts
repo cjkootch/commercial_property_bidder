@@ -371,9 +371,14 @@ export const buyer = pgTable("buyer", {
   // Office address (geocoded to lat/lng) + how far they'll travel. The radius
   // anchors the "open near you" distances and the coverage map on the profile.
   address: text("address"),
+  // USPS ZIP resolved from the office address at geocode time — the return ZIP
+  // on any postcard they mail (so it's never a placeholder).
+  zip: text("zip"),
   service_radius_mi: integer("service_radius_mi").notNull().default(25),
   service_area: text("service_area"),
   bio: text("bio"),
+  // Company logo (Vercel Blob URL) — printed on the postcard they mail.
+  logo_url: text("logo_url"),
   // No-refunds policy: when a paid lead can't be delivered (sold out mid-
   // payment, duplicate purchase), the money becomes account credit that
   // auto-applies to the next unlock. Disclosed at the point of sale.
@@ -412,15 +417,35 @@ export const leadUnlock = pgTable(
 );
 
 // Append-only activity log per unlocked lead: status changes, notes, and
-// (later) postcard mailings. Powers the timeline on the sheet.
+// postcard mailings. Powers the timeline on the sheet.
 export const leadActivity = pgTable("lead_activity", {
   id: uuid("id").primaryKey().defaultRandom(),
   unlock_id: uuid("unlock_id")
     .notNull()
     .references(() => leadUnlock.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull(), // status | note
+  kind: text("kind").notNull(), // status | note | postcard
   detail: text("detail").notNull(),
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Postcards mailed to a lead's owner via Lob (paid, one-click). Idempotent on
+// stripe_session_id so a webhook retry never double-mails.
+export const postcard = pgTable("postcard", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  unlock_id: uuid("unlock_id")
+    .notNull()
+    .references(() => leadUnlock.id, { onDelete: "cascade" }),
+  buyer_id: uuid("buyer_id")
+    .notNull()
+    .references(() => buyer.id),
+  lob_id: text("lob_id"),
+  status: text("status").notNull().default("created"), // created | failed
+  price_cents: integer("price_cents").notNull().default(0),
+  stripe_session_id: text("stripe_session_id").unique(),
+  to_name: text("to_name"),
+  to_address: text("to_address"),
+  expected_delivery: text("expected_delivery"),
+  ...timestamps,
 });
 
 // --- outreach campaigns (operator review workflow) --------------------------

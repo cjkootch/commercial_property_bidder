@@ -6,7 +6,7 @@ import { buyer } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { profileComplete } from "@/lib/leads/personalize";
 import { zoomForRadius } from "@/lib/geo/radius";
-import { currentBuyerId, updateBuyerProfile } from "../actions";
+import { currentBuyerId, updateBuyerProfile, uploadBuyerLogo } from "../actions";
 import { Logo } from "@/components/Logo";
 import { ServiceRadiusMap } from "@/components/ServiceRadiusMap";
 
@@ -14,7 +14,11 @@ import { ServiceRadiusMap } from "@/components/ServiceRadiusMap";
 // sheet (so the outreach is ready to send the moment they open it).
 export const dynamic = "force-dynamic";
 
-export default async function BuyerProfile({ searchParams }: { searchParams: { saved?: string } }) {
+export default async function BuyerProfile({
+  searchParams,
+}: {
+  searchParams: { saved?: string; logoerr?: string };
+}) {
   const buyerId = await currentBuyerId();
   if (!buyerId) redirect("/buyers/login");
   const [me] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
@@ -68,7 +72,46 @@ export default async function BuyerProfile({ searchParams }: { searchParams: { s
           </p>
         ) : null}
 
-        <form action={updateBuyerProfile} className="mt-6 space-y-5">
+        {/* Logo upload (own form — file upload; also prints on your postcards). */}
+        <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-6">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Company logo</h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Shown on your dashboard and printed on the postcards you mail to owners.
+          </p>
+          <form action={uploadBuyerLogo} className="mt-4 flex flex-wrap items-center gap-4">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+              {me.logo_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={me.logo_url} alt="Your logo" className="h-full w-full object-contain" />
+              ) : (
+                <span className="text-2xl">🌿</span>
+              )}
+            </div>
+            <input
+              type="file"
+              name="logo"
+              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              required
+              className="text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-brand file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white hover:file:bg-brand-dark"
+            />
+            <button className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+              Upload logo
+            </button>
+          </form>
+          {searchParams.logoerr ? (
+            <p className="mt-2 text-xs text-red-600">
+              {searchParams.logoerr === "toobig"
+                ? "That image is over 3 MB — please use a smaller file."
+                : searchParams.logoerr === "type"
+                  ? "Use a PNG, JPG, WEBP, or SVG."
+                  : searchParams.logoerr === "upload"
+                    ? "Logo storage isn't set up yet — connect a Vercel Blob store."
+                    : "Please choose an image."}
+            </p>
+          ) : null}
+        </section>
+
+        <form action={updateBuyerProfile} className="mt-5 space-y-5">
           <section className="rounded-2xl border border-gray-200 bg-white p-6">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Business</h2>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">

@@ -21,7 +21,7 @@ import {
   leadAvailability,
 } from "@/lib/leads/availability";
 import { createLeadCheckout, exclusivePriceCents, leadPriceCents } from "@/lib/integrations/stripe";
-import { geocodeAddress } from "@/lib/integrations/geocoding";
+import { geocodeAddress, geocodeWithZip } from "@/lib/integrations/geocoding";
 import { sendEmail } from "@/lib/integrations/resend";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { rateLimit, clientIp, LIMITS } from "@/lib/ratelimit";
@@ -243,9 +243,15 @@ export async function updateBuyerProfile(formData: FormData): Promise<void> {
   const [me] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
 
   // Geocode the office ADDRESS (precise) when it changed; fall back to city.
+  // The precise geocode also yields the return ZIP for mailed postcards.
   let coords: [number, number] | null = null;
+  let zip: string | null | undefined = undefined;
   if (address && address !== me?.address) {
-    coords = await geocodeAddress(`${address}, ${city ?? "TX"}`, "address,poi");
+    const g = await geocodeWithZip(`${address}, ${city ?? "TX"}`, "address,poi");
+    if (g) {
+      coords = [g.lng, g.lat];
+      zip = g.zip;
+    }
   } else if (!me?.lat && city) {
     coords = await geocodeAddress(`${city}, TX`, "place,address,poi");
   }
@@ -263,6 +269,7 @@ export async function updateBuyerProfile(formData: FormData): Promise<void> {
       service_radius_mi: radius,
       bio: s("bio"),
       ...(coords ? { lng: coords[0], lat: coords[1] } : {}),
+      ...(zip !== undefined ? { zip } : {}),
       updated_at: new Date(),
     })
     .where(eq(buyer.id, buyerId!));
@@ -486,4 +493,60 @@ export async function addLeadNote(unlockId: string, formData: FormData): Promise
   if (!u) return;
   await db.insert(leadActivity).values({ unlock_id: unlockId, kind: "note", detail: body });
   revalidatePath(`/buyers/leads/${unlockId}`);
+}
+
+// --- logo upload (Vercel Blob) ----------------------------------------------
+
+export async function uploadBuyerLogo(formData: FormData): Promise<void> {
+  const buyerId = await currentBuyerId();
+  if (!buyerId) redirect("/buyers/login");
+  const file = formData.get("logo") as File | null;
+  if (!file || file.size === 0) redirect("/buyers/profile?logoerr=1");
+  if (file.size > 3_000_000) redirect("/buyers/profile?logoerr=toobig");
+  if (!/^image\/(png|jpe?g|svg\+xml|webp)$/.test(file.type)) redirect("/buyers/profile?logoerr=type");
+  try {
+    const { put } = await import("@vercel/blob");
+    const ext = (file.name.split(".").pop() || "png").toLowerCase();
+    const blob = await put(`logos/${buyerId}-${Date.now()}.${ext}`, file, {
+      access: "public",
+      contentType: file.type,
+    });
+    await db.update(buyer).set({ logo_url: blob.url, updated_at: new Date() }).where(eq(buyer.id, buyerId!));
+  } catch {
+    redirect("/buyers/profile?logoerr=upload");
+  }
+  revalidatePath("/buyers/profile");
+  redirect("/buyers/profile?saved=1");
+}
+
+// --- postcard checkout ------------------------------------------------------
+
+/** Pay to have Greenkeep print + mail a branded postcard to the lead's owner. */
+export async function startPostcardCheckout(unlockId: string): Promise<void> {
+  const buyerId = await currentBuyerId();
+  if (!buyerId) redirect("/buyers/login");
+  const back = (msg: string): never => redirect(`/buyers/leads/${unlockId}?perr=${encodeURIComponent(msg)}`);
+
+  const [row] = await db.select().from(leadUnlock).where(and(eq(leadUnlock.id, unlockId), eq(leadUnlock.buyer_id, buyerId!))).limit(1);
+  if (!row) back("Lead not found.");
+  const [me] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
+  if (!me) redirect("/buyers/login");
+  if (!me.address || !me.city) back("Add your office address in your profile first — it's the postcard's return address.");
+
+  const rl = await rateLimit(`postcard:ip:${clientIp()}`, 20, 3600);
+  if (!rl.ok) back("Too many attempts — try again in a bit.");
+
+  const base = baseUrl();
+  const { postcardPriceCents, createPostcardCheckout } = await import("@/lib/integrations/stripe");
+  const res = await createPostcardCheckout({
+    amountCents: postcardPriceCents(),
+    leadName: (row!.dossier as { name?: string } | null)?.name ?? "owner",
+    buyerEmail: me.email,
+    buyerId: me.id,
+    unlockId,
+    successUrl: `${base}/buyers/leads/${unlockId}?mailed=1`,
+    cancelUrl: `${base}/buyers/leads/${unlockId}?canceled=1`,
+  });
+  if (!res.ok) back(res.error);
+  redirect((res as { ok: true; url: string }).url);
 }
