@@ -18,8 +18,10 @@ import type { PricingConfig, PricingFlags } from "../pricing/types";
 import type { MapView, ParcelResult, ServiceAreaCollection } from "../geo/types";
 import {
   computeLeadScore,
+  estimateCompletionFromNotes,
   haversineMiles,
   isRecentOwnerChange,
+  monthsUntil,
   ROUTE_RADIUS_MILES,
 } from "../sourcing/criteria";
 
@@ -148,6 +150,7 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
       activelyLeasing: p.actively_leasing,
       grossMarginPct: pr?.gross_margin_pct ?? null,
       neighborsNearby: neighborsNearby(p),
+      monthsToCompletion: monthsUntil(estimateCompletionFromNotes(p.notes)?.iso ?? null),
     });
 
     const teaser = p.lead_teaser as { annual_lo?: number; annual_hi?: number } | null;
@@ -177,6 +180,23 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
     });
   }
   return rows;
+}
+
+/** How many OTHER properties in the book sit within ROUTE_RADIUS_MILES of this
+ *  one — the route-density signal in the lead score. */
+export async function countNearbyProperties(propertyId: string): Promise<number> {
+  const props = await db
+    .select({ id: property.id, lat: property.lat, lng: property.lng })
+    .from(property)
+    .where(isNotNull(property.lat));
+  const me = props.find((p) => p.id === propertyId);
+  if (!me || me.lat == null || me.lng == null) return 0;
+  return props.filter(
+    (p) =>
+      p.id !== propertyId &&
+      p.lng != null &&
+      haversineMiles([me.lng!, me.lat!], [p.lng!, p.lat!]) <= ROUTE_RADIUS_MILES
+  ).length;
 }
 
 /** Everything the hosted proposal page needs, by slug. Null if not found. */

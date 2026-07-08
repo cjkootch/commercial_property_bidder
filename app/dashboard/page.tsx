@@ -203,6 +203,11 @@ function PropertyTable({
                   {r.name.replace(/ \(TABS [^)]+\)$/, "")}
                 </Link>
                 {r.city ? <span className="ml-1 text-gray-400">· {r.city}</span> : null}
+                {r.lead_reasons.length ? (
+                  <div className="mt-0.5 text-[11px] text-gray-400">
+                    {r.lead_reasons.join(" · ")}
+                  </div>
+                ) : null}
               </td>
               {kind === "inventory" ? (
                 <>

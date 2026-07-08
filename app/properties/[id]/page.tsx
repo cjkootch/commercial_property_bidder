@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
+  countNearbyProperties,
   getActiveConfig,
   getPropertyDetail,
   getPropertyProposal,
@@ -26,7 +27,13 @@ import { ProposalCard } from "@/components/ProposalCard";
 import type { ContactSuggestion } from "@/lib/integrations/contact";
 import { MeasureMapLoader } from "@/components/MeasureMapLoader";
 import { CalcBreakdown } from "@/components/CalcBreakdown";
-import { MIN_GRASS_FRACTION } from "@/lib/sourcing/criteria";
+import {
+  computeLeadScore,
+  estimateCompletionFromNotes,
+  isRecentOwnerChange,
+  monthsUntil,
+  MIN_GRASS_FRACTION,
+} from "@/lib/sourcing/criteria";
 import { computePricing } from "@/lib/pricing/engine";
 import { getMapboxToken, DEFAULT_CENTER, DEFAULT_ZOOM } from "@/lib/integrations/geocoding";
 import { usd, pct, titleCase } from "@/lib/format";
@@ -102,6 +109,27 @@ export default async function PropertyWorkspace({
         )
       : null;
 
+  // "Why this property": how it entered the funnel + the scored signals.
+  const neighborsNearby = await countNearbyProperties(prop.id);
+  const completion = estimateCompletionFromNotes(prop.notes);
+  const leadScore = computeLeadScore({
+    grassFraction: prop.grass_fraction,
+    recentOwnerChange: isRecentOwnerChange(parcel?.last_sale_date ?? null),
+    activelyLeasing: prop.actively_leasing,
+    grossMarginPct: pricing?.gross_margin_pct ?? null,
+    neighborsNearby,
+    monthsToCompletion: monthsUntil(completion?.iso ?? null),
+  });
+  const isTabsLead = /\(TABS /.test(prop.name);
+  const projectCost = prop.notes?.match(/est\. cost (\$[\d,]+)/)?.[1] ?? null;
+  const origin = isTabsLead
+    ? `Found by the permit pipeline: a state construction filing (TABS)${projectCost ? ` for a ${projectCost} project` : ""}. New construction means the first grounds contract hasn't been won yet — someone gets this property's maintenance when it opens, and the sheet sells that head start.`
+    : prop.source === "places"
+      ? `Discovered by the sourcing pipeline: a commercial property in the NW-Houston corridor whose parcel passed the ≥${Math.round(MIN_GRASS_FRACTION * 100)}% vegetation pre-screen — enough grass to be worth measuring and quoting.`
+      : prop.source === "inbound"
+        ? "Came in through the public instant-quote funnel — the owner or manager asked for a price themselves."
+        : "Added manually by the operator.";
+
   return (
     <div className="space-y-8">
       <div>
@@ -146,6 +174,47 @@ export default async function PropertyWorkspace({
           {prop.owner_org ? ` · ${prop.owner_org}` : ""}
         </p>
       </div>
+
+      {/* Why this property: origin + the scored signals behind the lead number */}
+      <section className="rounded-lg border border-gray-200 bg-white p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-medium">Why this property</h2>
+          <span
+            className={
+              "rounded-full px-3 py-1 text-sm font-bold tabular-nums " +
+              (leadScore.score >= 60
+                ? "bg-green-100 text-green-800"
+                : leadScore.score >= 40
+                  ? "bg-amber-100 text-amber-800"
+                  : "bg-gray-200 text-gray-600")
+            }
+          >
+            Lead score {leadScore.score} / 100
+          </span>
+        </div>
+        <p className="mt-2 text-sm text-gray-600">{origin}</p>
+        <ul className="mt-4 space-y-2.5">
+          {leadScore.parts.map((part) => (
+            <li key={part.label} className="flex items-start gap-3">
+              <div className="mt-0.5 w-24 shrink-0">
+                <div className="text-right text-sm font-semibold tabular-nums text-gray-700">
+                  {part.max > 0 ? `${part.points} / ${part.max}` : "n/a"}
+                </div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-gray-100">
+                  <div
+                    className={`h-full rounded-full ${part.points > 0 ? "bg-brand" : "bg-gray-200"}`}
+                    style={{ width: `${part.max > 0 ? Math.round((part.points / part.max) * 100) : 0}%` }}
+                  />
+                </div>
+              </div>
+              <div className="min-w-0">
+                <span className="text-sm font-medium text-gray-800">{part.label}</span>
+                <span className="text-sm text-gray-500"> — {part.note}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
 
       <div className="grid gap-8 lg:grid-cols-2">
         {/* Measurements */}
