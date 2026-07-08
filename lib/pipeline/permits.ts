@@ -24,8 +24,11 @@ import { haversineMiles } from "../sourcing/criteria";
 import type { ParcelResult } from "../geo/types";
 
 const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
-// New builds + additions have site work; renovations usually don't.
-const WORK_TYPES = new Set([9001, 9003]);
+// New builds + additions have site work. Renovations (9002) of EXISTING
+// buildings are included too: a six-figure renovation is an owner actively
+// investing in the property — vendor relationships get reviewed alongside —
+// and the building already has grounds to maintain.
+const WORK_TYPES = new Set([9001, 9002, 9003]);
 
 export function icpGuess(text: string): (typeof schema.icpTypeEnum.enumValues)[number] {
   const t = text.toLowerCase();
