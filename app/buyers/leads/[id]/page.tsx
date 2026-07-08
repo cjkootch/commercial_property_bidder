@@ -460,7 +460,7 @@ export default async function LeadSheet({
             <p className="mt-8 text-center text-xs text-gray-400">
               Prepared for {me?.company_name ?? "your company"} by {brand}.{" "}
               {unlock.kind === "exclusive"
-                ? "This job is exclusively yours — we will never sell it to anyone else."
+                ? "This job is exclusively yours — we will never sell it to another company in your trade."
                 : `We sell each job to no more than ${cap} companies.`}{" "}
               Do not redistribute.
             </p>
