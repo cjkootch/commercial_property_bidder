@@ -31,6 +31,7 @@ import { sizeLead } from "../leads/sizing";
 import { getActiveConfig, toEngineConfig } from "../db/queries";
 import { isGrassQualified, SIGNAL_MIN_GRASS_FRACTION } from "../sourcing/criteria";
 import { icpGuess } from "./permits";
+import { loadRejects, recordReject } from "./rejects";
 import type { ParcelResult } from "../geo/types";
 
 const HCAD_QUERY_URL =
@@ -241,7 +242,7 @@ export async function runTransferSourcing(opts?: {
   sinceMonths?: number;
 }): Promise<TransferRunSummary> {
   const want = opts?.want ?? 8;
-  const minMarketValue = opts?.minMarketValue ?? 250_000;
+  const minMarketValue = opts?.minMarketValue ?? 150_000;
   const sinceMonths = opts?.sinceMonths ?? 12;
   const log: string[] = [];
 
@@ -262,7 +263,7 @@ export async function runTransferSourcing(opts?: {
   const features = await fetchRecentTransfers({
     sinceMonths,
     minMarketValue,
-    limit: Math.min(Math.max(want * 10, 50), 200),
+    limit: Math.min(Math.max(want * 10, 50), 400),
   });
   const candidates = features
     .map(normalizeTransfer)
@@ -274,6 +275,7 @@ export async function runTransferSourcing(opts?: {
 
   const token = getMapboxToken();
   const cfgRow = await getActiveConfig(co.id);
+  const rejects = await loadRejects();
   if (!token) log.push("MAPBOX_API not set — adding without grass screen or teaser");
 
   let added = 0;
@@ -283,7 +285,9 @@ export async function runTransferSourcing(opts?: {
   for (const t of candidates) {
     if (added >= want || attempts <= 0) break;
     const name = `${t.address} (HCAD ${t.hcadNum})`;
+    const rejectKey = `transfer:${t.hcadNum}`;
     if (haveName.has(name.trim().toLowerCase()) || haveParcel.has(t.hcadNum)) continue;
+    if (rejects.has(rejectKey)) continue; // screened + rejected in a prior run
     attempts--;
 
     // One tile buys both the grass pre-screen and the teaser sizing.
@@ -300,6 +304,7 @@ export async function runTransferSourcing(opts?: {
       // bare-pavement parcels (gas stations, pad sites).
       if (!isGrassQualified(grassFraction, SIGNAL_MIN_GRASS_FRACTION)) {
         skippedGrass++;
+        await recordReject(rejectKey, `grass ${Math.round(grassFraction * 100)}%`);
         log.push(`skipped (${Math.round(grassFraction * 100)}% grass < ${Math.round(SIGNAL_MIN_GRASS_FRACTION * 100)}%): ${t.address}`);
         continue;
       }

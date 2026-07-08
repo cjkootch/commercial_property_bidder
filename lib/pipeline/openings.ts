@@ -31,6 +31,7 @@ import { estimateServiceableArea } from "../integrations/imagery";
 import { sizeLead } from "../leads/sizing";
 import { getActiveConfig, toEngineConfig } from "../db/queries";
 import { isGrassQualified, SIGNAL_MIN_GRASS_FRACTION } from "../sourcing/criteria";
+import { loadRejects, recordReject } from "./rejects";
 import type { ParcelResult } from "../geo/types";
 
 const SODA_URL = "https://data.texas.gov/resource/jrea-zgmq.json";
@@ -178,6 +179,7 @@ export async function runOpeningSourcing(opts?: {
 
   const token = getMapboxToken();
   const cfgRow = await getActiveConfig(co.id);
+  const rejects = await loadRejects();
   if (!token) log.push("MAPBOX_API not set — cannot geocode; nothing to add");
 
   let added = 0;
@@ -188,7 +190,9 @@ export async function runOpeningSourcing(opts?: {
   for (const r of candidates) {
     if (added >= want || attempts <= 0 || !token) break;
     const name = `${r.outlet_name} (STP ${r.taxpayer_number}-${r.outlet_number})`;
+    const rejectKey = `opening:${r.taxpayer_number}-${r.outlet_number}`;
     if (haveName.has(name.trim().toLowerCase())) continue;
+    if (rejects.has(rejectKey)) continue; // screened + rejected in a prior run
     attempts--;
 
     const address = `${r.outlet_address}, ${r.outlet_city}, TX ${r.outlet_zip_code}`;
@@ -209,6 +213,7 @@ export async function runOpeningSourcing(opts?: {
       // Home businesses land on residential (A/B) parcels — the decisive gate.
       // F1 commercial + F2 industrial both carry grounds contracts.
       skippedClass++;
+      await recordReject(rejectKey, `parcel class ${stateClass || "none"}`);
       continue;
     }
     const parcel = hit.parcel as ParcelResult;
@@ -224,6 +229,7 @@ export async function runOpeningSourcing(opts?: {
     // bare-pavement parcels.
     if (!isGrassQualified(est.vegetation_fraction, SIGNAL_MIN_GRASS_FRACTION)) {
       skippedGrass++;
+      await recordReject(rejectKey, `grass ${Math.round(est.vegetation_fraction * 100)}%`);
       log.push(
         `skipped (${Math.round(est.vegetation_fraction * 100)}% grass < ${Math.round(SIGNAL_MIN_GRASS_FRACTION * 100)}%): ${r.outlet_name}`
       );

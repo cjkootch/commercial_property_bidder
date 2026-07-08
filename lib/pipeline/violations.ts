@@ -21,6 +21,7 @@ import { getMapboxToken } from "../integrations/geocoding";
 import { sizeLead } from "../leads/sizing";
 import { getActiveConfig, toEngineConfig } from "../db/queries";
 import { icpGuess } from "./permits";
+import { loadRejects, recordReject } from "./rejects";
 import type { ParcelResult } from "../geo/types";
 
 const EXTRACT_URL =
@@ -148,6 +149,7 @@ export async function runViolationSourcing(opts?: {
 
   const token = getMapboxToken();
   const cfgRow = await getActiveConfig(co.id);
+  const rejects = await loadRejects();
 
   let added = 0;
   let skippedClass = 0;
@@ -162,7 +164,9 @@ export async function runViolationSourcing(opts?: {
       ? v.address.replace(new RegExp(` ${v.city} TX \\d{5}(-\\d{4})?$`, "i"), "")
       : v.address.replace(/ HOUSTON TX \d{5}(-\d{4})?$/i, "");
     const name = `${stripped} (H311 ${v.caseNumber})`;
+    const rejectKey = `violation:${v.caseNumber}`;
     if (haveName.has(name.trim().toLowerCase())) continue;
+    if (rejects.has(rejectKey)) continue; // screened + rejected in a prior run
     attempts--;
 
     const hit = await fetchHarrisParcelAtPoint(v.lng, v.lat);
@@ -173,6 +177,7 @@ export async function runViolationSourcing(opts?: {
     const stateClass = String(hit.attrs.state_class ?? "").trim();
     if (!["F1", "F2", "B1"].includes(stateClass)) {
       skippedClass++;
+      await recordReject(rejectKey, `parcel class ${stateClass || "none"}`);
       continue;
     }
     const parcel = hit.parcel as ParcelResult;
