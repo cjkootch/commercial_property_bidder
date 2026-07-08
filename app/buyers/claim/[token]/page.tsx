@@ -6,7 +6,7 @@ import { verifyBuyerClaim } from "@/lib/buyer-auth";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { leadAvailability, leadMaxBuyers } from "@/lib/leads/availability";
 import { createBuyerProfile } from "../../actions";
-import { asTrade, tradeNoun } from "@/lib/leads/trades";
+import { asTrade } from "@/lib/leads/trades";
 import { Logo } from "@/components/Logo";
 
 // Public claim landing (token-authenticated): the campaign teaser links here.
@@ -73,8 +73,9 @@ export default async function ClaimPage({
             <li>• Full sheet: exact location, decision contacts, our aerial measurement, contract value, and the window to bid</li>
           </ul>
           <p className="mt-2 text-xs text-gray-400">
-            Every job is capped at {cap} {tradeNoun(searchParams.trade)} — ever.
-            {avail!.spotsLeft === 1 ? " This is the last spot." : ""}
+            Every job is capped at {cap} companies* — ever.
+            {avail!.spotsLeft === 1 ? " This is the last spot." : ""}{" "}
+            <Link href="/terms" className="underline">*Terms</Link>
           </p>
         </div>
       ) : (

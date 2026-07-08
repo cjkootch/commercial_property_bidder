@@ -791,7 +791,7 @@ export async function offerLeadToBuyers(propertyId: string): Promise<void> {
     back("offer_err=" + encodeURIComponent("Not sellable — needs a parcel and must be in circulation."));
   }
   const { leadAvailability, leadMaxBuyers } = await import("@/lib/leads/availability");
-  const { TRADES, asTrade, tradeNoun } = await import("@/lib/leads/trades");
+  const { TRADES, asTrade } = await import("@/lib/leads/trades");
   const { offerRecipients, leadKind: kindOf } = await import("@/lib/leads/market");
   const { signBuyerUnsub } = await import("@/lib/buyer-auth");
 
@@ -854,9 +854,10 @@ export async function offerLeadToBuyers(propertyId: string): Promise<void> {
         `<p>${b.company_name} — we're offering you a job${prop!.city ? ` in the ${prop!.city} area` : ""}${miles != null ? `, about ${Math.max(1, Math.round(miles))} mi from your office` : ""}:</p>` +
         `<p style="font-size:18px;font-weight:700;margin:8px 0">${teaser?.annual_lo ? `${valueTxt} grounds contract` : "A year-round grounds contract"}</p>` +
         `<p>${kindLine}</p>` +
-        `<p>Every job is capped at ${leadMaxBuyers()} ${tradeNoun(b.trade)} and this one is going to the ${recipients.length} closest — first come, first served. ${(availByTrade.get(asTrade(b.trade))?.spotsLeft ?? 0) === 1 ? "One spot is left." : `${availByTrade.get(asTrade(b.trade))?.spotsLeft ?? 0} spots are open right now.`}</p>` +
+        `<p>Every job is capped at ${leadMaxBuyers()} companies* and this one is going to the ${recipients.length} closest — first come, first served. ${(availByTrade.get(asTrade(b.trade))?.spotsLeft ?? 0) === 1 ? "One spot is left." : `${availByTrade.get(asTrade(b.trade))?.spotsLeft ?? 0} spots are open right now.`}</p>` +
         `<p><a href="${base}/buyers?offer=${prop!.id}" style="display:inline-block;background:#2f7d4f;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">See the job & claim a spot</a></p>` +
         `<p style="color:#666;font-size:13px">If it's gone by the time you get there, your dashboard will show you the next best open job near you.</p>` +
+        `<p style="color:#888;font-size:12px">*The cap applies per service trade — full terms: ${base}/terms</p>` +
         `<p style="color:#888;font-size:12px">You get these because you turned on new-job alerts. ` +
         `<a href="${unsubUrl}">Unsubscribe with one click</a> or manage alerts in <a href="${base}/buyers">your dashboard</a>.</p>`,
       tags: { kind: "lead_offer" },

@@ -12,6 +12,7 @@ const CUSTOMER_COOKIE = "gk_customer";
 const BUYER_COOKIE = "gk_buyer";
 const PUBLIC_PREFIXES = [
   "/login",
+  "/terms",
   "/residential",
   "/commercial",
   "/quote",

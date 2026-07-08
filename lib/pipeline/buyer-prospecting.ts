@@ -145,7 +145,7 @@ ${hook}
 
 ${valuePara}
 
-Everything a bidder needs is on one page: exact location, the owner to contact, and the window to bid. Every job is capped at ${o.cap} ${TRADES[trade].noun} — ever — and you can lock one down as an exclusive so nobody else gets it.
+Everything a bidder needs is on one page: exact location, the owner to contact, and the window to bid. Every job is capped at ${o.cap} companies* — ever — and you can lock one down as an exclusive so nobody else gets it.
 
 Your first sheet is FREE — claim it here (takes 30 seconds, no card):
 ${o.claimUrl}
@@ -155,7 +155,9 @@ The full sheet unlocks the moment you create your profile. After that, sheets ru
 — ${o.brand}
 ${o.replyEmail}
 
-P.S. If this one's too far or the wrong size, reply with your service area and we'll send the next match instead.`;
+P.S. If this one's too far or the wrong size, reply with your service area and we'll send the next match instead.
+
+* The cap applies per service trade — full terms: ${siteBase()}/terms`;
   return { subject, body };
 }
 

@@ -28,7 +28,8 @@ describe("pipeline/buyer-prospecting", () => {
     expect(m.subject).toBe("$22,300/yr grounds contract, 12 mi from your office");
     expect(m.body).toContain("just changed owners");
     expect(m.body).toContain("~177,118 sq ft");
-    expect(m.body).toContain("capped at 3 landscaping companies");
+    expect(m.body).toContain("capped at 3 companies*");
+    expect(m.body).toContain("/terms"); // the asterisk resolves in the terms page
     expect(m.body).toContain("https://greenkeep.us/buyers/claim/tok123");
     // Honest outreach: signed as us, never impersonating a customer.
     expect(m.body).toContain("— Greenkeep");
