@@ -22,17 +22,18 @@ import {
   monthsUntil,
 } from "../sourcing/criteria";
 
-export type LeadKind = "construction" | "transfer" | "opening";
+export type LeadKind = "construction" | "transfer" | "opening" | "violation";
 
 export function leadKind(name: string): LeadKind {
   if (/\(HCAD [^)]+\)$/.test(name)) return "transfer";
   if (/\(STP [^)]+\)$/.test(name)) return "opening";
+  if (/\(H311 [^)]+\)$/.test(name)) return "violation";
   return "construction";
 }
 
 /** Strip the sourcing ref from a property name for buyer-facing display. */
 export function displayName(name: string): string {
-  return name.replace(/ \((TABS|HCAD|STP) [^)]+\)$/, "");
+  return name.replace(/ \((TABS|HCAD|STP|H311) [^)]+\)$/, "");
 }
 
 export type Teaser = { annual_lo?: number; annual_hi?: number; turf_sqft?: number } | null;
@@ -77,7 +78,7 @@ export async function loadMarketLeads(): Promise<MarketLead[]> {
   return props
     .filter(
       (p) =>
-        /\((TABS|HCAD|STP) [^)]+\)$/.test(p.name) &&
+        /\((TABS|HCAD|STP|H311) [^)]+\)$/.test(p.name) &&
         p.archived_at == null &&
         p.lead_exported_at == null &&
         p.parcel_geojson != null &&

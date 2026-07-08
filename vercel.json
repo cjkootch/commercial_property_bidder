@@ -17,6 +17,10 @@
       "schedule": "47 11 * * 1"
     },
     {
+      "path": "/api/cron/violations?want=10",
+      "schedule": "57 11 * * 1"
+    },
+    {
       "path": "/api/cron/prospecting",
       "schedule": "17 12 * * 1"
     }
