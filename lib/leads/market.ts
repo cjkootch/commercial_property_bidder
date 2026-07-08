@@ -87,6 +87,7 @@ export async function loadMarketLeads(trade: Trade = DEFAULT_TRADE): Promise<Mar
       (p) =>
         /\((TABS|HCAD|STP|H311|TABC|TAX|RFP) [^)]+\)$/.test(p.name) &&
         tradeDef.relevant(leadKind(p.name)) &&
+        (tradeDef.sellable?.(p.lead_teaser as { turf_sqft?: number; verified?: boolean } | null) ?? true) &&
         p.archived_at == null &&
         p.lead_exported_at == null &&
         // Public-bid (RFP) leads have no parcel — the solicitation IS the
