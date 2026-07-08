@@ -107,6 +107,19 @@ export function openingNotes(o: {
   );
 }
 
+/** The outlet's first-sales date, but only when it reads as an OPENING:
+ *  future or within the last ~90 days. Older = a re-registered existing
+ *  business; return null so the timing signal stays off. */
+export function freshOpensDate(
+  iso: string | null | undefined,
+  asOf: Date = new Date()
+): string | null {
+  if (!iso) return null;
+  const d = new Date(iso.slice(0, 10));
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getTime() >= asOf.getTime() - 90 * 86400_000 ? iso.slice(0, 10) : null;
+}
+
 /** Query the Comptroller feed for recently-issued corridor permits. */
 export async function fetchRecentOpenings(opts: {
   sinceDays: number;
@@ -251,7 +264,10 @@ export async function runOpeningSourcing(opts?: {
         issueDateIso: (r.outlet_permit_issue_date ?? "").slice(0, 10),
         name: r.outlet_name ?? "New business",
         naics: r.outlet_naics_code ?? "?",
-        opensIso: r.outlet_first_sales_date ? r.outlet_first_sales_date.slice(0, 10) : null,
+        // A first-sales date far in the past means a re-registered EXISTING
+        // business (often a new operator) — still a good lead, but "Opens
+        // 2021-.." would read wrong and mis-drive the timing signal.
+        opensIso: freshOpensDate(r.outlet_first_sales_date),
         owner: parcel.owner,
       }),
     });

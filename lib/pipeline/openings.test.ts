@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { icpFromNaics, keepOpening, openingNotes } from "./openings";
+import { freshOpensDate, icpFromNaics, keepOpening, openingNotes } from "./openings";
 import { estimateCompletionFromNotes, monthsUntil } from "../sourcing/criteria";
 
 // Shapes from the live Comptroller feed (data.texas.gov jrea-zgmq, 2026-07).
@@ -56,6 +56,14 @@ describe("pipeline/openings", () => {
     expect(notes.match(/Owner: ([^.]+)\./)?.[1]).toBe("TYFYTITE PROPERTIES LLC");
     // Operator-only provenance, keyed for the property page's origin line.
     expect(notes).toMatch(/^Sales-tax registration 2026-07-02/);
+  });
+
+  it("stale first-sales dates (re-registered existing businesses) don't read as openings", () => {
+    const asOf = new Date("2026-07-08");
+    expect(freshOpensDate("2026-08-01T00:00:00.000", asOf)).toBe("2026-08-01"); // future
+    expect(freshOpensDate("2026-05-01T00:00:00.000", asOf)).toBe("2026-05-01"); // ~2mo ago
+    expect(freshOpensDate("2021-09-01T00:00:00.000", asOf)).toBeNull(); // years old
+    expect(freshOpensDate(null, asOf)).toBeNull();
   });
 
   it("notes without an opening date leave the timing signal off", () => {
