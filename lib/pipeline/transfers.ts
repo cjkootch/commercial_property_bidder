@@ -203,11 +203,15 @@ export async function fetchRecentTransfers(opts: {
   since.setMonth(since.getMonth() - opts.sinceMonths);
   const sinceSql = `${since.toISOString().slice(0, 10)} 00:00:00`;
   const params = new URLSearchParams({
-    // F1 commercial, F2 industrial, B1 multifamily — apartment complexes are
-    // flagship grounds clients (validated live: 43 of the last 200 $5M+ Harris
-    // sales were B1, up to $77M complexes).
+    // F1 commercial, F2 industrial, B1 multifamily (apartment complexes are
+    // flagship grounds clients — validated live: 43 of the last 200 $5M+
+    // Harris sales were B1), plus C1/C2 vacant land at >=0.5 acre: a freshly
+    // bought lot is a pure mowing contract — the volume tier's bread and
+    // butter — and unmowed it becomes a 311 citation.
     where:
-      `(state_class = 'F1' OR state_class = 'F2' OR state_class = 'B1') AND new_owner_date >= timestamp '${sinceSql}' ` +
+      `(state_class = 'F1' OR state_class = 'F2' OR state_class = 'B1' ` +
+      `OR ((state_class = 'C1' OR state_class = 'C2') AND acreage_1 >= 0.5)) ` +
+      `AND new_owner_date >= timestamp '${sinceSql}' ` +
       `AND total_market_val > ${Math.round(opts.minMarketValue)}`,
     outFields: "*",
     returnGeometry: "true",
