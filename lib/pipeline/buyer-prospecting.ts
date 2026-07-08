@@ -22,7 +22,7 @@
 // unsubscribe headers. Apollo data is for our own targeting only — it never
 // ships inside a sold lead.
 
-import { and, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
 import { searchLandscapers, type BuyerCandidate } from "../integrations/apollo";
@@ -36,8 +36,18 @@ import { haversineMiles } from "../sourcing/criteria";
 import { loadMarketLeads, type LeadKind, type MarketLead } from "../leads/market";
 import { leadTierFor } from "../leads/pricing-tiers";
 
-/** Don't email the same company again within this window. */
+/** Don't email a NEWLY DISCOVERED company again within this window. Known
+ *  contacts (past recipients) instead follow the area-alert cadence below. */
 export const COOLDOWN_DAYS = 30;
+/** Area alerts: a known contact can be offered a NEW lead near them after
+ *  this many days since their last email — max ~1 email/week, and only ever
+ *  because a genuinely new job appeared in their radius. */
+export const ALERT_COOLDOWN_DAYS = 7;
+/** Stop emailing a known contact after this many TRACKED sends (rows with a
+ *  Resend message id) with zero opens or clicks — dead inboxes fall off the
+ *  list instead of dragging deliverability down. Untracked sends (before the
+ *  funnel shipped) don't count: we can't know whether they were read. */
+export const ALERT_MAX_UNOPENED = 3;
 /** A company's office must be within this range of the lead. */
 export const MAX_DISTANCE_MI = 40;
 /** Target list size per lead. */
@@ -69,6 +79,106 @@ export async function looksCommercial(website: string | null): Promise<boolean |
   } catch {
     return null;
   }
+}
+
+// --- area alerts: re-offer NEW leads to known contacts ----------------------
+
+/** The buyer_outreach columns the selector reads (newest row first). */
+export type KnownContactRow = {
+  company_key: string;
+  company_name: string;
+  property_id: string | null;
+  website: string | null;
+  email: string | null;
+  phone: string | null;
+  contact_form_url: string | null;
+  office_city: string | null;
+  office_lat: number | null;
+  office_lng: number | null;
+  commercial_signal: boolean | null;
+  status: string;
+  sent_at: Date | null;
+  resend_message_id: string | null;
+  opened_at: Date | null;
+  clicked_at: Date | null;
+};
+
+export type KnownContact = {
+  key: string;
+  name: string;
+  website: string | null;
+  email: string;
+  phone: string | null;
+  form: string | null;
+  city: string | null;
+  /** [lng, lat] of the office, from the original qualification. */
+  coords: [number, number];
+  /** Miles from THIS lead (recomputed — the stored one was for the old lead). */
+  distance: number;
+  commercial: boolean | null;
+};
+
+/** Past campaign recipients eligible for a "new lead near you" offer. Pure
+ *  over fetched rows (newest first) so the guardrails are unit-testable:
+ *  never the same lead twice, never bounced, ≥ALERT_COOLDOWN_DAYS since the
+ *  last email, not ALERT_MAX_UNOPENED tracked sends with zero engagement,
+ *  and the office inside MAX_DISTANCE_MI of the new lead. Account and
+ *  suppression checks stay with the caller (they need other tables). */
+export function selectKnownContacts(
+  rows: KnownContactRow[],
+  lead: { id: string; lat: number; lng: number },
+  now: Date = new Date()
+): KnownContact[] {
+  const byKey = new Map<string, KnownContactRow[]>();
+  for (const r of rows) {
+    const g = byKey.get(r.company_key);
+    if (g) g.push(r);
+    else byKey.set(r.company_key, [r]);
+  }
+
+  const out: KnownContact[] = [];
+  for (const [key, group] of byKey) {
+    if (group.some((r) => r.property_id === lead.id)) continue; // already offered this lead
+    if (group.some((r) => r.status === "bounced")) continue; // dead address
+    const latest = group.find((r) => r.email);
+    if (!latest?.email) continue; // forms-only companies stay manual
+
+    // Frequency cap across ALL campaigns: at most one email per window.
+    const lastSent = group.reduce<Date | null>(
+      (m, r) => (r.sent_at && (!m || r.sent_at > m) ? r.sent_at : m),
+      null
+    );
+    if (!lastSent) continue; // never actually emailed — let discovery requalify them
+    if (now.getTime() - lastSent.getTime() < ALERT_COOLDOWN_DAYS * 86400_000) continue;
+
+    // Engagement gate: tracked sends that all went unread = stop emailing.
+    const tracked = group.filter((r) => r.resend_message_id);
+    if (
+      tracked.length >= ALERT_MAX_UNOPENED &&
+      !tracked.some((r) => r.opened_at || r.clicked_at)
+    )
+      continue;
+
+    const office = group.find((r) => r.office_lat != null && r.office_lng != null);
+    if (!office) continue; // no coords on record — rediscovery will re-geocode
+    const coords: [number, number] = [office.office_lng!, office.office_lat!];
+    const distance = haversineMiles(coords, [lead.lng, lead.lat]);
+    if (distance > MAX_DISTANCE_MI) continue;
+
+    out.push({
+      key,
+      name: latest.company_name,
+      website: latest.website,
+      email: latest.email,
+      phone: latest.phone,
+      form: latest.contact_form_url,
+      city: latest.office_city,
+      coords,
+      distance,
+      commercial: group.find((r) => r.commercial_signal != null)?.commercial_signal ?? null,
+    });
+  }
+  return out.sort((a, b) => a.distance - b.distance);
 }
 
 /** The teaser numbers used to personalize the pitch (no imagery spend). */
@@ -297,28 +407,7 @@ export async function runBuyerProspecting(opts?: {
     `Lead: ${lead.city ?? "?"} ${lead.kind}, ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr (${lead.id.slice(0, 8)})`
   );
 
-  // ---- 2. Candidate companies (Apollo near the lead's city, or injected).
-  // Small-town leads (New Caney, Crosby...) often have zero companies AT the
-  // city itself — the 40-mile office radius is measured from the lead's
-  // coordinates, so widen to the metro before concluding there's nobody.
-  let candidates =
-    opts?.candidates ??
-    (await searchLandscapers(`${lead.city ?? "Houston"}, Texas`, CANDIDATE_POOL, TRADES[trade].prospectKeywords));
-  // A small town yielding fewer companies than the target list can't fill the
-  // blast — merge in the metro pool (deduped) whenever the town runs short.
-  if (!opts?.candidates && candidates.length < want && lead.city && lead.city.toLowerCase() !== "houston") {
-    log.push(`Only ${candidates.length} candidate(s) in ${lead.city} — widening to the Houston metro.`);
-    const seen = new Set(candidates.map((c) => companyKey(c.name)));
-    const metro = await searchLandscapers("Houston, Texas", CANDIDATE_POOL, TRADES[trade].prospectKeywords);
-    candidates = [...candidates, ...metro.filter((c) => !seen.has(companyKey(c.name)))];
-  }
-  if (!candidates.length) {
-    log.push("No candidates even metro-wide — check APOLLO_API_KEY.");
-    return { lead: lead.id, candidates: 0, qualified: 0, queued: 0, sent: 0, skippedNoEmail: 0, log };
-  }
-  log.push(`${candidates.length} candidate companies`);
-
-  // ---- 3. Exclusions: existing accounts + cooldown + already-offered-this-lead.
+  // ---- 2. Exclusions: existing accounts + cooldown + already-offered-this-lead.
   const existingBuyers = await db.select({ name: schema.buyer.company_name }).from(schema.buyer);
   const accountKeys = new Set(existingBuyers.map((b) => companyKey(b.name)));
   // Cooldown counts only ACTUAL contact (sent) — queued/skipped rows are
@@ -342,7 +431,6 @@ export async function runBuyerProspecting(opts?: {
     (await db.select({ email: schema.suppression.email }).from(schema.suppression)).map((r) => r.email)
   );
 
-  // ---- 4. Qualify one by one until the list is full (bounded attempts).
   type Qualified = {
     c: BuyerCandidate;
     key: string;
@@ -355,6 +443,88 @@ export async function runBuyerProspecting(opts?: {
   };
   const qualified: Qualified[] = [];
   let skippedNoEmail = 0;
+
+  // ---- 3. Area alerts: known contacts (past recipients) near THIS lead.
+  // Pre-qualified — their email/coords/commercial snapshot came from the
+  // original campaign, so no Apollo, geocode, or scrape spend. The selector
+  // enforces the cadence guardrails; accounts + suppression checked here.
+  if (!opts?.candidates) {
+    const history = await db
+      .select({
+        company_key: schema.buyerOutreach.company_key,
+        company_name: schema.buyerOutreach.company_name,
+        property_id: schema.buyerOutreach.property_id,
+        website: schema.buyerOutreach.website,
+        email: schema.buyerOutreach.email,
+        phone: schema.buyerOutreach.phone,
+        contact_form_url: schema.buyerOutreach.contact_form_url,
+        office_city: schema.buyerOutreach.office_city,
+        office_lat: schema.buyerOutreach.office_lat,
+        office_lng: schema.buyerOutreach.office_lng,
+        commercial_signal: schema.buyerOutreach.commercial_signal,
+        status: schema.buyerOutreach.status,
+        sent_at: schema.buyerOutreach.sent_at,
+        resend_message_id: schema.buyerOutreach.resend_message_id,
+        opened_at: schema.buyerOutreach.opened_at,
+        clicked_at: schema.buyerOutreach.clicked_at,
+      })
+      .from(schema.buyerOutreach)
+      .orderBy(desc(schema.buyerOutreach.created_at))
+      .limit(5000);
+    const known = selectKnownContacts(history, lead).filter(
+      (k) => !accountKeys.has(k.key) && !suppressed.has(k.email.toLowerCase())
+    );
+    for (const k of known.slice(0, want)) {
+      qualified.push({
+        c: { name: k.name, website: k.website, city: k.city, state: "TX" },
+        key: k.key,
+        coords: k.coords,
+        distance: k.distance,
+        commercial: k.commercial,
+        email: k.email,
+        phone: k.phone,
+        form: k.form,
+      });
+      offeredThis.add(k.key);
+      log.push(
+        `  ↺ ${k.name} (${k.distance.toFixed(0)} mi) — known contact, new lead in their area`
+      );
+    }
+    if (known.length) log.push(`${qualified.length} known contact(s) re-offered this new lead`);
+  }
+
+  // ---- 4. Candidate companies (Apollo near the lead's city, or injected).
+  // Small-town leads (New Caney, Crosby...) often have zero companies AT the
+  // city itself — the 40-mile office radius is measured from the lead's
+  // coordinates, so widen to the metro before concluding there's nobody.
+  const needDiscovery = qualified.filter((q) => q.email).length < want;
+  let candidates: BuyerCandidate[] = [];
+  if (opts?.candidates) {
+    candidates = opts.candidates;
+  } else if (needDiscovery) {
+    candidates = await searchLandscapers(
+      `${lead.city ?? "Houston"}, Texas`,
+      CANDIDATE_POOL,
+      TRADES[trade].prospectKeywords
+    );
+    // A small town yielding fewer companies than the target list can't fill the
+    // blast — merge in the metro pool (deduped) whenever the town runs short.
+    if (candidates.length < want && lead.city && lead.city.toLowerCase() !== "houston") {
+      log.push(`Only ${candidates.length} candidate(s) in ${lead.city} — widening to the Houston metro.`);
+      const seen = new Set(candidates.map((c) => companyKey(c.name)));
+      const metro = await searchLandscapers("Houston, Texas", CANDIDATE_POOL, TRADES[trade].prospectKeywords);
+      candidates = [...candidates, ...metro.filter((c) => !seen.has(companyKey(c.name)))];
+    }
+  } else {
+    log.push("Known contacts fill the list — skipping discovery this run.");
+  }
+  if (!candidates.length && !qualified.length) {
+    log.push("No candidates even metro-wide — check APOLLO_API_KEY.");
+    return { lead: lead.id, candidates: 0, qualified: 0, queued: 0, sent: 0, skippedNoEmail: 0, log };
+  }
+  if (candidates.length) log.push(`${candidates.length} candidate companies`);
+
+  // ---- 5. Qualify one by one until the list is full (bounded attempts).
   let attempts = Math.min(candidates.length, want * 3);
   for (const c of candidates) {
     if (qualified.filter((q) => q.email).length >= want || attempts <= 0) break;
@@ -402,7 +572,7 @@ export async function runBuyerProspecting(opts?: {
   const emailable = qualified.filter((q) => q.email).slice(0, want);
   const manual = qualified.filter((q) => !q.email);
 
-  // ---- 5. Queue (and optionally send) each offer.
+  // ---- 6. Queue (and optionally send) each offer.
   const base = siteBase();
   const cap = leadMaxBuyers();
   let queued = 0;

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildProspectMessage, toPitch } from "./buyer-prospecting";
+import {
+  ALERT_COOLDOWN_DAYS,
+  buildProspectMessage,
+  selectKnownContacts,
+  toPitch,
+  type KnownContactRow,
+} from "./buyer-prospecting";
 import type { MarketLead } from "../leads/market";
 
 const pitch = {
@@ -101,5 +107,96 @@ describe("pipeline/buyer-prospecting", () => {
     expect(
       toPitch({ ...base, p: { ...base.p, lat: null } } as unknown as MarketLead)
     ).toBeNull();
+  });
+});
+
+describe("selectKnownContacts (area alerts)", () => {
+  const NOW = new Date("2026-07-20T12:00:00Z");
+  const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86400_000);
+  // Lead in Spring, TX; the default office below is ~5 mi away.
+  const lead = { id: "new-lead", lat: 30.05, lng: -95.5 };
+  const row = (over: Partial<KnownContactRow> = {}): KnownContactRow => ({
+    company_key: "westco grounds",
+    company_name: "Westco Grounds",
+    property_id: "old-lead",
+    website: "https://westco.example",
+    email: "info@westco.example",
+    phone: null,
+    contact_form_url: null,
+    office_city: "Spring",
+    office_lat: 30.08,
+    office_lng: -95.45,
+    commercial_signal: true,
+    status: "sent",
+    sent_at: daysAgo(10),
+    resend_message_id: "re_1",
+    opened_at: daysAgo(9),
+    clicked_at: null,
+    ...over,
+  });
+
+  it("offers a new lead to an engaged past recipient after the cadence window", () => {
+    const [k] = selectKnownContacts([row()], lead, NOW);
+    expect(k).toBeDefined();
+    expect(k.email).toBe("info@westco.example");
+    expect(k.distance).toBeLessThan(10);
+    expect(k.commercial).toBe(true);
+  });
+
+  it("never re-offers the same lead", () => {
+    expect(selectKnownContacts([row({ property_id: "new-lead" })], lead, NOW)).toEqual([]);
+  });
+
+  it("frequency cap: skips anyone emailed within the alert window", () => {
+    const recent = row({ sent_at: daysAgo(ALERT_COOLDOWN_DAYS - 1) });
+    expect(selectKnownContacts([recent], lead, NOW)).toEqual([]);
+    // ...even when an OLDER row for the same company is outside the window.
+    expect(selectKnownContacts([recent, row({ sent_at: daysAgo(40) })], lead, NOW)).toEqual([]);
+  });
+
+  it("skips bounced addresses and companies never actually emailed", () => {
+    expect(selectKnownContacts([row({ status: "bounced" })], lead, NOW)).toEqual([]);
+    expect(
+      selectKnownContacts([row(), row({ status: "bounced", property_id: "older" })], lead, NOW)
+    ).toEqual([]);
+    expect(selectKnownContacts([row({ status: "skipped", sent_at: null })], lead, NOW)).toEqual([]);
+  });
+
+  it("engagement gate: 3 tracked sends with zero opens stops the emails", () => {
+    const unopened = (id: string, pid: string) =>
+      row({ resend_message_id: id, opened_at: null, clicked_at: null, property_id: pid });
+    const three = [unopened("a", "p1"), unopened("b", "p2"), unopened("c", "p3")];
+    expect(selectKnownContacts(three, lead, NOW)).toEqual([]);
+    // One click anywhere keeps them on the list.
+    const engaged = [...three.slice(0, 2), row({ property_id: "p3", opened_at: null, clicked_at: daysAgo(8) })];
+    expect(selectKnownContacts(engaged, lead, NOW)).toHaveLength(1);
+    // Untracked sends (pre-funnel, no message id) never count toward the gate.
+    const untracked = [
+      unopened("a", "p1"),
+      row({ resend_message_id: null, opened_at: null, property_id: "p2" }),
+      row({ resend_message_id: null, opened_at: null, property_id: "p3" }),
+    ];
+    expect(selectKnownContacts(untracked, lead, NOW)).toHaveLength(1);
+  });
+
+  it("radius: offices beyond MAX_DISTANCE_MI or without coords are skipped", () => {
+    expect(
+      selectKnownContacts([row({ office_lat: 32.78, office_lng: -96.8 })], lead, NOW) // Dallas
+    ).toEqual([]);
+    expect(
+      selectKnownContacts([row({ office_lat: null, office_lng: null })], lead, NOW)
+    ).toEqual([]);
+  });
+
+  it("dedupes by company and sorts closest-first", () => {
+    const far = row({
+      company_key: "acme lawn",
+      company_name: "Acme Lawn",
+      email: "acme@example.com",
+      office_lat: 29.76,
+      office_lng: -95.37, // Houston proper, ~22 mi
+    });
+    const out = selectKnownContacts([row(), row({ property_id: "older" }), far], lead, NOW);
+    expect(out.map((k) => k.name)).toEqual(["Westco Grounds", "Acme Lawn"]);
   });
 });
