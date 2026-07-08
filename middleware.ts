@@ -40,7 +40,7 @@ export function middleware(req: NextRequest) {
   }
 
   // Buyer portal (lead marketplace) — require a buyer session cookie.
-  if (pathname.startsWith("/buyers")) {
+  if (pathname === "/buyers" || pathname.startsWith("/buyers/")) {
     if (req.cookies.get(BUYER_COOKIE)?.value) return NextResponse.next();
     const url = req.nextUrl.clone();
     url.pathname = "/buyers/login";
@@ -48,7 +48,8 @@ export function middleware(req: NextRequest) {
   }
 
   // Customer portal — require a customer session cookie (presence check).
-  if (pathname.startsWith("/customer")) {
+  // Segment-exact so the operator /customers roster doesn't match.
+  if (pathname === "/customer" || pathname.startsWith("/customer/")) {
     if (req.cookies.get(CUSTOMER_COOKIE)?.value) return NextResponse.next();
     const url = req.nextUrl.clone();
     url.pathname = "/customer/login";
