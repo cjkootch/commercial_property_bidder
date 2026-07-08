@@ -203,8 +203,11 @@ export async function fetchRecentTransfers(opts: {
   since.setMonth(since.getMonth() - opts.sinceMonths);
   const sinceSql = `${since.toISOString().slice(0, 10)} 00:00:00`;
   const params = new URLSearchParams({
+    // F1 commercial, F2 industrial, B1 multifamily — apartment complexes are
+    // flagship grounds clients (validated live: 43 of the last 200 $5M+ Harris
+    // sales were B1, up to $77M complexes).
     where:
-      `(state_class = 'F1' OR state_class = 'F2') AND new_owner_date >= timestamp '${sinceSql}' ` +
+      `(state_class = 'F1' OR state_class = 'F2' OR state_class = 'B1') AND new_owner_date >= timestamp '${sinceSql}' ` +
       `AND total_market_val > ${Math.round(opts.minMarketValue)}`,
     outFields: "*",
     returnGeometry: "true",
