@@ -198,7 +198,7 @@ export async function POST(req: NextRequest) {
     to: b.email,
     subject: `Your job sheet is ready — ${facility}`,
     html:
-      `<p>Payment received — the full sheet is unlocked for ${b.company_name}${kind === "exclusive" ? " <strong>exclusively</strong> — no one else will ever get this job from us" : ""}.</p>` +
+      `<p>Payment received — the full sheet is unlocked for ${b.company_name}${kind === "exclusive" ? " <strong>exclusively</strong> — closed to every other company in your trade, permanently" : ""}.</p>` +
       `<p><a href="${link}">Open your job sheet</a></p>` +
       `<p style="color:#888;font-size:12px">Location, decision contacts, aerial measurement, contract value, and the window to bid — all on one page.</p>`,
     tags: { kind: "lead_unlock" },
