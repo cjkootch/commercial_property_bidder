@@ -60,6 +60,19 @@ describe("leads/trades — per-trade ranking", () => {
     expect(TRADES.landscaping.relevant("rfp")).toBe(true);
   });
 
+  it("verified no-turf drops a lead from the landscaping shelf only", () => {
+    // Operator measured it: no grass -> not a landscaping lead.
+    expect(TRADES.landscaping.sellable!({ turf_sqft: 0, verified: true })).toBe(false);
+    expect(TRADES.landscaping.sellable!({ turf_sqft: 400, verified: true })).toBe(false);
+    // A healthy verified lawn stays.
+    expect(TRADES.landscaping.sellable!({ turf_sqft: 5_000, verified: true })).toBe(true);
+    // Automated estimates are never trusted enough to pull a lead.
+    expect(TRADES.landscaping.sellable!({ turf_sqft: 0, verified: false })).toBe(true);
+    expect(TRADES.landscaping.sellable!(null)).toBe(true);
+    // Pest doesn't mow — no turf floor at all.
+    expect(TRADES.pest.sellable).toBeUndefined();
+  });
+
   it("untrusted trade strings resolve safely", () => {
     expect(asTrade("pest")).toBe("pest");
     expect(asTrade("landscaping")).toBe("landscaping");

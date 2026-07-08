@@ -42,9 +42,16 @@ export type TradeDef = {
   relevant: (kind: LeadKind) => boolean;
   /** The trade's OWN ranking model. Higher = better. */
   rank: (input: TradeRankInput) => number;
+  /** Trade-specific sellability from the teaser. Only OPERATOR-VERIFIED
+   *  numbers may disqualify — an automated estimate is never trusted enough
+   *  to pull a lead. Omitted = always sellable. */
+  sellable?: (teaser: { turf_sqft?: number; verified?: boolean } | null) => boolean;
   /** Apollo/scrape keywords for buyer prospecting. */
   prospectKeywords: string[];
 };
+
+/** A hand-measured property below this has no landscaping job on it. */
+export const LANDSCAPING_MIN_TURF_SQFT = 500;
 
 /**
  * Pest control value model (documented so the ranking is explainable):
@@ -96,6 +103,9 @@ export const TRADES: Record<Trade, TradeDef> = {
     noun: "landscaping companies",
     label: "Landscaping",
     relevant: () => true,
+    // The operator measured it and there's no grass: not a landscaping lead,
+    // whatever the signal was. (Stays sellable to trades that don't mow.)
+    sellable: (t) => !(t?.verified && (t.turf_sqft ?? 0) < LANDSCAPING_MIN_TURF_SQFT),
     // The original universal model: measured contract value x bid window.
     rank: (i) => leadRank(i.annualHi, i.monthsToCompletion, i.urgent),
     prospectKeywords: [
