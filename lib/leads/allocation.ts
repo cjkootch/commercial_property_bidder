@@ -119,11 +119,29 @@ export function daysSince(at: Date, asOf: Date = new Date()): number {
 }
 
 /**
- * Offer ranking used everywhere a "next best" is needed (dashboard order, the
- * waterfall fallback when an offered job filled up): contract value per mile
- * of drive — a big job justifies a longer run, a small one has to be close.
- * Unknown distances assume a 30-mile run so unlocated leads still list.
+ * Universal lead ranking, used everywhere leads are ordered (dashboard, the
+ * waterfall "next best", auto-picking the lead to prospect): contract value
+ * weighted by how open the bid window is. Deliberately contains NO
+ * buyer-specific factors — distance/radius decide WHICH leads a buyer sees
+ * (eligibility), not how good a lead is. Every landscaper values the same
+ * things: how much the contract pays and whether the decision is being made
+ * now.
  */
-export function offerRank(annualHi: number | null | undefined, miles: number | null): number {
-  return (annualHi ?? 0) / ((miles ?? 30) + 20);
+export function leadRank(
+  annualHi: number | null | undefined,
+  /** Signed months until completion/opening (null = no timeline). */
+  monthsToCompletion: number | null
+): number {
+  const m = monthsToCompletion;
+  const window =
+    m == null
+      ? 1 // existing property, always biddable
+      : m >= 12
+        ? 0.9 // far out — on the radar only
+        : m >= -2
+          ? 1.3 // the engage-by window is open (incl. 0-12mo out)
+          : m >= -6
+            ? 1.05 // recently done — fresh enough to contest
+            : 0.8; // long settled
+  return (annualHi ?? 0) * window;
 }
