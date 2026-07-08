@@ -304,9 +304,13 @@ export async function runBuyerProspecting(opts?: {
   let candidates =
     opts?.candidates ??
     (await searchLandscapers(`${lead.city ?? "Houston"}, Texas`, CANDIDATE_POOL, TRADES[trade].prospectKeywords));
-  if (!candidates.length && !opts?.candidates && lead.city && lead.city.toLowerCase() !== "houston") {
-    log.push(`No candidates in ${lead.city} — widening the search to the Houston metro.`);
-    candidates = await searchLandscapers("Houston, Texas", CANDIDATE_POOL, TRADES[trade].prospectKeywords);
+  // A small town yielding fewer companies than the target list can't fill the
+  // blast — merge in the metro pool (deduped) whenever the town runs short.
+  if (!opts?.candidates && candidates.length < want && lead.city && lead.city.toLowerCase() !== "houston") {
+    log.push(`Only ${candidates.length} candidate(s) in ${lead.city} — widening to the Houston metro.`);
+    const seen = new Set(candidates.map((c) => companyKey(c.name)));
+    const metro = await searchLandscapers("Houston, Texas", CANDIDATE_POOL, TRADES[trade].prospectKeywords);
+    candidates = [...candidates, ...metro.filter((c) => !seen.has(companyKey(c.name)))];
   }
   if (!candidates.length) {
     log.push("No candidates even metro-wide — check APOLLO_API_KEY.");
