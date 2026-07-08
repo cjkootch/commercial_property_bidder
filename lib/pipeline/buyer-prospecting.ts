@@ -406,6 +406,8 @@ export async function runBuyerProspecting(opts?: {
         to: q.email,
         subject: msg.subject,
         html: toHtml(msg.body, unsubUrl, co.physical_mailing_address ?? null),
+        // Replies are the conversion event — route them to the watched inbox.
+        replyTo: replyEmail || undefined,
         tags: { kind: "buyer_prospecting" },
         headers: {
           "List-Unsubscribe": `<${unsubUrl}>`,
