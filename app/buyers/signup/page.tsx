@@ -59,6 +59,12 @@ export default async function BuyerSignup({
           >
             See jobs near me
           </button>
+          <p className="text-center text-[11px] text-gray-400">
+            By creating a profile you agree to our{" "}
+            <Link href="/terms" className="underline">Terms</Link> and{" "}
+            <Link href="/privacy" className="underline">Privacy Policy</Link>.
+          </p>
+
           <p className="text-xs text-gray-400">
             We&apos;ll email you when new jobs open near your office — one-click unsubscribe,
             any time.

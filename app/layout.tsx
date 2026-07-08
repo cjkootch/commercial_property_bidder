@@ -3,8 +3,15 @@ import "./globals.css";
 import { Chrome } from "@/components/Chrome";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://greenkeep.us"),
   title: "Greenkeep",
   description: "High-intent commercial grounds leads for landscaping companies.",
+  openGraph: {
+    title: "Greenkeep — buy the job, not the click",
+    description:
+      "High-intent commercial leads, measured from the air and capped at 3 companies. First sheet free.",
+    type: "website",
+  },
 };
 
 export default function RootLayout({

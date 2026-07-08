@@ -34,6 +34,10 @@ export async function sendEmail(args: {
   tags?: Record<string, string>;
   /** Extra SMTP headers (e.g. List-Unsubscribe for one-click opt-out). */
   headers?: Record<string, string>;
+  /** Where replies land (falls back to RESEND_REPLY_TO, then the from
+   *  address). Replies ARE the conversion event — route them somewhere
+   *  watched. */
+  replyTo?: string;
 }): Promise<SendResult> {
   const key = getResendKey();
   const from = getResendFrom();
@@ -54,6 +58,7 @@ export async function sendEmail(args: {
         tags: args.tags
           ? Object.entries(args.tags).map(([name, value]) => ({ name, value }))
           : undefined,
+        reply_to: args.replyTo ?? process.env.RESEND_REPLY_TO ?? undefined,
         headers: args.headers,
       }),
     });

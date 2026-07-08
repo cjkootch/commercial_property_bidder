@@ -13,6 +13,7 @@ const BUYER_COOKIE = "gk_buyer";
 const PUBLIC_PREFIXES = [
   "/login",
   "/terms",
+  "/privacy",
   "/why",
   "/residential",
   "/commercial",

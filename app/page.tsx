@@ -477,7 +477,10 @@ export default async function Home() {
               ) : null}
             </div>
             <p className="text-xs text-gray-400">
-              © {name} · <Link href="/buyers/login" className="hover:text-gray-600">Buyer sign-in</Link> ·{" "}
+              © {name} · <Link href="/why" className="hover:text-gray-600">The economics</Link> ·{" "}
+              <Link href="/terms" className="hover:text-gray-600">Terms</Link> ·{" "}
+              <Link href="/privacy" className="hover:text-gray-600">Privacy</Link> ·{" "}
+              <Link href="/buyers/login" className="hover:text-gray-600">Buyer sign-in</Link> ·{" "}
               <Link href="/customer/login" className="hover:text-gray-600">Customer sign-in</Link> ·{" "}
               <Link href="/login" className="hover:text-gray-600">Operator login</Link>
             </p>
