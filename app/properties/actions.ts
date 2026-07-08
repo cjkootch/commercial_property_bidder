@@ -168,6 +168,38 @@ async function persistMeasurementAndPrice(propertyId: string, input: Measurement
     await db.update(property).set({ status: "priced", updated_at: new Date() }).where(eq(property.id, propertyId));
   }
 
+  // Marketplace leads: an operator measurement refreshes the shelf teaser —
+  // verified numbers with a tighter band (±10%) replace the automated
+  // estimate, so the card, rank, tier, and outreach copy all upgrade the
+  // moment the lead is hand-measured. (Sold sheets are unlock-time snapshots
+  // and keep whatever the buyer bought.)
+  if (/\((TABS|HCAD|STP|H311|TABC|TAX) [^)]+\)$/.test(prop.name)) {
+    const { sizeLeadFromMeasurement } = await import("@/lib/leads/sizing");
+    const { default: turfArea } = await import("@turf/area");
+    const { M2_TO_SQFT } = await import("@/lib/geo/area");
+    const parcelGeom = (prop.parcel_geojson as { geometry?: GeoJSON.Geometry } | null)?.geometry;
+    const parcelSqft = parcelGeom ? turfArea(parcelGeom) * M2_TO_SQFT : 0;
+    const sized = sizeLeadFromMeasurement(
+      { turf_sqft: input.turf_sqft, bed_sqft: input.bed_sqft, complexity, confidence: input.confidence },
+      parcelSqft,
+      toEngineConfig(cfgRow)
+    );
+    await db
+      .update(property)
+      .set({
+        lead_teaser: {
+          annual_lo: sized.annual_lo,
+          annual_hi: sized.annual_hi,
+          turf_sqft: sized.turf_sqft,
+          projected: false,
+          verified: true,
+          computed_at: new Date().toISOString().slice(0, 10),
+        },
+        updated_at: new Date(),
+      })
+      .where(eq(property.id, propertyId));
+  }
+
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath("/dashboard");
 }

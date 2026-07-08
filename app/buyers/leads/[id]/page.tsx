@@ -148,6 +148,11 @@ export default async function LeadSheet({
                   >
                     {unlock.kind === "exclusive" ? "EXCLUSIVELY YOURS" : `CAPPED AT ${cap} COMPANIES`}
                   </span>
+                  {d.verified ? (
+                    <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-[10px] font-bold text-white">
+                      VERIFIED MEASUREMENT
+                    </span>
+                  ) : null}
                 </div>
                 <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-gray-900">{d.name}</h1>
                 <p className="mt-1 text-sm text-gray-600">
@@ -303,12 +308,25 @@ export default async function LeadSheet({
                         opacity="0.9"
                       />
                     ))}
+                    {(d.aerial.measured ?? []).map((m, i) => (
+                      <polygon
+                        key={`m${i}`}
+                        points={m.points}
+                        fill={m.kind === "bed" ? "rgba(180,120,40,0.25)" : "rgba(52,211,153,0.28)"}
+                        stroke={m.kind === "bed" ? "#b47828" : "#34d399"}
+                        strokeWidth={Math.max(1.5, d.aerial!.width / 500)}
+                      />
+                    ))}
                   </svg>
                   <div className="absolute bottom-3 left-3 flex flex-wrap gap-2 text-[11px] font-medium">
                     <span className="rounded-full bg-black/60 px-2.5 py-1 text-white">
                       ┄ parcel boundary
                     </span>
-                    {d.aerial.mask ? (
+                    {d.aerial.measured?.length ? (
+                      <span className="rounded-full bg-black/60 px-2.5 py-1 text-white">
+                        <span style={{ color: "#7ee2a0" }}>■</span> hand-measured turf/beds
+                      </span>
+                    ) : d.aerial.mask ? (
                       <span className="rounded-full bg-black/60 px-2.5 py-1 text-white">
                         <span style={{ color: "#7ee2a0" }}>■</span>{" "}
                         {d.projected
@@ -370,7 +388,7 @@ export default async function LeadSheet({
                 <div className="text-sm text-white/80">≈ {usd(d.monthly)}/mo · every year</div>
               </div>
               <Stat
-                label={d.projected ? "Turf (projected)" : "Turf (measured)"}
+                label={d.verified ? "Turf (verified)" : d.projected ? "Turf (projected)" : "Turf (measured)"}
                 value={`${d.turf_sqft.toLocaleString()} sf`}
                 sub={d.projected && d.detected_sqft ? `${d.detected_sqft.toLocaleString()} sf visible today` : undefined}
               />
