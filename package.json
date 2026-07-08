@@ -23,6 +23,8 @@
     "source:transfers": "tsx scripts/source-transfers.ts",
     "source:openings": "tsx scripts/source-openings.ts",
     "source:violations": "tsx scripts/source-violations.ts",
+    "residential:import": "tsx scripts/import-residential-leads.ts",
+    "residential:package": "tsx scripts/build-residential-packages.ts",
     "prospect:buyers": "tsx scripts/prospect-buyers.ts",
     "screen": "tsx scripts/screen-properties.ts",
     "export:training": "tsx scripts/export-training-data.ts",

@@ -225,6 +225,13 @@
       "when": 1783474831563,
       "tag": "0031_magical_tempest",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1783483569102,
+      "tag": "0032_perfect_solo",
+      "breakpoints": true
     }
   ]
 }
