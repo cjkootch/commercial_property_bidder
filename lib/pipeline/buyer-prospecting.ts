@@ -467,7 +467,14 @@ export async function runBuyerProspecting(opts?: {
         sent++;
         await db
           .update(schema.buyerOutreach)
-          .set({ status: "sent", sent_at: new Date(), updated_at: new Date() })
+          .set({
+            status: "sent",
+            sent_at: new Date(),
+            // The Resend message id keys webhook events (delivered/opened/
+            // clicked/bounced) back to this row for the campaign funnel.
+            resend_message_id: res.id,
+            updated_at: new Date(),
+          })
           .where(eq(schema.buyerOutreach.id, row.id));
       } else {
         log.push(`  ✗ send failed: ${q.c.name} (${res.error})`);

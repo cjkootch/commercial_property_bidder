@@ -1,12 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { outreach, suppression } from "@/lib/db/schema";
+import { buyerOutreach, outreach, suppression } from "@/lib/db/schema";
 import { verifyResendSignature } from "@/lib/integrations/resend";
 
 // Resend webhook sink: records email delivery/open/click/bounce/complaint events
 // against the matching outreach row (by Resend message id), powering email open
-// rates. Public (whitelisted in middleware) but signature-verified.
+// rates. Covers both owner outreach and buyer-prospecting campaign sends — one
+// event fans out to both tables; the message id only ever matches one row.
+// Public (whitelisted in middleware) but signature-verified.
 export const dynamic = "force-dynamic";
 
 type ResendEvent = {
@@ -44,6 +46,10 @@ export async function POST(req: NextRequest) {
           .update(outreach)
           .set({ delivered_at: at, last_event: type, updated_at: new Date() })
           .where(eq(outreach.resend_message_id, emailId));
+        await db
+          .update(buyerOutreach)
+          .set({ delivered_at: at, last_event: type, updated_at: new Date() })
+          .where(eq(buyerOutreach.resend_message_id, emailId));
         break;
       case "email.opened":
         await db
@@ -55,6 +61,15 @@ export async function POST(req: NextRequest) {
             updated_at: new Date(),
           })
           .where(eq(outreach.resend_message_id, emailId));
+        await db
+          .update(buyerOutreach)
+          .set({
+            opened_at: sql`coalesce(${buyerOutreach.opened_at}, ${at.toISOString()})`,
+            open_count: sql`${buyerOutreach.open_count} + 1`,
+            last_event: type,
+            updated_at: new Date(),
+          })
+          .where(eq(buyerOutreach.resend_message_id, emailId));
         break;
       case "email.clicked":
         await db
@@ -66,18 +81,35 @@ export async function POST(req: NextRequest) {
             updated_at: new Date(),
           })
           .where(eq(outreach.resend_message_id, emailId));
+        await db
+          .update(buyerOutreach)
+          .set({
+            clicked_at: sql`coalesce(${buyerOutreach.clicked_at}, ${at.toISOString()})`,
+            click_count: sql`${buyerOutreach.click_count} + 1`,
+            last_event: type,
+            updated_at: new Date(),
+          })
+          .where(eq(buyerOutreach.resend_message_id, emailId));
         break;
       case "email.bounced":
         await db
           .update(outreach)
           .set({ status: "bounced", last_event: type, updated_at: new Date() })
           .where(eq(outreach.resend_message_id, emailId));
+        await db
+          .update(buyerOutreach)
+          .set({ status: "bounced", last_event: type, updated_at: new Date() })
+          .where(eq(buyerOutreach.resend_message_id, emailId));
         break;
       case "email.complained": {
         await db
           .update(outreach)
           .set({ status: "unsubscribed", last_event: type, updated_at: new Date() })
           .where(eq(outreach.resend_message_id, emailId));
+        await db
+          .update(buyerOutreach)
+          .set({ last_event: type, updated_at: new Date() })
+          .where(eq(buyerOutreach.resend_message_id, emailId));
         // Suppress the complainer so we never email them again.
         const to = Array.isArray(evt.data?.to) ? evt.data?.to[0] : evt.data?.to;
         if (to) {
