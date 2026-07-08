@@ -147,5 +147,8 @@ export function leadRank(
           : m >= -6
             ? 1.05 // recently done — fresh enough to contest
             : 0.8; // long settled
-  return (annualHi ?? 0) * window;
+  // Unsized (no teaser) leads price at the standard tier, so rank them at a
+  // modest standard-ish value instead of zero — otherwise the waterfall and
+  // dashboard bury leads we charge $79 for.
+  return (annualHi ?? 8_000) * window;
 }

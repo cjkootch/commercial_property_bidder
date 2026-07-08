@@ -25,7 +25,7 @@ export default async function ResidentialMarketplace() {
     .from(residentialPackage)
     .where(
       and(
-        eq(residentialPackage.company_id, co?.id || ""),
+        eq(residentialPackage.company_id, co?.id ?? "00000000-0000-0000-0000-000000000000"),
         inArray(residentialPackage.status, ["published", "sold_out"])
       )
     )
@@ -86,9 +86,9 @@ export default async function ResidentialMarketplace() {
                         <div className="mt-1 text-xl font-extrabold">{pkg.lead_count}</div>
                       </div>
                       <div className="rounded-lg bg-gray-50 p-3">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Est. LTV</div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Expected new-contract value</div>
                         <div className="mt-1 text-sm font-bold text-gray-900">
-                          {teaser ? `$${Math.round(teaser.ltvRange.low / 1000)}k–$${Math.round(teaser.ltvRange.high / 1000)}k` : "—"}
+                          {teaser ? `$${teaser.ltvRange.low.toLocaleString()}–$${teaser.ltvRange.high.toLocaleString()}` : "—"}
                         </div>
                       </div>
                     </div>
@@ -105,7 +105,7 @@ export default async function ResidentialMarketplace() {
                     </div>
 
                     <p className="mt-6 text-xs text-gray-500 leading-relaxed">
-                      Includes property addresses, owner names, signal dates, and estimated home values.
+                      Includes property addresses, signal dates, and estimated home values.
                       Verified high-intent movers only.
                     </p>
                   </div>
@@ -113,8 +113,10 @@ export default async function ResidentialMarketplace() {
                     <div className="flex items-center justify-between">
                       <span className="text-xl font-bold text-gray-900">{usd(pkg.price_cents / 100, { cents: false })}</span>
                       {pkg.status === "published" ? (
-                        <button className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
-                          Unlock Report
+                        // Purchases aren't wired yet (residential is pre-launch)
+                        // — a dead-looking live button erodes trust.
+                        <button disabled title="Residential reports go on sale soon" className="rounded-lg bg-gray-300 px-4 py-2 text-sm font-semibold text-white shadow-sm cursor-not-allowed">
+                          On sale soon
                         </button>
                       ) : (
                         <button disabled className="rounded-lg bg-gray-300 px-4 py-2 text-sm font-semibold text-white shadow-sm cursor-not-allowed">

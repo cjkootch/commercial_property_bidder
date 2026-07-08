@@ -133,7 +133,7 @@ Everything a bidder needs is on one page: exact location, the owner to contact, 
 Your first sheet is FREE — claim it here (takes 30 seconds, no card):
 ${o.claimUrl}
 
-The full sheet unlocks the moment you create your profile. After that they're $${o.price} each. Or just reply "SEND IT" and we'll set it up for you.
+The full sheet unlocks the moment you create your profile. After that, sheets run $39-$129 depending on contract size (this one is $${o.price}). Or just reply "SEND IT" and we'll set it up for you.
 
 — ${o.brand}
 ${o.replyEmail}

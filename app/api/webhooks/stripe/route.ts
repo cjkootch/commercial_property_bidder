@@ -237,7 +237,7 @@ async function creditAndNotify(
     subject: `That job sold out — your ${usd(amount)} credit is ready`,
     html:
       `<p>${b.company_name} — ${reason}. Your payment is now a <strong>${usd(amount)} credit</strong> on your account.</p>` +
-      `<p>It applies automatically: pick any open job in <a href="${appUrl()}/buyers">your dashboard</a> and it's yours — no card needed.</p>` +
+      `<p>It applies automatically: it auto-applies to any open job at or below that amount in <a href="${appUrl()}/buyers">your dashboard</a> — no card needed — and it never expires.</p>` +
       `<p style="color:#888;font-size:12px">We cap every job at a fixed number of companies and never oversell — that's why spots can go fast.</p>`,
     tags: { kind: "lead_credit" },
   }).catch(() => null);

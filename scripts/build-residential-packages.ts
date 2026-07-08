@@ -6,6 +6,7 @@ import { neon } from "@neondatabase/serverless";
 import * as schema from "../lib/db/schema";
 import { and, eq, inArray } from "drizzle-orm";
 import { buildPackageTeaser } from "../lib/residential/teaser";
+import { MIN_PACKAGE_LEADS, pricePackage } from "../lib/residential/economics";
 
 // Residential Package Builder script.
 // Groups qualified leads by zip and/or subdivision and creates draft packages.
@@ -30,18 +31,41 @@ async function main() {
     return;
   }
 
-  // Group by zip + subdivision
-  const groups = new Map<string, schema.ResidentialLead[]>();
+  // Group by zip + subdivision; subdivision groups below MIN_PACKAGE_LEADS
+  // fall back into their ZIP bundle (the R0 lesson: a 1-lead "report" is not
+  // a product), and ZIP bundles still under the floor are HELD for the next
+  // cycle rather than shipped thin.
+  const bySub = new Map<string, schema.ResidentialLead[]>();
   for (const lead of leads) {
     const key = `${lead.zip || "nozip"}-${lead.subdivision_name || "nosub"}`;
-    const list = groups.get(key) ?? [];
+    const list = bySub.get(key) ?? [];
     list.push(lead);
-    groups.set(key, list);
+    bySub.set(key, list);
+  }
+  const groups = new Map<string, schema.ResidentialLead[]>();
+  for (const [key, list] of bySub.entries()) {
+    const finalKey = list.length >= MIN_PACKAGE_LEADS ? key : `${list[0].zip || "nozip"}-ZIPBUNDLE`;
+    groups.set(finalKey, [...(groups.get(finalKey) ?? []), ...list]);
   }
 
   console.log(`Found ${leads.length} leads across ${groups.size} potential packages.`);
+  let held = 0;
 
   for (const [key, groupLeads] of groups.entries()) {
+    // Economics gate: thin bundles wait for next cycle's flow.
+    const ageDays = (d: Date | null) => (d ? (Date.now() - d.getTime()) / 86400_000 : 999);
+    const pricing = pricePackage(
+      groupLeads.map((l) => ({
+        signalType: l.signal_type,
+        confidence: l.confidence,
+        ageDays: ageDays(l.signal_date),
+      }))
+    );
+    if (!pricing.sellable) {
+      held += groupLeads.length;
+      console.log(`  · held ${groupLeads.length} lead(s) in ${key} — under the ${MIN_PACKAGE_LEADS}-address floor`);
+      continue;
+    }
     const zip = groupLeads[0].zip;
     const sub = groupLeads[0].subdivision_name;
     const city = groupLeads[0].city;
@@ -60,7 +84,9 @@ async function main() {
       zip: zip,
       lead_count: groupLeads.length,
       signal_summary: teaser,
-      price_cents: groupLeads.length * 500, // $5 per lead base
+      // Quality-weighted pricing (lib/residential/economics): volume, signal
+      // strength, and freshness all move price through one lever.
+      price_cents: pricing.price_cents,
       status: "draft",
     }).returning();
 
@@ -78,9 +104,10 @@ async function main() {
         .where(eq(schema.residentialLead.id, lead.id));
     }
 
-    console.log(`  ✓ Created package: ${name} (${groupLeads.length} leads)`);
+    console.log(`  ✓ Created package: ${name} (${groupLeads.length} leads, $${(pricing.price_cents / 100).toFixed(0)}, quality ${pricing.quality})`);
   }
 
+  if (held) console.log(`\n${held} lead(s) held for the next cycle (thin bundles).`);
   console.log("\nPackage building complete.");
 }
 

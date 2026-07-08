@@ -41,9 +41,15 @@ export function buildPackageTeaser(leads: ResidentialLead[]): PackageTeaser {
 
   // Calculate aggregate LTV
   const baseLtv = calculateLtv();
+  // EXPECTED value, not fantasy: LTV x lead count implied a 100% win rate
+  // (a 25-address package showed "$68k-$125k"). Apply the documented 2-5%
+  // win rate per fresh address (lib/residential/economics.ts) so the teaser
+  // shows what a buyer can actually expect to win from the package.
+  const WIN_RATE_LOW = 0.02;
+  const WIN_RATE_HIGH = 0.05;
   const ltvRange = {
-    low: baseLtv.low * leads.length,
-    high: baseLtv.high * leads.length,
+    low: Math.round(baseLtv.low * leads.length * WIN_RATE_LOW),
+    high: Math.round(baseLtv.high * leads.length * WIN_RATE_HIGH),
   };
 
   return {

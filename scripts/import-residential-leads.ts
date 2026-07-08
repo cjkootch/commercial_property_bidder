@@ -26,7 +26,28 @@ async function main() {
 
   const content = fs.readFileSync(csvPath, "utf-8");
   const lines = content.split("\n");
-  const header = lines[0].split(",").map((h) => h.trim());
+
+  // RFC-4180-ish line parser: naive split(",") silently corrupted every
+  // quoted field (a standard Excel export like "123 Main St, Unit 4" shifted
+  // every downstream column — garbage addresses, broken dedup).
+  const parseCsvLine = (line: string): string[] => {
+    const out: string[] = [];
+    let cur = "";
+    let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (inQ) {
+        if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+        else if (c === '"') inQ = false;
+        else cur += c;
+      } else if (c === '"') inQ = true;
+      else if (c === ",") { out.push(cur.trim()); cur = ""; }
+      else cur += c;
+    }
+    out.push(cur.trim());
+    return out;
+  };
+  const header = parseCsvLine(lines[0]);
 
   const leads = lines.slice(1).filter((l) => l.trim().length > 0);
   let inserted = 0;
@@ -35,7 +56,7 @@ async function main() {
 
   for (const line of leads) {
     try {
-      const values = line.split(",").map((v) => v.trim());
+      const values = parseCsvLine(line);
       const row: any = {};
       header.forEach((col, i) => {
         row[col] = values[i];
@@ -48,10 +69,26 @@ async function main() {
         continue;
       }
 
-      // Normalize signal_type, source, confidence
+      // Validate enums UP FRONT with actionable messages — 'as any' casts
+      // deferred everything to opaque per-row Postgres exceptions, so a whole
+      // miscased file failed with no hint why.
       const signalType = row.signal_type as any;
       const source = (row.source || "import_csv") as any;
       const confidence = (row.confidence || "Med") as any;
+      const badEnum = (field: string, val: string, allowed: readonly string[]) =>
+        console.error(`  · Row rejected: ${field}="${val}" — allowed: ${allowed.join(", ")}`);
+      if (!schema.residentialSignalTypeEnum.enumValues.includes(signalType)) {
+        badEnum("signal_type", signalType, schema.residentialSignalTypeEnum.enumValues); errors++; continue;
+      }
+      if (!schema.residentialSourceEnum.enumValues.includes(source)) {
+        badEnum("source", source, schema.residentialSourceEnum.enumValues); errors++; continue;
+      }
+      if (!schema.confidenceEnum.enumValues.includes(confidence)) {
+        badEnum("confidence", confidence, schema.confidenceEnum.enumValues); errors++; continue;
+      }
+      if (row.signal_date && Number.isNaN(new Date(row.signal_date).getTime())) {
+        console.error(`  · Row rejected: signal_date="${row.signal_date}" is not a date`); errors++; continue;
+      }
 
       // Check for duplicates
       const existing = await db

@@ -86,6 +86,8 @@ describe("leads/allocation — free-claim policy", () => {
     expect(leadRank(20000, -24)).toBeLessThan(leadRank(20000, null));
     // …and the window can promote a smaller urgent job over a bigger far-out one.
     expect(leadRank(20000, 2)).toBeGreaterThan(leadRank(28000, 18));
-    expect(leadRank(null, 3)).toBe(0);
+    // Unsized leads price standard, so they rank at a modest default — not 0.
+    expect(leadRank(null, 3)).toBe(8000 * 1.3);
+    expect(leadRank(null, 3)).toBeLessThan(leadRank(12000, 3));
   });
 });

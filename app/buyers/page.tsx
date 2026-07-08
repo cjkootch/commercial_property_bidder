@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyer, chatMessage, leadUnlock, postcard, property, prospect } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
@@ -170,9 +170,19 @@ export default async function BuyerDashboard({
   // the offered job if it's still open; if it filled, say so honestly and
   // serve the next best open job in their range — first come, first served.
   const offeredLead = searchParams.offer ? market.find((l) => l.p.id === searchParams.offer) : null;
-  const offerMine = offeredLead?.holders.has(me.id) ?? false;
+  // A CLOSED lead is absent from the market — check unlocks directly so a
+  // buyer who bought the offered job (e.g. the exclusive) isn't told it
+  // "went to other companies".
+  const [myOfferUnlock] = searchParams.offer
+    ? await db
+        .select({ id: leadUnlock.id })
+        .from(leadUnlock)
+        .where(and(eq(leadUnlock.buyer_id, me.id), eq(leadUnlock.property_id, searchParams.offer)))
+        .limit(1)
+    : [undefined];
+  const offerMine = (offeredLead?.holders.has(me.id) ?? false) || Boolean(myOfferUnlock);
   const offerItem = offeredLead && !offerMine ? toItem(offeredLead) : null;
-  const offerGone = Boolean(searchParams.offer) && !offeredLead;
+  const offerGone = Boolean(searchParams.offer) && !offeredLead && !offerMine;
   const nextBest =
     offerGone
       ? (() => {
@@ -568,7 +578,7 @@ export default async function BuyerDashboard({
           <p className="mt-1 text-xs text-gray-400">
             Every job is capped at {cap} companies — ever. Or lock one down as an exclusive and
             nobody else gets it. If a job sells out before your payment settles, your payment
-            instantly becomes account credit for any other job — it never disappears.
+            instantly becomes account credit that auto-applies to any job at or below that amount — it never disappears.
           </p>
           {inRange.length === 0 ? (
             <p className="mt-3 rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500">
