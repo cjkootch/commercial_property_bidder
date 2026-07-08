@@ -365,6 +365,16 @@ export async function ensurePropertyPrediction(propertyId: string): Promise<void
 
   const pred = await predictServiceAreas(prop.parcel_geojson as ParcelResult, getMapboxToken());
   if (!pred) return;
+  // Sports turf must earn its label: plausible property context or an
+  // OSM-mapped pitch, else it demotes to plain turf (same area, honest kind).
+  const { screenSportsTurf } = await import("@/lib/integrations/turf-model");
+  const parcelForScreen = prop.parcel_geojson as ParcelResult;
+  const screened = await screenSportsTurf(
+    pred.service_areas,
+    `${prop.name} ${prop.owner_org ?? ""} ${parcelForScreen.owner ?? ""} ${prop.notes ?? ""}`,
+    parcelForScreen
+  );
+  pred.service_areas = screened.service_areas;
   const cfgRow = await getActiveConfig(prop.company_id);
   if (!cfgRow) return;
 

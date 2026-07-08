@@ -98,3 +98,68 @@ export async function predictServiceAreas(
     clearTimeout(timer);
   }
 }
+
+// --- sports-turf screening ---------------------------------------------------
+// The model over-predicts `sports_turf` (any big uniform green reads like a
+// field). A real grass sports field only exists on certain properties, so the
+// label must EARN its way in: the property's own context has to say sports are
+// plausible, or OSM has to actually map a grass pitch there. Everything else
+// gets demoted to plain turf — same mowable area, honest label.
+
+/** Property context that makes a grass sports field plausible. */
+const SPORTS_CONTEXT_RE =
+  /school|\bisd\b|academy|college|university|campus|church|\bpark\b|athletic|sport|stadium|\bfield\b|ymca|recreation|little league|country club|swim|golf/i;
+
+/** Does the property's own naming/ownership suggest sports fields? (pure) */
+export function sportsContextAllows(contextText: string): boolean {
+  return SPORTS_CONTEXT_RE.test(contextText);
+}
+
+/** Relabel every sports_turf feature as plain turf. (pure) */
+export function demoteSportsTurf(sa: ServiceAreaCollection): {
+  service_areas: ServiceAreaCollection;
+  demoted: number;
+} {
+  let demoted = 0;
+  const features = sa.features.map((f) => {
+    if (f.properties.kind !== "sports_turf") return f;
+    demoted++;
+    return { ...f, properties: { ...f.properties, kind: "turf" as const } };
+  });
+  return { service_areas: { type: "FeatureCollection", features }, demoted };
+}
+
+/**
+ * Keep sports_turf only where it's plausible: property context (name/owner)
+ * suggests fields, or OSM maps a grass pitch on the parcel (authoritative;
+ * checked only when the cheap context test fails, so most predictions never
+ * hit Overpass). On any OSM failure the label demotes — a mislabeled sports
+ * field is worse than a conservatively-labeled lawn.
+ */
+export async function screenSportsTurf(
+  sa: ServiceAreaCollection,
+  contextText: string,
+  parcel: ParcelResult
+): Promise<{ service_areas: ServiceAreaCollection; demoted: number }> {
+  if (!sa.features.some((f) => f.properties.kind === "sports_turf")) {
+    return { service_areas: sa, demoted: 0 };
+  }
+  if (sportsContextAllows(contextText)) return { service_areas: sa, demoted: 0 };
+  try {
+    const { searchSportsPois } = await import("./osm");
+    let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+    for (const ring of parcelRings(parcel)) {
+      for (const [lng, lat] of ring as [number, number][]) {
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+      }
+    }
+    const pois = await searchSportsPois([minLat, minLng, maxLat, maxLng]);
+    if (pois.length > 0) return { service_areas: sa, demoted: 0 };
+  } catch {
+    /* fall through to demote */
+  }
+  return demoteSportsTurf(sa);
+}
