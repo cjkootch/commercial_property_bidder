@@ -73,16 +73,18 @@ export function monthsUntil(iso: string | null | undefined, asOf: Date = new Dat
 export const ASSUMED_BUILD_MONTHS = 12;
 
 /**
- * Best completion estimate from a property's pipeline notes:
- * "Est. completion YYYY-MM-DD." wins; else "Est. start YYYY-MM-DD." plus an
- * assumed ASSUMED_BUILD_MONTHS build. Null for properties with no construction
- * timeline (existing buildings) — the timing signal then doesn't apply.
+ * Best "engage-by" date estimate from a property's pipeline notes:
+ * "Est. completion YYYY-MM-DD." (construction) or "Opens YYYY-MM-DD."
+ * (a new business opening — same vendor-decision window) wins; else
+ * "Est. start YYYY-MM-DD." plus an assumed ASSUMED_BUILD_MONTHS build.
+ * Null for properties with no timeline (existing buildings) — the timing
+ * signal then doesn't apply.
  */
 export function estimateCompletionFromNotes(
   notes: string | null | undefined
 ): { iso: string; assumed: boolean } | null {
   if (!notes) return null;
-  const done = notes.match(/Est\. completion (\d{4}-\d{2}-\d{2})/);
+  const done = notes.match(/(?:Est\. completion|Opens) (\d{4}-\d{2}-\d{2})/);
   if (done) return { iso: done[1], assumed: false };
   const start = notes.match(/Est\. start (\d{4}-\d{2}-\d{2})/);
   if (!start) return null;
@@ -130,21 +132,23 @@ export type LeadScorePart = { label: string; points: number; max: number; note: 
 
 export type LeadScore = { score: number; reasons: string[]; parts: LeadScorePart[] };
 
-/** Urgency points (0..20) from months-to-completion, with the explanation.
+/** Urgency points (0..20) from months-to-completion/opening, with the
+ *  explanation. The date can come from a construction filing ("Est.
+ *  completion") or a business opening ("Opens") — the wording covers both.
  *  The sweet spot is 1–6 months out: the ~90-day engage-by window is open. */
 function timingSignal(m: number): { points: number; note: string; urgent: boolean } {
   const inMo = Math.abs(Math.round(m));
   if (m >= 12)
-    return { points: 6, note: `Completion is ~${inMo} months out — on the radar; engaging this early rarely sticks.`, urgent: false };
+    return { points: 6, note: `Opening is ~${inMo} months out — on the radar; engaging this early rarely sticks.`, urgent: false };
   if (m >= 6)
-    return { points: 12, note: `Completes in ~${inMo} months — time to get on the owner's bidder list.`, urgent: false };
+    return { points: 12, note: `Opens in ~${inMo} months — time to get on the owner's bidder list.`, urgent: false };
   if (m >= 1)
-    return { points: 20, note: `Completes in ~${inMo} month${inMo === 1 ? "" : "s"} — the bid window is open NOW (grounds vendors are typically chosen ~90 days before opening).`, urgent: true };
+    return { points: 20, note: `Opens in ~${inMo} month${inMo === 1 ? "" : "s"} — the bid window is open NOW (grounds vendors are typically chosen ~90 days before opening).`, urgent: true };
   if (m >= -2)
-    return { points: 18, note: "Completing right about now — vendor decisions are being made this month.", urgent: true };
+    return { points: 18, note: "Opening right about now — vendor decisions are being made this month.", urgent: true };
   if (m >= -6)
-    return { points: 10, note: `Completed ~${inMo} months ago — the first contract may be settled, but it's fresh enough to contest.`, urgent: false };
-  return { points: 2, note: `Completed ~${inMo} months ago — likely locked in until the next re-bid.`, urgent: false };
+    return { points: 10, note: `Opened ~${inMo} months ago — the first contract may be settled, but it's fresh enough to contest.`, urgent: false };
+  return { points: 2, note: `Opened ~${inMo} months ago — likely locked in until the next re-bid.`, urgent: false };
 }
 
 /**
