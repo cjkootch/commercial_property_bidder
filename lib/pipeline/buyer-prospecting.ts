@@ -33,6 +33,7 @@ import { signBuyerClaim, signBuyerUnsub } from "../buyer-auth";
 import { leadMaxBuyers } from "../leads/availability";
 import { haversineMiles } from "../sourcing/criteria";
 import { loadMarketLeads, type LeadKind, type MarketLead } from "../leads/market";
+import { leadTierFor } from "../leads/pricing-tiers";
 
 /** Don't email the same company again within this window. */
 export const COOLDOWN_DAYS = 30;
@@ -195,7 +196,7 @@ export async function runBuyerProspecting(opts?: {
   const [co] = await db.select().from(schema.company).limit(1);
   if (!co) throw new Error("No company found. Run `npm run db:seed` first.");
   const replyEmail = co.email?.trim() || "";
-  const price = Math.round((Number(process.env.LEAD_PRICE_CENTS) || 7900) / 100);
+  
 
   // ---- 1. The lead: requested, or best fresh uncampaigned one on the shelf.
   const market = await loadMarketLeads();
@@ -344,7 +345,8 @@ export async function runBuyerProspecting(opts?: {
       distanceMi: q.distance,
       brand: co.name,
       replyEmail,
-      price,
+      // Tiered: the pitch quotes the same price checkout will charge.
+      price: Math.round(leadTierFor(lead.annualHi).price_cents / 100),
       cap,
       claimUrl,
     });
