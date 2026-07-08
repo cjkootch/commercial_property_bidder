@@ -357,6 +357,42 @@ export const outreach = pgTable("outreach", {
   ...timestamps,
 });
 
+// --- buyer_outreach --------------------------------------------------------
+// Automated buyer prospecting: outside landscaping companies (no account yet)
+// we offered a specific lead to, with the qualification snapshot (office
+// distance, commercial signal, found email) and send state. Apollo-discovered
+// data here is for OUR OWN outreach targeting only — it never ships in a sold
+// lead. One row per company per campaign; company_key drives the cooldown.
+
+export const buyerOutreachStatusEnum = pgEnum("buyer_outreach_status", [
+  "queued",
+  "sent",
+  "skipped",
+]);
+
+export const buyerOutreach = pgTable("buyer_outreach", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // The lead offered; a deleted property keeps the outreach record for cooldowns.
+  property_id: uuid("property_id").references(() => property.id, { onDelete: "set null" }),
+  company_key: text("company_key").notNull(), // normalized name — dedupe/cooldown key
+  company_name: text("company_name").notNull(),
+  website: text("website"),
+  email: text("email"),
+  phone: text("phone"),
+  contact_form_url: text("contact_form_url"),
+  office_city: text("office_city"),
+  office_lat: doublePrecision("office_lat"),
+  office_lng: doublePrecision("office_lng"),
+  distance_mi: doublePrecision("distance_mi"),
+  // Homepage mentions commercial/HOA/property-management work.
+  commercial_signal: boolean("commercial_signal"),
+  claim_url: text("claim_url"),
+  message: text("message"),
+  status: buyerOutreachStatusEnum("status").notNull().default("queued"),
+  sent_at: timestamp("sent_at", { withTimezone: true }),
+  ...timestamps,
+});
+
 // --- suppression ---------------------------------------------------------
 // Checked before every send (build spec section 9). Email is unique.
 

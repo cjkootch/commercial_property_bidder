@@ -22,6 +22,7 @@
     "source:permits": "tsx scripts/source-permits.ts",
     "source:transfers": "tsx scripts/source-transfers.ts",
     "source:openings": "tsx scripts/source-openings.ts",
+    "prospect:buyers": "tsx scripts/prospect-buyers.ts",
     "screen": "tsx scripts/screen-properties.ts",
     "export:training": "tsx scripts/export-training-data.ts",
     "ml:dump": "tsx scripts/dump-unlabeled.ts",
