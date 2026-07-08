@@ -5,15 +5,15 @@
       "schedule": "17 11 * * *"
     },
     {
-      "path": "/api/cron/permits",
+      "path": "/api/cron/permits?want=12&minCost=250000",
       "schedule": "7 11 * * 1"
     },
     {
-      "path": "/api/cron/transfers",
+      "path": "/api/cron/transfers?want=15",
       "schedule": "27 11 * * 1"
     },
     {
-      "path": "/api/cron/openings",
+      "path": "/api/cron/openings?want=15",
       "schedule": "47 11 * * 1"
     },
     {
