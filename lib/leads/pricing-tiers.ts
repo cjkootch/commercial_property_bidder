@@ -38,7 +38,9 @@ export type LeadTier = {
  *  Violation (citation) leads floor at STANDARD regardless of contract size:
  *  the buyer isn't paying for the contract, they're paying for a prospect
  *  who is legally required to hire someone this week. Big cited properties
- *  still reach premium on value alone. */
+ *  still reach premium on value alone. Public-bid (rfp) leads are unsized —
+ *  the contract's dollars are in the solicitation — and also floor at
+ *  STANDARD: multi-year government money never sells at the volume price. */
 export function leadTierFor(
   annualHi: number | null | undefined,
   kind?: string | null
@@ -53,7 +55,7 @@ export function leadTierFor(
   }
   const value =
     typeof annualHi === "number" && annualHi > 0 && annualHi < VALUE_MAX_ANNUAL_HI;
-  if (value && kind !== "violation") {
+  if (value && kind !== "violation" && kind !== "rfp") {
     return {
       tier: "value",
       label: "VOLUME DEAL",
@@ -63,7 +65,7 @@ export function leadTierFor(
   }
   return {
     tier: "standard",
-    label: kind === "violation" ? "MUST-HIRE OWNER" : null,
+    label: kind === "violation" ? "MUST-HIRE OWNER" : kind === "rfp" ? "PUBLIC BID" : null,
     price_cents: leadPriceCents(),
     exclusive_cents: exclusivePriceCents(),
   };

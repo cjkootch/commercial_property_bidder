@@ -139,17 +139,28 @@ export default async function PropertyWorkspace({
   const isTransferLead = /\(HCAD /.test(prop.name);
   const isOpeningLead = /\(STP /.test(prop.name);
   const isViolationLead = /\(H311 /.test(prop.name);
+  const isTabcLead = /\(TABC /.test(prop.name);
+  const isTaxSaleLead = /\(TAX /.test(prop.name);
+  const isRfpLead = /\(RFP /.test(prop.name);
   const projectCost = prop.notes?.match(/est\. cost (\$[\d,]+)/)?.[1] ?? null;
   const saleDate = prop.notes?.match(/HCAD transfer (\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
   const opensDate = prop.notes?.match(/Opens (\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
-  const origin = isTabsLead
+  const auctionDate = prop.notes?.match(/Tax sale scheduled (\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
+  const bidsClose = prop.notes?.match(/Bids close (\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
+  const origin = isTabcLead
+    ? `Found by the TABC pipeline: a pending alcohol-license application puts a bar/restaurant opening at this address — licensing runs 30-90 days ahead of opening day, so this is the earliest opening signal we have. The parcel is commercial and passed the vegetation pre-screen.`
+    : isTaxSaleLead
+    ? `Found by the tax-sale pipeline: this parcel is in the county's delinquent-tax process${auctionDate ? ` with an auction scheduled ${auctionDate}` : ""}. Forced action on both sides of the sale: the current owner needs the property presentable, and a post-auction buyer re-bids every vendor.`
+    : isRfpLead
+    ? `Found by the public-bid pipeline: a government agency is taking bids on this grounds/landscaping contract${bidsClose ? ` (bids close ${bidsClose})` : ""}. No parcel or measurement — the solicitation documents carry the site list and pricing forms. The lead auto-archives when the deadline passes.`
+    : isTabsLead
     ? `Found by the permit pipeline: a state construction filing (TABS)${projectCost ? ` for a ${projectCost} project` : ""}. New construction means the first grounds contract hasn't been won yet — someone gets this property's maintenance when it opens, and the sheet sells that head start.`
     : isTransferLead
     ? `Found by the ownership-transfer pipeline: county deed records show this property sold${saleDate ? ` on ${saleDate}` : " recently"}, and its parcel passed the ≥${Math.round(MIN_GRASS_FRACTION * 100)}% vegetation pre-screen. New owners re-bid their vendors in the first year — the grounds contract is in play right now.`
     : isOpeningLead
     ? `Found by the business-opening pipeline: a new state sales-tax registration puts a business${opensDate ? ` opening ${opensDate}` : " opening soon"} at this address, on a commercial parcel that passed the ≥${Math.round(MIN_GRASS_FRACTION * 100)}% vegetation pre-screen. Openings are when a property's vendor decisions get made.`
     : isViolationLead
-    ? "Found by the code-violation pipeline: Houston 311 records a weeds/overgrowth citation on this commercial parcel. The owner is required to arrange grounds service now — the most urgent signal any feed produces."
+    ? "Found by the code-violation pipeline: Houston 311 records a grounds/cleanup citation (weeds, dumping, or heavy trash) on this commercial parcel. The owner is required to arrange service now — the most urgent signal any feed produces."
     : prop.source === "places"
       ? `Discovered by the sourcing pipeline: a commercial property in the NW-Houston corridor whose parcel passed the ≥${Math.round(MIN_GRASS_FRACTION * 100)}% vegetation pre-screen — enough grass to be worth measuring and quoting.`
       : prop.source === "inbound"

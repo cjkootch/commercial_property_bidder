@@ -5,6 +5,18 @@
       "schedule": "17 11 * * *"
     },
     {
+      "path": "/api/cron/taxsales?want=15",
+      "schedule": "17 10 * * 1"
+    },
+    {
+      "path": "/api/cron/tabc?want=15",
+      "schedule": "37 10 * * 1"
+    },
+    {
+      "path": "/api/cron/rfps",
+      "schedule": "47 10 * * 1"
+    },
+    {
       "path": "/api/cron/permits?want=20&minCost=150000&sinceDays=60",
       "schedule": "7 11 * * 1"
     },

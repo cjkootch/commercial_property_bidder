@@ -27,8 +27,20 @@ import type { ParcelResult } from "../geo/types";
 const EXTRACT_URL =
   "https://hfdapp.houstontx.gov/311/311-CRIS-Public-Data-Extract-D365-MTD-compressed.txt";
 
-/** 311 case types that mean "the grounds are the problem". */
-const CASE_TYPES = new Set(["Weeds/Trash/Stagnant Water on Property", "Nuisance On Property"]);
+/** 311 case types that mean "the grounds are the problem". Values verified
+ *  against the live extract (2026-07): dumping (~154/mo) and heavy-trash
+ *  violations (~131/mo) are property-cleanup citations — the same must-act
+ *  posture as weeds, sold as a cleanup visit that opens the grounds contract.
+ *  Drainage / tree-trim types stay OUT: those are mostly city right-of-way. */
+const CASE_TYPES = new Set([
+  "Weeds/Trash/Stagnant Water on Property",
+  "Nuisance On Property",
+  "Trash Dumping or Illegal Dumpsite",
+  "Heavy Trash Code Violation",
+]);
+
+/** Case types whose citation is about debris/dumping rather than overgrowth. */
+const CLEANUP_TYPES = new Set(["Trash Dumping or Illegal Dumpsite", "Heavy Trash Code Violation"]);
 
 export type ViolationRow = {
   caseNumber: string;
@@ -89,17 +101,23 @@ export function parseExtract(text: string): ViolationRow[] {
   return out;
 }
 
-/** Pipeline notes: urgent, honest, dossier-compatible (Owner: sentence). */
+/** Pipeline notes: urgent, honest, dossier-compatible (Owner: sentence).
+ *  The wording tracks the citation type — a dumping citation is a cleanup
+ *  sell, an overgrowth citation is a mowing sell. */
 export function violationNotes(v: {
   caseNumber: string;
   createdIso: string;
   owner: string | null;
+  caseType?: string;
 }): string {
+  const cleanup = v.caseType != null && CLEANUP_TYPES.has(v.caseType);
+  const cited = cleanup
+    ? `the property was cited for illegal dumping/debris — the owner is required to arrange ` +
+      `cleanup now, and the cleanup visit is the natural opening for the grounds contract.`
+    : `the property was cited for weeds/overgrowth — the owner is required to arrange ` +
+      `grounds service now, and a citation usually means there's no vendor on the property at all.`;
   return (
-    `311 case ${v.caseNumber} (${v.createdIso}): the property was cited for weeds/overgrowth — ` +
-    `the owner is required to arrange grounds service now, and a citation usually means ` +
-    `there's no vendor on the property at all.` +
-    (v.owner ? ` Owner: ${v.owner}.` : "")
+    `311 case ${v.caseNumber} (${v.createdIso}): ${cited}` + (v.owner ? ` Owner: ${v.owner}.` : "")
   );
 }
 
@@ -222,7 +240,7 @@ export async function runViolationSourcing(opts?: {
       parcel_geojson: parcel,
       grass_fraction: grassFraction,
       lead_teaser: teaser,
-      notes: violationNotes({ caseNumber: v.caseNumber, createdIso: v.createdIso, owner: parcel.owner }),
+      notes: violationNotes({ caseNumber: v.caseNumber, createdIso: v.createdIso, owner: parcel.owner, caseType: v.caseType }),
     });
     haveName.add(name.trim().toLowerCase());
     if (parcel.parcel_id) haveParcel.add(parcel.parcel_id);

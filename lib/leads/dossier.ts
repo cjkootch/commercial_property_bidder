@@ -58,6 +58,9 @@ export type Dossier = {
   aerial: DossierAerial | null;
   /** Driving time from the buyer's office (one-way), when their city is known. */
   drive: { minutes: number; miles: number } | null;
+  /** Public-bid brief (RFP lead): no parcel/measurement — the deliverable is
+   *  the solicitation. The sheet hides the measurement/pricing blocks. */
+  is_bid?: boolean;
 };
 
 const note = (notes: string | null, re: RegExp) => notes?.match(re)?.[1]?.trim() ?? null;
@@ -77,6 +80,8 @@ export async function buildDossier(
   /** Buyer office [lng,lat] — adds drive time to the sheet. */
   buyerLoc?: [number, number] | null
 ): Promise<Dossier | null> {
+  // Public-bid leads have no parcel — their dossier is a bid brief.
+  if (/\(RFP [^)]+\)$/.test(p.name)) return buildBidBrief(p);
   const parcel = p.parcel_geojson as ParcelResult | null;
   const token = process.env.MAPBOX_API ?? null;
   if (!parcel || !token) return null;
@@ -109,24 +114,28 @@ export async function buildDossier(
   }
 
   // Lead kind from the sourcing ref embedded in the name: TABS = construction
-  // filing, HCAD = ownership transfer, STP = new business opening. Everything
+  // filing, HCAD = ownership transfer, STP/TABC = new business opening (sales-
+  // tax registration / alcohol license application — same vendor-decision
+  // window), H311 = citation, TAX = county tax-sale pipeline. Everything
   // buyer-facing (letter, guidance, timeline) frames the SIGNAL, never the feed.
-  const ref = p.name.match(/\((TABS|HCAD|STP|H311) ([^)]+)\)$/);
-  const kind: "construction" | "transfer" | "opening" | "violation" =
+  const ref = p.name.match(/\((TABS|HCAD|STP|H311|TABC|TAX) ([^)]+)\)$/);
+  const kind: "construction" | "transfer" | "opening" | "violation" | "distress" =
     ref?.[1] === "HCAD"
       ? "transfer"
-      : ref?.[1] === "STP"
+      : ref?.[1] === "STP" || ref?.[1] === "TABC"
         ? "opening"
         : ref?.[1] === "H311"
           ? "violation"
-          : "construction";
+          : ref?.[1] === "TAX"
+            ? "distress"
+            : "construction";
 
   const tabsNum = note(p.notes, /TABS (\S+):/);
   const proj = tabsNum ? await findTabsByNumber(tabsNum) : null;
   const det = proj ? await fetchTabsDetails(proj.project_id) : null;
 
   const owner = det?.owner ?? note(p.notes, /Owner: ([^.]+)\./);
-  const facilityName = p.name.replace(/ \((TABS|HCAD|STP) [^)]+\)$/, "");
+  const facilityName = p.name.replace(/ \((TABS|HCAD|STP|H311|TABC|TAX) [^)]+\)$/, "");
   const contacts: { role: string; value: string }[] = [];
   if (owner) contacts.push({ role: "Owner", value: owner });
   if (parcel.owner_mailing_address) contacts.push({ role: "Owner mail (county)", value: parcel.owner_mailing_address });
@@ -185,7 +194,9 @@ export async function buildDossier(
         ? `A new business is opening here — the property's vendor decisions are being made now. The grounds contract usually belongs to the property owner (landlord), not the tenant: send the intro letter to the owner's mailing address, and use any published on-site number to ask who manages the property.`
         : kind === "violation"
           ? `The city cited this property for weeds/overgrowth — the owner is REQUIRED to arrange service, usually within days, and a citation means there's likely no vendor on the property at all. Move fast: call any published number first, send the letter same-day, and lead with "we can have the citation cleared this week." Quote the recurring contract after the cleanup.`
-          : `Private owner: send the intro letter to the owner's mailing address and call any published number. The architect can route you to the GC or the property manager who will hold the maintenance contract.`;
+          : kind === "distress"
+            ? `This property is in the county's delinquent-tax process — a forced-action window on both sides of the sale. Before the auction, the owner (or their attorney) needs the property presentable and code-clean while they redeem or contest; after it, the winning investor re-bids every vendor from scratch. Send the letter to the owner's mailing address now, and put the address on your follow-up list for 30 days after the sale date — the new owner is the warmer buyer.`
+            : `Private owner: send the intro letter to the owner's mailing address and call any published number. The architect can route you to the GC or the property manager who will hold the maintenance contract.`;
 
   const facility = facilityName;
   const situation =
@@ -195,7 +206,9 @@ export async function buildDossier(
         ? `has a new business opening${opensDate ? ` around ${opensDate}` : " soon"}, and property services are being arranged now`
         : kind === "violation"
           ? `may need immediate grounds attention, and we understand time can be of the essence in these situations`
-          : `is scheduled to complete construction around ${est_completion ?? "the coming year"}`;
+          : kind === "distress"
+            ? `may be going through a transition, and properties in transition often need the grounds brought back quickly and kept presentable`
+            : `is scheduled to complete construction around ${est_completion ?? "the coming year"}`;
   const intro_letter = `Subject: Grounds maintenance for ${facility} — local contractor
 
 Dear ${owner ?? "Owner"},
@@ -242,5 +255,74 @@ Respectfully,
       buyerLoc && p.lng != null && p.lat != null
         ? await fetchDriveTime(buyerLoc, [p.lng, p.lat]).catch(() => null)
         : null,
+  };
+}
+
+/** The dossier for a public-bid (RFP) lead: a bid brief. No parcel, no
+ *  imagery, no sizing — the contract's scope, site list, and dollars live in
+ *  the solicitation documents; our value is surfacing it in time to bid. */
+function buildBidBrief(p: Property): Dossier {
+  const ref = p.name.match(/\(RFP ([^)]+)\)$/);
+  const title = p.name.replace(/ \(RFP [^)]+\)$/, "");
+  const bidRef = note(p.notes, /Public bid ([^:]+):/);
+  const closes = note(p.notes, /Bids close (\d{4}-\d{2}-\d{2})/);
+  const url = note(p.notes, /Solicitation: (\S+?)\.?$/m) ?? note(p.notes, /Solicitation: (\S+)\. Owner:/);
+  const agency = note(p.notes, /Owner: ([^.]+)\./) ?? p.address ?? "the agency";
+
+  const contacts: { role: string; value: string }[] = [{ role: "Agency", value: agency }];
+  if (url) contacts.push({ role: "Solicitation", value: url });
+  if (bidRef) contacts.push({ role: "Bid reference", value: bidRef });
+
+  const guidance =
+    `This is a public solicitation — the full scope, site list, bid forms, and any pre-bid ` +
+    `meeting date are in the solicitation documents (link under Decision contacts). Register as a ` +
+    `vendor on the agency's portal today, download the documents, and check two things before ` +
+    `committing: the mandatory pre-bid meeting (missing it disqualifies you) and the bonding/` +
+    `insurance requirements. Public grounds contracts typically run 1-3 years with renewal ` +
+    `options — one win here anchors a route for years.` +
+    (closes ? ` Bids close ${closes}: submit at least a day early.` : "");
+
+  const intro_letter = `Subject: Vendor registration — grounds maintenance, ${bidRef ?? title}
+
+To the Purchasing Department, ${agency}:
+
+[YOUR COMPANY] is a licensed and insured commercial grounds contractor serving ${p.city ?? "the area"} and the surrounding communities. We intend to bid ${bidRef ?? "the referenced solicitation"} (${title}) and would appreciate being added to the bidder list for this and future grounds-maintenance solicitations.
+
+Please confirm receipt and advise if a pre-bid meeting is scheduled.
+
+Respectfully,
+[NAME]
+[YOUR COMPANY] · [PHONE] · [EMAIL]`;
+
+  return {
+    gk_ref: `GK-${(ref?.[1] ?? "X").replace(/\D/g, "").slice(-5) || "0"}`,
+    name: title,
+    address: p.address,
+    city: p.city,
+    zip: p.zip,
+    county: null,
+    project_cost: null,
+    work_type: "Public grounds/landscaping contract",
+    est_start: null,
+    est_completion: null,
+    engage_by: closes,
+    scope: `Full scope, site list, and contract terms are in the solicitation documents.`,
+    acres: 0,
+    turf_sqft: 0,
+    projected: false,
+    detected_sqft: null,
+    annual_lo: 0,
+    annual_hi: 0,
+    monthly: 0,
+    crew_hours_per_visit: 0,
+    visits_per_year: 0,
+    contacts,
+    route_intel: "Multi-site public contract — the site list is in the solicitation documents.",
+    guidance,
+    intro_letter,
+    prepared_at: new Date().toISOString().slice(0, 10),
+    aerial: null,
+    drive: null,
+    is_bid: true,
   };
 }

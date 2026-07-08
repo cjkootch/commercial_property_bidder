@@ -812,8 +812,12 @@ export async function offerLeadToBuyers(propertyId: string): Promise<void> {
       : kind === "opening"
         ? "A new business is opening there — vendor decisions are being made now."
         : kind === "violation"
-          ? "The city cited it for overgrown grounds — the owner must hire someone immediately."
-          : "It's behind a new construction project — the first grounds contract hasn't been won yet.";
+          ? "The city cited it for grounds/cleanup conditions — the owner must hire someone immediately."
+          : kind === "distress"
+            ? "The property is in the county tax-sale pipeline — cleanup is needed now, and the next owner re-bids every vendor."
+            : kind === "rfp"
+              ? "A government agency is taking bids on this grounds contract — multi-year public money with a hard deadline."
+              : "It's behind a new construction project — the first grounds contract hasn't been won yet.";
   const valueTxt = teaser?.annual_lo
     ? `${usd(teaser.annual_lo)}–${usd(teaser.annual_hi ?? teaser.annual_lo)}/yr`
     : "a year-round";

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { runPipeline, CRON_CAPS } from "@/lib/pipeline/runner";
+import { expireRfpLeads } from "@/lib/pipeline/rfps";
 
 // Nightly pipeline tick (Vercel cron; see vercel.json). Auth: Vercel sends
 // `Authorization: Bearer ${CRON_SECRET}` automatically when the env var is set.
@@ -19,11 +20,15 @@ export async function GET(req: NextRequest) {
     return Number.isFinite(v) && v >= 0 ? v : CRON_CAPS[key];
   };
 
+  // Public-bid leads die at their deadline — sweep daily so an expired
+  // solicitation never sits on the shelf looking sellable.
+  const rfpsExpired = await expireRfpLeads();
+
   const summary = await runPipeline({
     sourceNew: cap("sourceNew"),
     sourceLookups: cap("sourceLookups"),
     price: cap("price"),
     contacts: cap("contacts"),
   });
-  return Response.json(summary);
+  return Response.json({ ...summary, rfpsExpired });
 }

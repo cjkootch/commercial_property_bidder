@@ -431,7 +431,10 @@ export async function startCheckout(propertyId: string, kind: "paid" | "exclusiv
     // NEVER the property name: for transfer/violation leads the name IS the
     // street address — the paid content — and Stripe shows the line item
     // before payment. Teaser-safe label only.
-    leadName: `Job sheet — ${prop!.city ?? "Houston"} area ${leadKind(prop!.name)} lead`,
+    leadName: `Job sheet — ${prop!.city ?? "Houston"} area ${
+      { rfp: "public-bid", distress: "distressed-property" }[leadKind(prop!.name) as string] ??
+      leadKind(prop!.name)
+    } lead`,
     buyerEmail: row.email,
     buyerId: row.id,
     propertyId,

@@ -334,7 +334,27 @@ export default async function LeadSheet({
               ) : null}
             </div>
 
-            {/* Numbers */}
+            {/* Numbers (public-bid briefs have no measurement — the contract's
+                dollars and site list are in the solicitation documents) */}
+            {d.is_bid ? (
+              <section className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div
+                  className="rounded-2xl p-5 text-white shadow-sm"
+                  style={{ backgroundColor: accent }}
+                >
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-white/70">
+                    Bid deadline
+                  </div>
+                  <div className="mt-1 text-2xl font-extrabold">{d.engage_by ?? "See solicitation"}</div>
+                  <div className="text-sm text-white/80">Submit at least a day early</div>
+                </div>
+                <Stat
+                  label="Contract value"
+                  value="In the solicitation"
+                  sub="Public contracts publish their own pricing forms"
+                />
+              </section>
+            ) : (
             <section className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-5">
               <div
                 className="col-span-2 rounded-2xl p-5 text-white shadow-sm md:col-span-2"
@@ -357,6 +377,7 @@ export default async function LeadSheet({
               <Stat label="Parcel" value={`${d.acres.toFixed(1)} ac`} />
               <Stat label="Crew hrs / visit" value={`${d.crew_hours_per_visit}`} sub={`${d.visits_per_year ?? 32} visits/yr`} />
             </section>
+            )}
 
             {/* Two-column detail */}
             <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
@@ -367,7 +388,7 @@ export default async function LeadSheet({
                     <Row k="Work type" v={d.work_type} />
                     <Row k="Est. start" v={d.est_start} />
                     <Row k="Est. completion" v={d.est_completion} />
-                    <Row k="Engage owner by" v={d.engage_by} accent={accent} />
+                    <Row k={d.is_bid ? "Bid deadline" : "Engage owner by"} v={d.engage_by} accent={accent} />
                   </dl>
                   {d.scope ? <p className="mt-4 text-sm leading-relaxed text-gray-600">{d.scope}</p> : null}
                 </Card>
@@ -389,17 +410,19 @@ export default async function LeadSheet({
                   )}
                 </Card>
 
-                <Card title="Price it your way" eyebrow="Bid calculator">
-                  <BidCalculator
-                    accent={accent}
-                    turfSqft={d.turf_sqft}
-                    crewHours={d.crew_hours_per_visit}
-                    visitsPerYear={d.visits_per_year ?? 32}
-                    marketLo={d.annual_lo}
-                    marketHi={d.annual_hi}
-                    driveMinutes={d.drive ? Math.max(10, Math.round((d.drive.minutes * 2) / 5) * 5) : undefined}
-                  />
-                </Card>
+                {!d.is_bid ? (
+                  <Card title="Price it your way" eyebrow="Bid calculator">
+                    <BidCalculator
+                      accent={accent}
+                      turfSqft={d.turf_sqft}
+                      crewHours={d.crew_hours_per_visit}
+                      visitsPerYear={d.visits_per_year ?? 32}
+                      marketLo={d.annual_lo}
+                      marketHi={d.annual_hi}
+                      driveMinutes={d.drive ? Math.max(10, Math.round((d.drive.minutes * 2) / 5) * 5) : undefined}
+                    />
+                  </Card>
+                ) : null}
               </div>
 
               <div className="space-y-6">

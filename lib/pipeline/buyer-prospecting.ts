@@ -119,8 +119,12 @@ export function buildProspectMessage(o: {
       : lead.kind === "opening"
         ? `A new business is opening at a commercial property${distClause}${lead.city ? ` (${lead.city} area)` : ""} — the property's vendor decisions are being made right now.`
         : lead.kind === "violation"
-          ? `A commercial property${distClause}${lead.city ? ` (${lead.city} area)` : ""} was just cited by the city for overgrown grounds — the owner is required to hire someone immediately.`
-          : `A commercial development breaks ground${distClause}${lead.city ? ` (${lead.city} area)` : ""}. When it opens, somebody wins the grounds contract.`;
+          ? `A commercial property${distClause}${lead.city ? ` (${lead.city} area)` : ""} was just cited by the city for grounds/cleanup conditions — the owner is required to hire someone immediately.`
+          : lead.kind === "distress"
+            ? `A commercial property${distClause}${lead.city ? ` (${lead.city} area)` : ""} is in the county tax-sale pipeline — it needs cleanup now, and the next owner re-bids every vendor.`
+            : lead.kind === "rfp"
+              ? `A government agency${lead.city ? ` (${lead.city} area)` : ""} is taking bids on a grounds/landscaping contract — multi-year public money with a hard deadline.`
+              : `A commercial development breaks ground${distClause}${lead.city ? ` (${lead.city} area)` : ""}. When it opens, somebody wins the grounds contract.`;
   const subject = `${usd(lead.annualHi)}/yr grounds contract${distShort}`;
   const body = `${o.company} team —
 
