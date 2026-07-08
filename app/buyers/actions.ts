@@ -82,7 +82,7 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
         .returning()
     )[0];
 
-  await tryFreeUnlock(row.id, claim.property_id, co?.name ?? null);
+  const claimed = await tryFreeUnlock(row.id, claim.property_id, co?.name ?? null);
 
   cookies().set(BUYER_COOKIE, signBuyerSession(row.id), {
     httpOnly: true,
@@ -91,7 +91,11 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
     maxAge: BUYER_SESSION_MAX_AGE,
     path: "/",
   });
-  redirect("/buyers");
+  // The emailed lead filled before they got here? Land them on the waterfall
+  // view: "that one went to other companies — here's the next best near you,"
+  // with their free sheet still claimable where policy allows. Never a silent
+  // plain dashboard after a scarcity promise.
+  redirect(claimed ? "/buyers" : `/buyers?offer=${claim.property_id}`);
 }
 
 /**
@@ -220,16 +224,16 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
  * crashing the signup. Failures are silent — the buyer still gets their
  * profile and dashboard.
  */
-async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string | null): Promise<void> {
+async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string | null): Promise<boolean> {
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
-  if (!prop || !prop.parcel_geojson) return;
+  if (!prop || !prop.parcel_geojson) return false;
   const [buyerRow] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
   const buyerLoc: [number, number] | null =
     buyerRow?.lng != null && buyerRow?.lat != null ? [buyerRow.lng, buyerRow.lat] : null;
 
   const myTrade = asTrade(buyerRow?.trade);
   const avail = await leadAvailability(prop, myTrade);
-  if (!avail.open) return;
+  if (!avail.open) return false;
 
   // Campaign tokens bypass the marketplace free-claim policy on purpose — the
   // operator chose this lead as the acquisition hook — but the per-lead free
@@ -240,7 +244,7 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
       .from(leadUnlock)
       .where(and(eq(leadUnlock.property_id, propertyId), eq(leadUnlock.kind, "free")))
   ).filter((u) => u.trade === myTrade);
-  if (freeOnLead.length >= FREE_MAX_PER_LEAD) return;
+  if (freeOnLead.length >= FREE_MAX_PER_LEAD) return false;
 
   // "Your first sheet is free" — once per company, not once per campaign email.
   const [priorFree] = await db
@@ -248,7 +252,7 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
     .from(leadUnlock)
     .where(and(eq(leadUnlock.buyer_id, buyerId), eq(leadUnlock.kind, "free")))
     .limit(1);
-  if (priorFree) return;
+  if (priorFree) return false;
 
   // The dossier build touches TABS/Mapbox/county services — a hiccup there
   // must not 500 the signup. A null dossier is visible on /buyers as "being
@@ -260,11 +264,12 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
     .values({ buyer_id: buyerId, property_id: prop.id, kind: "free", trade: myTrade, price_cents: 0, dossier })
     .onConflictDoNothing({ target: [leadUnlock.property_id, leadUnlock.buyer_id] })
     .returning();
-  if (!unlock) return; // this buyer already holds this lead
+  if (!unlock) return true; // this buyer already holds this lead — that's a win
 
   // No-transaction race guard: roll back if we landed over the cap.
-  if (!(await confirmUnlockWithinCap(unlock.id, prop.id))) return;
+  if (!(await confirmUnlockWithinCap(unlock.id, prop.id))) return false;
   await closeLeadIfDone(prop.id);
+  return true;
 }
 
 /** Returning buyers: email a magic link. Never reveals whether an email exists. */

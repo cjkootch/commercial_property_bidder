@@ -81,6 +81,11 @@ type LeadPitch = {
   annualLo: number;
   annualHi: number;
   turf: number | null;
+  /** Pipeline notes — the memo quotes real dates out of them. */
+  notes: string | null;
+  spotsLeft: number;
+  /** Operator hand-measured — the memo says so; it sells. */
+  verified: boolean;
 };
 
 export function toPitch(l: MarketLead): LeadPitch | null {
@@ -95,11 +100,17 @@ export function toPitch(l: MarketLead): LeadPitch | null {
     annualLo: t.annual_lo,
     annualHi: t.annual_hi,
     turf: t.turf_sqft ?? null,
+    notes: l.p.notes,
+    spotsLeft: l.spotsLeft,
+    verified: (t as { verified?: boolean }).verified ?? false,
   };
 }
 
-/** The outreach email, personalized to the company and framed by lead kind.
- *  Honest: says exactly what we are; never impersonates a customer. */
+/** The outreach email as a LEAD HANDOFF, not a platform pitch: the specifics
+ *  up top (trigger with the real date, size, value, spots left), the claim
+ *  link for the rest, and who-we-are in two honest sentences at the bottom.
+ *  Everything quoted is teaser-safe — the address and owner stay behind the
+ *  claim. Honest: says exactly what we are; never impersonates a customer. */
 export function buildProspectMessage(o: {
   company: string;
   lead: LeadPitch;
@@ -114,48 +125,75 @@ export function buildProspectMessage(o: {
 }): { subject: string; body: string } {
   const { lead } = o;
   const trade = o.trade ?? DEFAULT_TRADE;
+  const note = (re: RegExp) => lead.notes?.match(re)?.[1] ?? null;
   const mi = o.distanceMi != null ? Math.max(1, Math.round(o.distanceMi)) : null;
-  const distShort = mi != null ? `, ${mi} mi from your office` : " near you";
-  const distClause = mi != null ? ` about ${mi} ${mi === 1 ? "mile" : "miles"} from your office` : " in your service area";
-  const hook =
+
+  // The TRIGGER line: why this owner is deciding now, with the real date.
+  const saleDate = note(/HCAD transfer ([\d-]+)/);
+  const opensDate = note(/Opens ([\d-]+)/);
+  const citedDate = note(/311 case \S+ \(([\d-]+)\)/);
+  const auctionDate = note(/Tax sale scheduled ([\d-]+)/);
+  const startDate = note(/Est\. start ([\d-]+)/);
+  const trigger =
     lead.kind === "transfer"
-      ? `A commercial property${distClause}${lead.city ? ` (${lead.city} area)` : ""} just changed owners — and new owners re-bid their grounds vendors in the first year.`
+      ? `Property changed owners${saleDate ? ` on ${saleDate}` : " recently"} — new owners re-bid their vendors in the first year`
       : lead.kind === "opening"
-        ? `A new business is opening at a commercial property${distClause}${lead.city ? ` (${lead.city} area)` : ""} — the property's vendor decisions are being made right now.`
+        ? `New business opening${opensDate ? ` around ${opensDate}` : " soon"} — the property's vendor decisions are being made now`
         : lead.kind === "violation"
-          ? `A commercial property${distClause}${lead.city ? ` (${lead.city} area)` : ""} was just cited by the city for grounds/cleanup conditions — the owner is required to hire someone immediately.`
+          ? `Cited by the city${citedDate ? ` on ${citedDate}` : ""} — the owner is required to arrange service immediately`
           : lead.kind === "distress"
-            ? `A commercial property${distClause}${lead.city ? ` (${lead.city} area)` : ""} is in the county tax-sale pipeline — it needs cleanup now, and the next owner re-bids every vendor.`
+            ? auctionDate
+              ? `County tax sale scheduled ${auctionDate} — cleanup needed now, and the next owner re-bids every vendor`
+              : `In the county tax-sale pipeline — cleanup needed now, and the next owner re-bids every vendor`
             : lead.kind === "rfp"
-              ? `A government agency${lead.city ? ` (${lead.city} area)` : ""} is taking bids on a grounds/landscaping contract — multi-year public money with a hard deadline.`
-              : `A commercial development breaks ground${distClause}${lead.city ? ` (${lead.city} area)` : ""}. When it opens, somebody wins the grounds contract.`;
-  // The landscaping pitch quotes our measured contract value; other trades
-  // never borrow it — their value paragraph sells the signal + the contacts.
+              ? `Government grounds contract out for bid — hard deadline`
+              : `New construction${startDate ? `, breaks ground around ${startDate}` : ""} — the first contract hasn't been won by anyone`;
+
+  const kindShort =
+    lead.kind === "transfer"
+      ? "new owner"
+      : lead.kind === "opening"
+        ? "business opening"
+        : lead.kind === "violation"
+          ? "city citation"
+          : lead.kind === "distress"
+            ? "tax-sale property"
+            : lead.kind === "rfp"
+              ? "public bid"
+              : "new construction";
+
+  // The landscaping memo quotes our measured value; other trades never
+  // borrow it — their line sells the recurring contract + the open decision.
   const subject =
     trade === "landscaping"
-      ? `${usd(lead.annualHi)}/yr grounds contract${distShort}`
-      : `New commercial ${TRADES[trade].label.toLowerCase()} lead${distShort}`;
-  const valuePara =
+      ? `Grounds contract lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""} — est. ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr`
+      : `Commercial ${TRADES[trade].label.toLowerCase()} lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""}`;
+
+  const valueRows =
     trade === "landscaping"
-      ? `We measured the site from the air${lead.turf ? `: ~${Math.round(lead.turf).toLocaleString()} sq ft of maintainable turf` : ""}. At market rates that's ${usd(lead.annualLo)}–${usd(lead.annualHi)} a year — every year.`
-      : `Commercial properties like this carry a year-round ${TRADES[trade].label.toLowerCase()} contract — and this one's vendor decision is being made now.`;
+      ? `${lead.turf ? `GROUNDS — ~${Math.round(lead.turf).toLocaleString()} sq ft of maintainable turf, ${lead.verified ? "hand-verified measurement" : "measured from the air"}\n` : ""}EST. VALUE — ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr at market rates, recurring`
+      : `CONTRACT — year-round ${TRADES[trade].label.toLowerCase()} contract, vendor decision in motion`;
+
   const body = `${o.company} team —
 
-${hook}
+A lead for you. No charge on this one, no obligation — but a heads-up before the details: we only ever sell a job to ${o.cap} companies, and this one is live right now.
 
-${valuePara}
+AREA — ${lead.city ?? "Houston"}${mi != null ? `, about ${mi} ${mi === 1 ? "mile" : "miles"} from your office` : ""}
+TRIGGER — ${trigger}
+${valueRows}
+STATUS — ${lead.spotsLeft} of ${o.cap} spots left — when they're gone, this job closes for good
 
-Everything a bidder needs is on one page: exact location, the owner to contact, and the window to bid. Every job is capped at ${o.cap} companies* — ever — and you can lock one down as an exclusive so nobody else gets it.
+The full sheet has the exact address, the owner and their mailing address, our aerial measurement, and a ready-to-send intro letter:
 
-Your first sheet is FREE — claim it here (takes 30 seconds, no card):
 ${o.claimUrl}
+(30 seconds, no card)
 
-The full sheet unlocks the moment you create your profile. After that, sheets run $39-$129 depending on contract size (this one is $${o.price}). Or just reply "SEND IT" and we'll set it up for you.
+We're ${o.brand} — we find commercial properties at the moment vendors get chosen and hand the research to local companies. This first one is on us. After that, sheets run $39-$129 depending on contract size (this one is $${o.price}), and every job is capped at ${o.cap} companies* — or lock one down as an exclusive so nobody else gets it.
+
+Reply with your service area if this one's wrong for you — we'll send the next match instead.
 
 — ${o.brand}
 ${o.replyEmail}
-
-P.S. If this one's too far or the wrong size, reply with your service area and we'll send the next match instead.
 
 * The cap applies per service trade — full terms: ${siteBase()}/terms`;
   return { subject, body };
