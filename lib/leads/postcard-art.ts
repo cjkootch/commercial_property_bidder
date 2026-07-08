@@ -26,6 +26,16 @@ export function buildPostcardHtml(
     ? `<img src="${esc(buyer.logo_url)}" style="max-height:0.9in;max-width:2.6in;object-fit:contain" />`
     : `<div style="font:700 26px sans-serif;color:#fff">${esc(buyer.company_name)}</div>`;
 
+  // Property facts fill the card's midsection — the dollar range is the hook,
+  // so it gets the biggest type on the card instead of hiding in body copy.
+  const stats = [
+    `${Math.round(d.turf_sqft).toLocaleString()} sq ft of turf`,
+    d.acres >= 0.5 ? `${d.acres >= 10 ? Math.round(d.acres) : d.acres.toFixed(1)}-acre site` : null,
+    d.est_completion ? `opens ${fmtMonth(d.est_completion)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" &nbsp;&middot;&nbsp; ");
+
   // Keep all content inside Lob's 0.125in bleed + a safe print margin: the panel
   // inset is 0.55in so nothing clips at the left/right edges when trimmed.
   // Absolutely-positioned sections (top / middle / bottom). Lob's renderer
@@ -36,16 +46,25 @@ export function buildPostcardHtml(
     .wrap{width:9.25in;height:6.25in;background:${accent};color:#fff;font-family:Helvetica,Arial,sans-serif;position:relative;overflow:hidden}
     .logo{position:absolute;top:0.55in;left:0.55in;background:rgba(255,255,255,0.14);border-radius:10px;padding:10px 14px}
     .city{position:absolute;top:0.62in;right:0.55in;text-align:right;font:600 13px sans-serif;opacity:0.9}
-    .head{position:absolute;top:2.0in;left:0.55in;width:7.9in}
+    .head{position:absolute;top:1.65in;left:0.55in;width:7.9in}
+    .value{position:absolute;top:3.55in;left:0.55in;width:8.15in}
+    .chip{display:inline-block;background:rgba(255,255,255,0.14);border-radius:12px;padding:14px 20px}
     .foot{position:absolute;bottom:0.55in;left:0.55in;width:8.15in;font:600 16px sans-serif}
   </style></head><body><div class="wrap">
     <div class="logo">${logo}</div>
     <div class="city">${esc((d.city ?? "") + (d.county ? ", " + d.county + " County" : ""))}</div>
     <div class="head">
       <div style="font:800 40px sans-serif;line-height:1.08">A grounds contract<br/>is coming.</div>
-      <div style="margin-top:16px;font:500 19px sans-serif;max-width:5.5in;opacity:0.95">
-        ${esc(d.name)} is being built. When it opens, someone wins the year-round grounds maintenance &mdash; an estimated ${usd(d.annual_lo)}&ndash;${usd(d.annual_hi)}/yr contract.
+      <div style="margin-top:16px;font:500 19px sans-serif;max-width:6.4in;opacity:0.95">
+        ${esc(d.name)} is being built. When it opens, someone wins the year-round grounds maintenance.
       </div>
+    </div>
+    <div class="value">
+      <div class="chip">
+        <div style="font:800 44px sans-serif;line-height:1">${usd(d.annual_lo)}&ndash;${usd(d.annual_hi)}<span style="font:700 22px sans-serif">/yr</span></div>
+        <div style="margin-top:8px;font:600 14px sans-serif;opacity:0.92">estimated year-round grounds contract</div>
+      </div>
+      ${stats ? `<div style="margin-top:14px;font:600 15px sans-serif;opacity:0.92">${stats}</div>` : ""}
     </div>
     <div class="foot">We&rsquo;d like it to be us. &mdash; ${esc(buyer.company_name)}${buyer.phone ? " &middot; " + esc(buyer.phone) : ""}</div>
   </div></body></html>`;
@@ -57,13 +76,21 @@ export function buildPostcardHtml(
     .slice(0, 14)
     .join("\n");
 
+  // Lob overlays the recipient address + postage on the RIGHT side of the
+  // back, so the left column is ours full-height: a readable letter up top
+  // and a brand anchor pinned bottom-left.
   const back = `<!doctype html><html><head><meta charset="utf-8"><style>
     @page{margin:0}html,body{margin:0;padding:0}
     .wrap{width:9.25in;height:6.25in;font-family:Helvetica,Arial,sans-serif;color:#1f2937;position:relative}
-    .msg{position:absolute;top:0.4in;left:0.4in;width:4.7in;font-size:11px;line-height:1.5;white-space:pre-wrap}
+    .msg{position:absolute;top:0.45in;left:0.5in;width:4.9in;font-size:13px;line-height:1.55;white-space:pre-wrap}
     .bar{position:absolute;top:0;left:0;width:9.25in;height:0.18in;background:${accent}}
+    .brand{position:absolute;bottom:0.5in;left:0.5in;width:4.9in;border-top:3px solid ${accent};padding-top:10px}
   </style></head><body><div class="wrap"><div class="bar"></div>
     <div class="msg">${esc(letter)}</div>
+    <div class="brand">
+      <div style="font:700 15px sans-serif;color:${accent}">${esc(buyer.company_name)}</div>
+      <div style="margin-top:3px;font:500 12px sans-serif;color:#4b5563">Commercial grounds maintenance${buyer.phone ? ` &middot; ${esc(buyer.phone)}` : ""}${buyer.email ? ` &middot; ${esc(buyer.email)}` : ""}</div>
+    </div>
   </div></body></html>`;
 
   return { front, back };
@@ -71,6 +98,13 @@ export function buildPostcardHtml(
 
 function usd(n: number): string {
   return `$${Math.round(n).toLocaleString()}`;
+}
+
+/** "2028-09-01" -> "Sep 2028" (falls back to the raw string). */
+function fmtMonth(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
 type ProspectArt = {
