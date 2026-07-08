@@ -25,10 +25,22 @@ const PHONE_RE = /(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
 
 const JUNK_EMAIL = /\.(png|jpg|jpeg|gif|webp|svg|css|js)$/i;
 // Template/placeholder addresses that ship inside website builders' boilerplate
-// (found live: user@domain.com, no@email.com). Sending to these bounces — and
-// bounces on a young domain are reputation poison. Treat as "no email found".
+// (found live: user@domain.com, no@email.com, ...@sentry-next.wixpress.com).
+// Sending to these bounces — and bounces on a young domain are reputation
+// poison. Treat as "no email found". sentry/wixpress match anywhere in the
+// domain: builders bury error-reporting addresses under varying subdomains.
 const PLACEHOLDER_EMAIL =
-  /@(domain|email|example|yourdomain|yoursite|mysite|company|test|sentry|wixpress|placeholder)\.|^(user|no|test|name|someone|your|info@example)@|@.*\.(test|invalid|local)$/i;
+  /@(domain|email|example|yourdomain|yoursite|mysite|company|test|placeholder)\.|@[a-z0-9.-]*(sentry|wixpress)|^(user|no|test|name|someone|your|info@example)@|@.*\.(test|invalid|local)$/i;
+
+// Numeric character references (&#115; / &#x73;) — the common email-obfuscation
+// trick. Decode before extraction so "&#115;ales@…" reads as a real address
+// instead of leaking entity soup into the send queue.
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&amp;/gi, "&");
+}
 
 function normalizeUrl(raw: string): string | null {
   const t = raw.trim();
@@ -61,9 +73,13 @@ async function fetchText(url: string, ms = 8000): Promise<string | null> {
 }
 
 /** Pull the first plausible email + phone from a page's HTML. */
-function extractFromHtml(html: string): { email: string | null; phone: string | null } {
-  // Prefer mailto: links (most reliable), then any inline email.
-  const mailto = [...html.matchAll(/mailto:([^"'>?\s]+)/gi)].map((m) => m[1].toLowerCase());
+export function extractFromHtml(raw: string): { email: string | null; phone: string | null } {
+  const html = decodeEntities(raw);
+  // Prefer mailto: links (most reliable), then any inline email. Each mailto
+  // capture is re-matched against EMAIL_RE so leftover markup never ships.
+  const mailto = [...html.matchAll(/mailto:([^"'>?\s]+)/gi)]
+    .map((m) => m[1].toLowerCase().match(EMAIL_RE)?.[0])
+    .filter(Boolean) as string[];
   const inline = (html.match(EMAIL_RE) ?? []).map((e) => e.toLowerCase());
   const email =
     [...mailto, ...inline].find(
