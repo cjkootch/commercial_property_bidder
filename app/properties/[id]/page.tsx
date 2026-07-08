@@ -84,6 +84,18 @@ export default async function PropertyWorkspace({
       }
     : null;
 
+  // Buyer prospecting state for this lead (automated cold outreach to outside
+  // landscaping companies — see lib/pipeline/buyer-prospecting).
+  const { buyerOutreach } = await import("@/lib/db/schema");
+  const { eq: eqOp } = await import("drizzle-orm");
+  const { db: dbo } = await import("@/lib/db");
+  const prospected = await dbo
+    .select({ status: buyerOutreach.status })
+    .from(buyerOutreach)
+    .where(eqOp(buyerOutreach.property_id, prop.id));
+  const prospectedSent = prospected.filter((r) => r.status === "sent").length;
+  const prospectedQueued = prospected.filter((r) => r.status === "queued").length;
+
   const outreachRow = await getPropertyOutreach(prop.id);
   const outreachInfo = outreachRow
     ? {
@@ -209,6 +221,11 @@ export default async function PropertyWorkspace({
               <span className="text-xs text-gray-400">
                 Last offered to {prop.offer_sent_count ?? 0} buyer{(prop.offer_sent_count ?? 0) === 1 ? "" : "s"} on{" "}
                 {prop.offer_sent_at.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </span>
+            ) : null}
+            {prospected.length > 0 ? (
+              <span className="text-xs text-gray-400">
+                Prospecting: {prospectedSent} sent · {prospectedQueued} queued of {prospected.length} outside companies
               </span>
             ) : null}
           </div>
