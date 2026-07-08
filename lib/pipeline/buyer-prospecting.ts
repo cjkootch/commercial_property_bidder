@@ -349,7 +349,7 @@ export async function runBuyerProspecting(opts?: {
       brand: co.name,
       replyEmail,
       // Tiered: the pitch quotes the same price checkout will charge.
-      price: Math.round(leadTierFor(lead.annualHi).price_cents / 100),
+      price: Math.round(leadTierFor(lead.annualHi, lead.kind).price_cents / 100),
       cap,
       claimUrl,
     });

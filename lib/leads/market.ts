@@ -88,10 +88,16 @@ export async function loadMarketLeads(): Promise<MarketLead[]> {
     .map((p) => {
       const e = byProp.get(p.id);
       const teaser = p.lead_teaser as Teaser;
+      const kind = leadKind(p.name);
       const monthsToCompletion = monthsUntil(estimateCompletionFromNotes(p.notes)?.iso ?? null);
+      // A FRESH citation is an open decision window — the owner must hire
+      // someone now. Stale citations (~45d+) mean resolved or ignored.
+      const citedIso = kind === "violation" ? p.notes?.match(/311 case \S+ \(([\d-]+)\)/)?.[1] : null;
+      const urgent =
+        citedIso != null && Date.now() - new Date(citedIso).getTime() < 45 * 86400_000;
       return {
         p,
-        kind: leadKind(p.name),
+        kind,
         teaser,
         spotsLeft: cap - (e?.count ?? 0),
         exclusiveOpen: (e?.count ?? 0) === 0,
@@ -99,7 +105,7 @@ export async function loadMarketLeads(): Promise<MarketLead[]> {
         holders: e?.holders ?? new Set<string>(),
         ageDays: daysSince(p.created_at),
         monthsToCompletion,
-        rank: leadRank(teaser?.annual_hi ?? null, monthsToCompletion),
+        rank: leadRank(teaser?.annual_hi ?? null, monthsToCompletion, urgent),
       };
     });
 }

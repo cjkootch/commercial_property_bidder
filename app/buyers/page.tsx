@@ -156,7 +156,7 @@ export default async function BuyerDashboard({
       spotsLeft: l.spotsLeft,
       exclusiveOpen: l.exclusiveOpen,
       free: freeVerdict(l, freeCtx),
-      priceTier: leadTierFor(teaser?.annual_hi ?? null),
+      priceTier: leadTierFor(teaser?.annual_hi ?? null, kind),
       rank: l.rank,
       miles:
         me.lat != null && me.lng != null && p.lat != null && p.lng != null
