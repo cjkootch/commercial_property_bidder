@@ -24,6 +24,11 @@ const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 const PHONE_RE = /(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
 
 const JUNK_EMAIL = /\.(png|jpg|jpeg|gif|webp|svg|css|js)$/i;
+// Template/placeholder addresses that ship inside website builders' boilerplate
+// (found live: user@domain.com, no@email.com). Sending to these bounces — and
+// bounces on a young domain are reputation poison. Treat as "no email found".
+const PLACEHOLDER_EMAIL =
+  /@(domain|email|example|yourdomain|yoursite|mysite|company|test|sentry|wixpress|placeholder)\.|^(user|no|test|name|someone|your|info@example)@|@.*\.(test|invalid|local)$/i;
 
 function normalizeUrl(raw: string): string | null {
   const t = raw.trim();
@@ -61,7 +66,9 @@ function extractFromHtml(html: string): { email: string | null; phone: string | 
   const mailto = [...html.matchAll(/mailto:([^"'>?\s]+)/gi)].map((m) => m[1].toLowerCase());
   const inline = (html.match(EMAIL_RE) ?? []).map((e) => e.toLowerCase());
   const email =
-    [...mailto, ...inline].find((e) => !JUNK_EMAIL.test(e) && !e.includes("example.")) ?? null;
+    [...mailto, ...inline].find(
+      (e) => !JUNK_EMAIL.test(e) && !PLACEHOLDER_EMAIL.test(e) && !e.includes("example.")
+    ) ?? null;
   const phone = html.replace(/<[^>]+>/g, " ").match(PHONE_RE)?.[0]?.trim() ?? null;
   return { email, phone };
 }
