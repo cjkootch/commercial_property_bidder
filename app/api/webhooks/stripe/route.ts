@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { buyer, leadUnlock, property, usageCounter } from "@/lib/db/schema";
 import { refundPayment, verifyStripeSignature } from "@/lib/integrations/stripe";
 import { buildDossier } from "@/lib/leads/dossier";
+import { asTrade } from "@/lib/leads/trades";
 import {
   closeLeadIfDone,
   confirmUnlockWithinCap,
@@ -152,7 +153,8 @@ export async function POST(req: NextRequest) {
   if (!prop) return creditAndNotify(session, b, "the job you paid for is no longer listed");
 
   // Sold out (or exported) between checkout and payment? Credit, don't ghost.
-  const avail = await leadAvailability(prop);
+  // Availability is per trade — the buyer's trade decides which spots count.
+  const avail = await leadAvailability(prop, asTrade(b.trade));
   const lost =
     avail.closed || (kind === "exclusive" && !avail.exclusiveOpen)
       ? kind === "exclusive"
@@ -171,6 +173,7 @@ export async function POST(req: NextRequest) {
       buyer_id: b.id,
       property_id: prop.id,
       kind,
+      trade: asTrade(b.trade),
       price_cents: session.amount_total ?? 0,
       stripe_session_id: session.id,
       dossier,
@@ -190,7 +193,7 @@ export async function POST(req: NextRequest) {
   await closeLeadIfDone(prop.id);
 
   const link = `${appUrl()}/buyers/leads/${unlock.id}`;
-  const facility = prop.name.replace(/ \(TABS [^)]+\)$/, "");
+  const facility = prop.name.replace(/ \((TABS|HCAD|STP|H311|TABC|TAX|RFP) [^)]+\)$/, "");
   await sendEmail({
     to: b.email,
     subject: `Your job sheet is ready — ${facility}`,

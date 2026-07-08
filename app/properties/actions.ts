@@ -791,12 +791,31 @@ export async function offerLeadToBuyers(propertyId: string): Promise<void> {
     back("offer_err=" + encodeURIComponent("Not sellable — needs a parcel and must be in circulation."));
   }
   const { leadAvailability, leadMaxBuyers } = await import("@/lib/leads/availability");
-  const avail = await leadAvailability(prop!);
-  if (!avail.open) back("offer_err=" + encodeURIComponent("No spots left on this lead."));
-
-  const { offerRecipients, leadKind } = await import("@/lib/leads/market");
+  const { TRADES, asTrade, tradeNoun } = await import("@/lib/leads/trades");
+  const { offerRecipients, leadKind: kindOf } = await import("@/lib/leads/market");
   const { signBuyerUnsub } = await import("@/lib/buyer-auth");
-  const recipients = await offerRecipients(prop!);
+
+  // Spots are per trade; the blast is open as long as ANY trade that finds
+  // this lead relevant still has room. Per-recipient copy uses their trade.
+  const availByTrade = new Map(
+    await Promise.all(
+      (Object.keys(TRADES) as (keyof typeof TRADES)[]).map(
+        async (t) => [t, await leadAvailability(prop!, t)] as const
+      )
+    )
+  );
+  const anyOpen = [...availByTrade.entries()].some(
+    ([t, a]) => a.open && TRADES[t].relevant(kindOf(prop!.name))
+  );
+  if (!anyOpen) back("offer_err=" + encodeURIComponent("No spots left on this lead."));
+
+  const allRecipients = await offerRecipients(prop!);
+  // A buyer only gets the offer if their trade sees this lead AND their
+  // trade's spots aren't gone.
+  const recipients = allRecipients.filter(({ b }) => {
+    const t = asTrade(b.trade);
+    return TRADES[t].relevant(kindOf(prop!.name)) && (availByTrade.get(t)?.open ?? false);
+  });
   if (!recipients.length) back("offer_err=" + encodeURIComponent("No opted-in buyers in range."));
 
   const base = (() => {
@@ -805,7 +824,7 @@ export async function offerLeadToBuyers(propertyId: string): Promise<void> {
   })();
   const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
   const teaser = prop!.lead_teaser as { annual_lo?: number; annual_hi?: number } | null;
-  const kind = leadKind(prop!.name);
+  const kind = kindOf(prop!.name);
   const kindLine =
     kind === "transfer"
       ? "The property just changed owners — new owners re-bid their vendors."
@@ -835,7 +854,7 @@ export async function offerLeadToBuyers(propertyId: string): Promise<void> {
         `<p>${b.company_name} — we're offering you a job${prop!.city ? ` in the ${prop!.city} area` : ""}${miles != null ? `, about ${Math.max(1, Math.round(miles))} mi from your office` : ""}:</p>` +
         `<p style="font-size:18px;font-weight:700;margin:8px 0">${teaser?.annual_lo ? `${valueTxt} grounds contract` : "A year-round grounds contract"}</p>` +
         `<p>${kindLine}</p>` +
-        `<p>Every job is capped at ${leadMaxBuyers()} companies and this one is going to the ${recipients.length} closest — first come, first served. ${avail.spotsLeft === 1 ? "One spot is left." : `${avail.spotsLeft} spots are open right now.`}</p>` +
+        `<p>Every job is capped at ${leadMaxBuyers()} ${tradeNoun(b.trade)} and this one is going to the ${recipients.length} closest — first come, first served. ${(availByTrade.get(asTrade(b.trade))?.spotsLeft ?? 0) === 1 ? "One spot is left." : `${availByTrade.get(asTrade(b.trade))?.spotsLeft ?? 0} spots are open right now.`}</p>` +
         `<p><a href="${base}/buyers?offer=${prop!.id}" style="display:inline-block;background:#2f7d4f;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">See the job & claim a spot</a></p>` +
         `<p style="color:#666;font-size:13px">If it's gone by the time you get there, your dashboard will show you the next best open job near you.</p>` +
         `<p style="color:#888;font-size:12px">You get these because you turned on new-job alerts. ` +

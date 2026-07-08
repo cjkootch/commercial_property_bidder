@@ -3,6 +3,7 @@ loadEnv({ path: ".env" });
 
 import { existsSync, readFileSync } from "node:fs";
 import { runBuyerProspecting } from "../lib/pipeline/buyer-prospecting";
+import { asTrade } from "../lib/leads/trades";
 import type { BuyerCandidate } from "../lib/integrations/apollo";
 
 // Automated buyer prospecting CLI — same engine as the weekly cron
@@ -18,8 +19,10 @@ import type { BuyerCandidate } from "../lib/integrations/apollo";
 // Run:  npm run prospect:buyers                     (auto-pick lead, queue)
 //       npm run prospect:buyers -- <propertyId>     (specific lead)
 //       npm run prospect:buyers -- <propertyId> 30 --send
+//       npm run prospect:buyers -- --trade=pest --send   (pest-control campaign)
 
-const args = process.argv.slice(2).filter((a) => a !== "--send");
+const tradeArg = process.argv.find((a) => a.startsWith("--trade="))?.split("=")[1];
+const args = process.argv.slice(2).filter((a) => a !== "--send" && !a.startsWith("--trade="));
 const SEND = process.argv.includes("--send");
 const PROPERTY_ID = args[0] && /^[0-9a-f-]{36}$/i.test(args[0]) ? args[0] : undefined;
 const WANT = Number(args[PROPERTY_ID ? 1 : 0]) || undefined;
@@ -40,6 +43,7 @@ function csvCandidates(): BuyerCandidate[] | undefined {
 async function main() {
   const summary = await runBuyerProspecting({
     propertyId: PROPERTY_ID,
+    trade: asTrade(tradeArg),
     want: WANT,
     send: SEND || undefined,
     candidates: csvCandidates(),

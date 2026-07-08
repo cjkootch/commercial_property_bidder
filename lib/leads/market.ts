@@ -13,10 +13,10 @@ import { leadMaxBuyers } from "./availability";
 import {
   daysSince,
   evaluateFreeClaim,
-  leadRank,
   type FreeClaimContext,
   type FreeClaimVerdict,
 } from "./allocation";
+import { DEFAULT_TRADE, TRADES, type Trade } from "./trades";
 import {
   estimateCompletionFromNotes,
   haversineMiles,
@@ -62,14 +62,18 @@ export type MarketLead = {
  * name), sellable (parcel present), in circulation (not archived/exported/
  * exclusive-sold), with at least one shared spot open.
  */
-export async function loadMarketLeads(): Promise<MarketLead[]> {
+export async function loadMarketLeads(trade: Trade = DEFAULT_TRADE): Promise<MarketLead[]> {
   const cap = leadMaxBuyers();
+  const tradeDef = TRADES[trade];
   const props = await db.select().from(property).orderBy(desc(property.created_at));
+  // Spots, exclusives, and the free budget all count WITHIN the trade: a
+  // pest exclusive never closes the landscaping shelf and vice versa.
   const unlocks = await db
-    .select({ pid: leadUnlock.property_id, bid: leadUnlock.buyer_id, kind: leadUnlock.kind })
+    .select({ pid: leadUnlock.property_id, bid: leadUnlock.buyer_id, kind: leadUnlock.kind, trade: leadUnlock.trade })
     .from(leadUnlock);
   const byProp = new Map<string, { count: number; free: number; exclusive: boolean; holders: Set<string> }>();
   for (const u of unlocks) {
+    if (u.trade !== trade) continue;
     const e = byProp.get(u.pid) ?? { count: 0, free: 0, exclusive: false, holders: new Set<string>() };
     e.count++;
     if (u.kind === "free") e.free++;
@@ -82,6 +86,7 @@ export async function loadMarketLeads(): Promise<MarketLead[]> {
     .filter(
       (p) =>
         /\((TABS|HCAD|STP|H311|TABC|TAX|RFP) [^)]+\)$/.test(p.name) &&
+        tradeDef.relevant(leadKind(p.name)) &&
         p.archived_at == null &&
         p.lead_exported_at == null &&
         // Public-bid (RFP) leads have no parcel — the solicitation IS the
@@ -122,7 +127,14 @@ export async function loadMarketLeads(): Promise<MarketLead[]> {
         holders: e?.holders ?? new Set<string>(),
         ageDays: daysSince(p.created_at),
         monthsToCompletion,
-        rank: leadRank(teaser?.annual_hi ?? null, monthsToCompletion, urgent),
+        rank: tradeDef.rank({
+          kind,
+          annualHi: teaser?.annual_hi ?? null,
+          monthsToCompletion,
+          urgent,
+          icpType: p.icp_type,
+          notes: p.notes,
+        }),
       };
     });
 }

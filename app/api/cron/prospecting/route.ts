@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { autosendEnabled, runBuyerProspecting } from "@/lib/pipeline/buyer-prospecting";
+import { asTrade } from "@/lib/leads/trades";
 
 // Weekly buyer-prospecting autopilot (Vercel cron; see vercel.json): after the
 // sourcing feeds land Monday's leads, pick the best fresh uncampaigned one and
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
   const sendOnce = sp.get("send") === "1";
   const summary = await runBuyerProspecting({
     propertyId: sp.get("propertyId") ?? undefined,
+    trade: asTrade(sp.get("trade")),
     want: Number.isFinite(want) && want > 0 ? want : undefined,
     send: sendOnce || undefined,
     dryRun: !sendOnce && !autosendEnabled() ? true : undefined,

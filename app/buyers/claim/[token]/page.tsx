@@ -6,6 +6,7 @@ import { verifyBuyerClaim } from "@/lib/buyer-auth";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { leadAvailability, leadMaxBuyers } from "@/lib/leads/availability";
 import { createBuyerProfile } from "../../actions";
+import { asTrade, tradeNoun } from "@/lib/leads/trades";
 import { Logo } from "@/components/Logo";
 
 // Public claim landing (token-authenticated): the campaign teaser links here.
@@ -24,7 +25,7 @@ export default async function ClaimPage({
   searchParams,
 }: {
   params: { token: string };
-  searchParams: { error?: string };
+  searchParams: { error?: string; trade?: string };
 }) {
   const claim = verifyBuyerClaim(params.token);
   const co = await getDefaultCompany();
@@ -49,7 +50,8 @@ export default async function ClaimPage({
   }
 
   const [prop] = await db.select().from(property).where(eq(property.id, claim.property_id)).limit(1);
-  const avail = prop && prop.parcel_geojson ? await leadAvailability(prop) : null;
+  // Pre-signup, the trade comes from the outreach link (?trade=).
+  const avail = prop && prop.parcel_geojson ? await leadAvailability(prop, asTrade(searchParams.trade)) : null;
   const claimable = !!avail?.open;
   const cap = leadMaxBuyers();
 
@@ -71,7 +73,7 @@ export default async function ClaimPage({
             <li>• Full sheet: exact location, decision contacts, our aerial measurement, contract value, and the window to bid</li>
           </ul>
           <p className="mt-2 text-xs text-gray-400">
-            Every job is capped at {cap} companies — ever.
+            Every job is capped at {cap} {tradeNoun(searchParams.trade)} — ever.
             {avail!.spotsLeft === 1 ? " This is the last spot." : ""}
           </p>
         </div>
@@ -84,6 +86,8 @@ export default async function ClaimPage({
       )}
 
       <form action={createBuyerProfile.bind(null, params.token)} className="mt-6 space-y-3">
+        {/* Trade from the outreach link — scopes the shelf/copy after signup. */}
+        <input type="hidden" name="trade" value={asTrade(searchParams.trade)} />
         <input
           type="text"
           name="company"

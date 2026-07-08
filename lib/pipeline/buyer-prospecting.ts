@@ -26,6 +26,7 @@ import { and, eq, gte } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
 import { searchLandscapers, type BuyerCandidate } from "../integrations/apollo";
+import { DEFAULT_TRADE, TRADES, type Trade } from "../leads/trades";
 import { scrapeBusinessContact } from "../integrations/contact";
 import { geocodeAddress } from "../integrations/geocoding";
 import { sendEmail } from "../integrations/resend";
@@ -108,8 +109,11 @@ export function buildProspectMessage(o: {
   price: number;
   cap: number;
   claimUrl: string;
+  /** Buyer vertical the pitch speaks to (default landscaping). */
+  trade?: Trade;
 }): { subject: string; body: string } {
   const { lead } = o;
+  const trade = o.trade ?? DEFAULT_TRADE;
   const mi = o.distanceMi != null ? Math.max(1, Math.round(o.distanceMi)) : null;
   const distShort = mi != null ? `, ${mi} mi from your office` : " near you";
   const distClause = mi != null ? ` about ${mi} ${mi === 1 ? "mile" : "miles"} from your office` : " in your service area";
@@ -125,14 +129,23 @@ export function buildProspectMessage(o: {
             : lead.kind === "rfp"
               ? `A government agency${lead.city ? ` (${lead.city} area)` : ""} is taking bids on a grounds/landscaping contract — multi-year public money with a hard deadline.`
               : `A commercial development breaks ground${distClause}${lead.city ? ` (${lead.city} area)` : ""}. When it opens, somebody wins the grounds contract.`;
-  const subject = `${usd(lead.annualHi)}/yr grounds contract${distShort}`;
+  // The landscaping pitch quotes our measured contract value; other trades
+  // never borrow it — their value paragraph sells the signal + the contacts.
+  const subject =
+    trade === "landscaping"
+      ? `${usd(lead.annualHi)}/yr grounds contract${distShort}`
+      : `New commercial ${TRADES[trade].label.toLowerCase()} lead${distShort}`;
+  const valuePara =
+    trade === "landscaping"
+      ? `We measured the site from the air${lead.turf ? `: ~${Math.round(lead.turf).toLocaleString()} sq ft of maintainable turf` : ""}. At market rates that's ${usd(lead.annualLo)}–${usd(lead.annualHi)} a year — every year.`
+      : `Commercial properties like this carry a year-round ${TRADES[trade].label.toLowerCase()} contract — and this one's vendor decision is being made now.`;
   const body = `${o.company} team —
 
 ${hook}
 
-We measured the site from the air${lead.turf ? `: ~${Math.round(lead.turf).toLocaleString()} sq ft of maintainable turf` : ""}. At market rates that's ${usd(lead.annualLo)}–${usd(lead.annualHi)} a year — every year.
+${valuePara}
 
-Everything a bidder needs is on one page: exact location, the owner to contact, our measurement, crew sizing, and the window to bid. Every job is capped at ${o.cap} companies — ever — and you can lock one down as an exclusive so nobody else gets it.
+Everything a bidder needs is on one page: exact location, the owner to contact, and the window to bid. Every job is capped at ${o.cap} ${TRADES[trade].noun} — ever — and you can lock one down as an exclusive so nobody else gets it.
 
 Your first sheet is FREE — claim it here (takes 30 seconds, no card):
 ${o.claimUrl}
@@ -187,6 +200,9 @@ export type ProspectingRunSummary = {
 export async function runBuyerProspecting(opts?: {
   /** Target lead; omitted = best fresh uncampaigned lead on the shelf. */
   propertyId?: string;
+  /** Buyer vertical to prospect for (default landscaping): picks the trade's
+   *  shelf/ranking, its Apollo keywords, and its pitch copy. */
+  trade?: Trade;
   want?: number;
   /** Force-send this run regardless of PROSPECTING_AUTOSEND (CLI --send). */
   send?: boolean;
@@ -197,6 +213,7 @@ export async function runBuyerProspecting(opts?: {
   candidates?: BuyerCandidate[];
 }): Promise<ProspectingRunSummary> {
   const want = opts?.want ?? WANT_COMPANIES;
+  const trade = opts?.trade ?? DEFAULT_TRADE;
   const doSend = opts?.send ?? autosendEnabled();
   const log: string[] = [];
   const [co] = await db.select().from(schema.company).limit(1);
@@ -205,7 +222,7 @@ export async function runBuyerProspecting(opts?: {
   
 
   // ---- 1. The lead: requested, or best fresh uncampaigned one on the shelf.
-  const market = await loadMarketLeads();
+  const market = await loadMarketLeads(trade);
   let lead: LeadPitch | null = null;
   if (opts?.propertyId) {
     const l = market.find((m) => m.p.id === opts.propertyId);
@@ -243,7 +260,7 @@ export async function runBuyerProspecting(opts?: {
   // ---- 2. Candidate companies (Apollo near the lead's city, or injected).
   const candidates =
     opts?.candidates ??
-    (await searchLandscapers(`${lead.city ?? "Houston"}, Texas`, CANDIDATE_POOL));
+    (await searchLandscapers(`${lead.city ?? "Houston"}, Texas`, CANDIDATE_POOL, TRADES[trade].prospectKeywords));
   if (!candidates.length) {
     log.push("No candidates (APOLLO_API_KEY unset or search empty).");
     return { lead: lead.id, candidates: 0, qualified: 0, queued: 0, sent: 0, skippedNoEmail: 0, log };
@@ -345,7 +362,7 @@ export async function runBuyerProspecting(opts?: {
       log.push(`  DRY ${q.c.name} -> ${q.email ?? "(no email — would record for manual paste)"}`);
       continue;
     }
-    const claimUrl = `${base}/buyers/claim/${signBuyerClaim(lead.id, q.c.name)}`;
+    const claimUrl = `${base}/buyers/claim/${signBuyerClaim(lead.id, q.c.name)}?trade=${trade}`;
     const msg = buildProspectMessage({
       company: q.c.name,
       lead,
@@ -356,6 +373,7 @@ export async function runBuyerProspecting(opts?: {
       price: Math.round(leadTierFor(lead.annualHi, lead.kind).price_cents / 100),
       cap,
       claimUrl,
+      trade,
     });
     const [row] = await db
       .insert(schema.buyerOutreach)
