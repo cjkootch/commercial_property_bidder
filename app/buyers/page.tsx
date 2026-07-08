@@ -1,11 +1,21 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { asc, desc, eq, like } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyer, chatMessage, leadUnlock, postcard, property, prospect } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { exclusivePriceCents, leadPriceCents } from "@/lib/integrations/stripe";
 import { leadMaxBuyers } from "@/lib/leads/availability";
+import type { FreeClaimVerdict } from "@/lib/leads/allocation";
+import {
+  displayName,
+  freeVerdict,
+  loadMarketLeads,
+  marketFreeContext,
+  nextBestFor,
+  type LeadKind,
+  type MarketLead,
+} from "@/lib/leads/market";
 import { haversineMiles } from "@/lib/sourcing/criteria";
 import {
   buyerLogout,
@@ -52,7 +62,7 @@ const STATUS_STYLE: Record<string, string> = {
 export default async function BuyerDashboard({
   searchParams,
 }: {
-  searchParams: { unlocked?: string; canceled?: string; err?: string };
+  searchParams: { unlocked?: string; canceled?: string; err?: string; offer?: string };
 }) {
   const buyerId = await currentBuyerId();
   if (!buyerId) redirect("/buyers/login");
@@ -119,54 +129,55 @@ export default async function BuyerDashboard({
     at: m.created_at.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
   }));
 
-  // Open opportunities: permit leads with shared spots left (cap disclosed —
-  // that's the scarcity promise). Teaser fields only (value/type/timing/city +
-  // distance) — never the address. Excludes leads this buyer already holds and
-  // anything not yet sellable (no parcel measurement).
-  const open = await db
-    .select()
-    .from(property)
-    .where(like(property.name, "%(TABS %"))
-    .orderBy(desc(property.created_at));
-  const allUnlocks = await db
-    .select({ pid: leadUnlock.property_id, bid: leadUnlock.buyer_id, kind: leadUnlock.kind })
-    .from(leadUnlock);
-  const byProp = new Map<string, { count: number; exclusive: boolean; mine: boolean }>();
-  for (const u of allUnlocks) {
-    const e = byProp.get(u.pid) ?? { count: 0, exclusive: false, mine: false };
-    e.count++;
-    if (u.kind === "exclusive") e.exclusive = true;
-    if (u.bid === me.id) e.mine = true;
-    byProp.set(u.pid, e);
-  }
-  const eligible = open
-    .filter((p) => {
-      const e = byProp.get(p.id);
-      return (
-        p.archived_at == null && // operator pulled it from circulation
-        p.lead_exported_at == null &&
-        p.parcel_geojson != null &&
-        !e?.exclusive &&
-        !e?.mine &&
-        (e?.count ?? 0) < cap
-      );
-    })
-    .map((p) => {
-      const teaser = p.lead_teaser as { annual_lo?: number; annual_hi?: number; turf_sqft?: number } | null;
-      return {
-        p,
-        teaser,
-        cost: note(p.notes, /est\. cost (\$[\d,]+)/),
-        workType: note(p.notes, /: ([^,]+), est\. cost/),
-        start: note(p.notes, /Est\. start ([\d-]+)/),
-        spotsLeft: cap - (byProp.get(p.id)?.count ?? 0),
-        exclusiveOpen: (byProp.get(p.id)?.count ?? 0) === 0,
-        miles:
-          me.lat != null && me.lng != null && p.lat != null && p.lng != null
-            ? Math.max(1, Math.round(haversineMiles([me.lng, me.lat], [p.lng, p.lat])))
-            : null,
-      };
-    });
+  // Open opportunities: every feed's leads with shared spots left (cap
+  // disclosed — that's the scarcity promise). Teaser fields only (value/type/
+  // timing/city + distance) — never the address. The shelf itself comes from
+  // lib/leads/market so the dashboard, the claim actions, and the operator's
+  // offer blast all agree on what's open and what may go free.
+  const market = await loadMarketLeads();
+  const freeCtx = marketFreeContext(market);
+  const toItem = (l: MarketLead): LeadItem => {
+    const { p, teaser, kind } = l;
+    const start = note(p.notes, /Est\. start ([\d-]+)/);
+    return {
+      p,
+      teaser,
+      kind,
+      cost: note(p.notes, /est\. cost (\$[\d,]+)/),
+      workType: note(p.notes, /: ([^,]+), est\. cost/),
+      timing:
+        kind === "transfer"
+          ? `changed owners ${note(p.notes, /HCAD transfer ([\d-]+)/) ?? "recently"}`
+          : kind === "opening"
+            ? `opens ~${note(p.notes, /Opens ([\d-]+)/) ?? "soon"}`
+            : start
+              ? `breaks ground ~${start}`
+              : "in development",
+      spotsLeft: l.spotsLeft,
+      exclusiveOpen: l.exclusiveOpen,
+      free: freeVerdict(l, freeCtx),
+      miles:
+        me.lat != null && me.lng != null && p.lat != null && p.lng != null
+          ? Math.max(1, Math.round(haversineMiles([me.lng, me.lat], [p.lng, p.lat])))
+          : null,
+    };
+  };
+  const eligible = market.filter((l) => !l.holders.has(me.id)).map(toItem);
+
+  // Waterfall offer landing (?offer=<propertyId> from the offer email): pin
+  // the offered job if it's still open; if it filled, say so honestly and
+  // serve the next best open job in their range — first come, first served.
+  const offeredLead = searchParams.offer ? market.find((l) => l.p.id === searchParams.offer) : null;
+  const offerMine = offeredLead?.holders.has(me.id) ?? false;
+  const offerItem = offeredLead && !offerMine ? toItem(offeredLead) : null;
+  const offerGone = Boolean(searchParams.offer) && !offeredLead;
+  const nextBest =
+    offerGone
+      ? (() => {
+          const nb = nextBestFor(market, me, [searchParams.offer!]);
+          return nb ? toItem(nb) : null;
+        })()
+      : null;
 
   // Service-radius aware: leads within the buyer's radius come first (sorted by
   // value-per-distance); jobs just past their range are shown lower, clearly
@@ -399,6 +410,32 @@ export default async function BuyerDashboard({
             </p>
           ) : null}
 
+        {/* ---- Offer landing: pinned if open, honest + next-best if filled -- */}
+        {offerItem ? (
+          <section className="mt-6">
+            <div className="rounded-t-2xl border border-b-0 px-5 py-3 text-sm font-semibold text-white" style={{ backgroundColor: accent, borderColor: accent }}>
+              🎯 Offered to you — {offerItem.spotsLeft === 1 ? "the LAST spot is open" : `${offerItem.spotsLeft} of ${cap} spots still open`}. First come, first served.
+            </div>
+            <LeadCard item={offerItem} freeAvailable={freeAvailable} price={price} exclusivePrice={exclusivePrice} cap={cap} usd={usd} pinned />
+          </section>
+        ) : null}
+        {offerMine ? (
+          <p className="mt-6 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+            The job from that offer is already yours — it&apos;s in your unlocked list below.
+          </p>
+        ) : null}
+        {offerGone ? (
+          <section className="mt-6">
+            <div className={`border px-5 py-3 text-sm font-medium text-amber-900 ${nextBest ? "rounded-t-2xl border-b-0 border-amber-300 bg-amber-50" : "rounded-2xl border-amber-300 bg-amber-50"}`}>
+              That job filled up — all {cap} spots went to other companies. First come, first served.
+              {nextBest ? " Here's the next best open job near you:" : " We'll email you the moment the next one lands in your area."}
+            </div>
+            {nextBest ? (
+              <LeadCard item={nextBest} freeAvailable={freeAvailable} price={price} exclusivePrice={exclusivePrice} cap={cap} usd={usd} pinned />
+            ) : null}
+          </section>
+        ) : null}
+
         {/* ---- Alerts: what happened since you last looked ---------------- */}
         {feed.length > 0 ? (
           <section className="mt-6 rounded-2xl border border-gray-200 bg-white shadow-sm">
@@ -480,7 +517,7 @@ export default async function BuyerDashboard({
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <div className="font-medium text-gray-900">
-                          {prop.name.replace(/ \(TABS [^)]+\)$/, "")}
+                          {displayName(prop.name)}
                         </div>
                         <div className="mt-1 text-sm text-gray-500">
                           {prop.city ?? ""}
@@ -598,11 +635,13 @@ export default async function BuyerDashboard({
 type LeadItem = {
   p: typeof property.$inferSelect;
   teaser: { annual_lo?: number; annual_hi?: number; turf_sqft?: number } | null;
+  kind: LeadKind;
   cost: string | null;
   workType: string | null;
-  start: string | null;
+  timing: string;
   spotsLeft: number;
   exclusiveOpen: boolean;
+  free: FreeClaimVerdict;
   miles: number | null;
 };
 
@@ -614,6 +653,7 @@ function LeadCard({
   cap,
   usd,
   outside,
+  pinned,
 }: {
   item: LeadItem;
   freeAvailable: boolean;
@@ -622,13 +662,14 @@ function LeadCard({
   cap: number;
   usd: (n: number) => string;
   outside?: boolean;
+  pinned?: boolean;
 }) {
-  const { p, teaser, cost, workType, start, spotsLeft, exclusiveOpen, miles } = item;
+  const { p, teaser, kind, cost, workType, timing, spotsLeft, exclusiveOpen, free, miles } = item;
   return (
     <div
-      className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition hover:shadow-md ${
-        outside ? "border-gray-200 opacity-90" : "border-gray-200"
-      }`}
+      className={`overflow-hidden border bg-white shadow-sm transition hover:shadow-md ${
+        pinned ? "rounded-b-2xl" : "rounded-2xl"
+      } ${outside ? "border-gray-200 opacity-90" : "border-gray-200"}`}
     >
       <div className="flex flex-wrap items-stretch justify-between gap-x-6 gap-y-4 p-6">
         <div className="min-w-0 flex-1">
@@ -657,7 +698,11 @@ function LeadCard({
             ) : null}
           </div>
           <div className="mt-1 text-sm font-medium text-gray-700">
-            Grounds contract behind a {cost ?? "major"} {(workType ?? "commercial").toLowerCase()} project
+            {kind === "transfer"
+              ? "Grounds contract at a property under new ownership — vendors get re-bid"
+              : kind === "opening"
+                ? "Grounds contract where a new business is opening — decisions in motion"
+                : `Grounds contract behind a ${cost ?? "major"} ${(workType ?? "commercial").toLowerCase()} project`}
             {p.city ? ` — ${p.city} area` : ""}
           </div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-gray-500">
@@ -666,7 +711,7 @@ function LeadCard({
                 ~{miles} mi from your office
               </span>
             ) : null}
-            {start ? <span>breaks ground ~{start}</span> : <span>in development</span>}
+            <span>{timing}</span>
             {teaser?.turf_sqft ? <span>{teaser.turf_sqft.toLocaleString()} sf of grounds</span> : null}
           </div>
           <div className="mt-2 text-xs text-gray-400">
@@ -675,7 +720,7 @@ function LeadCard({
           </div>
         </div>
         <div className="flex w-full flex-col justify-center gap-2 sm:w-56">
-          {freeAvailable ? (
+          {freeAvailable && free.allowed ? (
             <form action={claimFreeLead.bind(null, p.id)}>
               <button className="w-full rounded-lg bg-brand px-4 py-3 text-[15px] font-bold text-white shadow-sm transition hover:bg-brand-dark">
                 Claim free — first sheet on us

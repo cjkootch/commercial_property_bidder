@@ -776,3 +776,77 @@ export async function setAcknowledgedReview(propertyId: string, acknowledged: bo
     .where(eq(property.id, propertyId));
   revalidatePath(`/properties/${propertyId}`);
 }
+
+/**
+ * Waterfall offer blast: email this lead to the nearest opted-in buyers
+ * (nearest-first, capped at OFFER_MAX_RECIPIENTS). The 3-spot cap does the
+ * locking; buyers who arrive late land on the dashboard's "filled — here's
+ * the next best" fallback. Operator-triggered only (this is the approval).
+ */
+export async function offerLeadToBuyers(propertyId: string): Promise<void> {
+  const back = (q: string): never => redirect(`/properties/${propertyId}?${q}`);
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop) back("offer_err=" + encodeURIComponent("Property not found."));
+  if (!prop!.parcel_geojson || prop!.archived_at || prop!.lead_exported_at) {
+    back("offer_err=" + encodeURIComponent("Not sellable — needs a parcel and must be in circulation."));
+  }
+  const { leadAvailability, leadMaxBuyers } = await import("@/lib/leads/availability");
+  const avail = await leadAvailability(prop!);
+  if (!avail.open) back("offer_err=" + encodeURIComponent("No spots left on this lead."));
+
+  const { offerRecipients, leadKind } = await import("@/lib/leads/market");
+  const { signBuyerUnsub } = await import("@/lib/buyer-auth");
+  const recipients = await offerRecipients(prop!);
+  if (!recipients.length) back("offer_err=" + encodeURIComponent("No opted-in buyers in range."));
+
+  const base = (() => {
+    const b = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+    return b && !/localhost|127\.0\.0\.1/.test(b) ? b : "https://greenkeep.us";
+  })();
+  const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
+  const teaser = prop!.lead_teaser as { annual_lo?: number; annual_hi?: number } | null;
+  const kind = leadKind(prop!.name);
+  const kindLine =
+    kind === "transfer"
+      ? "The property just changed owners — new owners re-bid their vendors."
+      : kind === "opening"
+        ? "A new business is opening there — vendor decisions are being made now."
+        : "It's behind a new construction project — the first grounds contract hasn't been won yet.";
+  const valueTxt = teaser?.annual_lo
+    ? `${usd(teaser.annual_lo)}–${usd(teaser.annual_hi ?? teaser.annual_lo)}/yr`
+    : "a year-round";
+  const subject = teaser?.annual_lo
+    ? `First come, first served: ${valueTxt} grounds contract${prop!.city ? ` near ${prop!.city}` : ""}`
+    : `First come, first served: a grounds contract${prop!.city ? ` near ${prop!.city}` : ""}`;
+
+  let sent = 0;
+  for (const { b, miles } of recipients) {
+    const unsubUrl = `${base}/api/unsubscribe?token=${encodeURIComponent(signBuyerUnsub(b.email))}`;
+    const res = await sendEmail({
+      to: b.email,
+      subject,
+      html:
+        `<p>${b.company_name} — we're offering you a job${prop!.city ? ` in the ${prop!.city} area` : ""}${miles != null ? `, about ${Math.max(1, Math.round(miles))} mi from your office` : ""}:</p>` +
+        `<p style="font-size:18px;font-weight:700;margin:8px 0">${teaser?.annual_lo ? `${valueTxt} grounds contract` : "A year-round grounds contract"}</p>` +
+        `<p>${kindLine}</p>` +
+        `<p>Every job is capped at ${leadMaxBuyers()} companies and this one is going to the ${recipients.length} closest — first come, first served. ${avail.spotsLeft === 1 ? "One spot is left." : `${avail.spotsLeft} spots are open right now.`}</p>` +
+        `<p><a href="${base}/buyers?offer=${prop!.id}" style="display:inline-block;background:#2f7d4f;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">See the job & claim a spot</a></p>` +
+        `<p style="color:#666;font-size:13px">If it's gone by the time you get there, your dashboard will show you the next best open job near you.</p>` +
+        `<p style="color:#888;font-size:12px">You get these because you turned on new-job alerts. ` +
+        `<a href="${unsubUrl}">Unsubscribe with one click</a> or manage alerts in <a href="${base}/buyers">your dashboard</a>.</p>`,
+      tags: { kind: "lead_offer" },
+      headers: {
+        "List-Unsubscribe": `<${unsubUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+    });
+    if (res.ok) sent++;
+  }
+
+  await db
+    .update(property)
+    .set({ offer_sent_at: new Date(), offer_sent_count: sent, updated_at: new Date() })
+    .where(eq(property.id, propertyId));
+  revalidatePath(`/properties/${propertyId}`);
+  redirect(`/properties/${propertyId}?offered=${sent}`);
+}

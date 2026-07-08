@@ -108,12 +108,19 @@ export async function buildDossier(
     };
   }
 
+  // Lead kind from the sourcing ref embedded in the name: TABS = construction
+  // filing, HCAD = ownership transfer, STP = new business opening. Everything
+  // buyer-facing (letter, guidance, timeline) frames the SIGNAL, never the feed.
+  const ref = p.name.match(/\((TABS|HCAD|STP) ([^)]+)\)$/);
+  const kind: "construction" | "transfer" | "opening" =
+    ref?.[1] === "HCAD" ? "transfer" : ref?.[1] === "STP" ? "opening" : "construction";
+
   const tabsNum = note(p.notes, /TABS (\S+):/);
   const proj = tabsNum ? await findTabsByNumber(tabsNum) : null;
   const det = proj ? await fetchTabsDetails(proj.project_id) : null;
 
   const owner = det?.owner ?? note(p.notes, /Owner: ([^.]+)\./);
-  const facilityName = p.name.replace(/ \(TABS [^)]+\)$/, "");
+  const facilityName = p.name.replace(/ \((TABS|HCAD|STP) [^)]+\)$/, "");
   const contacts: { role: string; value: string }[] = [];
   if (owner) contacts.push({ role: "Owner", value: owner });
   if (parcel.owner_mailing_address) contacts.push({ role: "Owner mail (county)", value: parcel.owner_mailing_address });
@@ -150,33 +157,51 @@ export async function buildDossier(
     }
   }
 
-  const est_completion = proj?.est_end ? proj.est_end.slice(0, 10) : null;
-  const engage_by = proj?.est_end
-    ? new Date(new Date(proj.est_end).getTime() - 90 * 86400_000).toISOString().slice(0, 10)
-    : null;
+  const opensDate = note(p.notes, /Opens ([\d-]+)/);
+  const saleDate = note(p.notes, /HCAD transfer ([\d-]+)/) ?? parcel.last_sale_date ?? null;
+  const est_completion =
+    kind === "opening" ? opensDate : proj?.est_end ? proj.est_end.slice(0, 10) : null;
+  // Construction: vendors are picked ~90 days before opening. Transfers and
+  // openings: the decision window is already open — engage now.
+  const engage_by =
+    kind === "construction"
+      ? proj?.est_end
+        ? new Date(new Date(proj.est_end).getTime() - 90 * 86400_000).toISOString().slice(0, 10)
+        : null
+      : new Date().toISOString().slice(0, 10);
 
   const isPublic = /\b(ISD|COUNTY|CITY OF|UNIVERSITY|STATE|DISTRICT|AUTHORITY|COLLEGE)\b/i.test(owner ?? "");
   const guidance = isPublic
     ? `${owner} is a public entity: grounds work is typically bid through their purchasing department. Register as a vendor on their procurement site now, send the intro letter to get on the bidder list, and ask the architect's office which GC holds site work.`
-    : `Private owner: send the intro letter to the owner's mailing address and call any published number. The architect can route you to the GC or the property manager who will hold the maintenance contract.`;
+    : kind === "transfer"
+      ? `The property changed hands${saleDate ? ` on ${saleDate}` : " recently"} — new owners re-bid their vendors in the first year, so the incumbent (if any) is beatable right now. Send the intro letter to the owner's mailing address and call any published number; ask who handles property maintenance decisions.`
+      : kind === "opening"
+        ? `A new business is opening here — the property's vendor decisions are being made now. The grounds contract usually belongs to the property owner (landlord), not the tenant: send the intro letter to the owner's mailing address, and use any published on-site number to ask who manages the property.`
+        : `Private owner: send the intro letter to the owner's mailing address and call any published number. The architect can route you to the GC or the property manager who will hold the maintenance contract.`;
 
   const facility = facilityName;
+  const situation =
+    kind === "transfer"
+      ? `recently changed ownership${saleDate ? ` (${saleDate})` : ""}, and property vendor arrangements are commonly reviewed after a sale`
+      : kind === "opening"
+        ? `has a new business opening${opensDate ? ` around ${opensDate}` : " soon"}, and property services are being arranged now`
+        : `is scheduled to complete construction around ${est_completion ?? "the coming year"}`;
   const intro_letter = `Subject: Grounds maintenance for ${facility} — local contractor
 
 Dear ${owner ?? "Owner"},
 
-We understand ${facility} at ${p.address ?? "the project site"} is scheduled to complete construction around ${est_completion ?? "the coming year"}. [YOUR COMPANY] is a licensed and insured commercial grounds contractor serving ${p.city ?? "the area"} and the surrounding communities, and we would welcome the opportunity to bid the property's year-round grounds maintenance.
+We understand ${facility} at ${p.address ?? "the project site"} ${situation}. [YOUR COMPANY] is a licensed and insured commercial grounds contractor serving ${p.city ?? "the area"} and the surrounding communities, and we would welcome the opportunity to bid the property's year-round grounds maintenance.
 
 We are already familiar with the site — approximately ${sizing.turf_sqft.toLocaleString()} sq ft of maintained turf — and can provide a detailed proposal, references, and a certificate of insurance at your convenience.
 
-Could you direct us to the right person or process for grounds vendors on this project?
+Could you direct us to the right person or process for grounds vendors${kind === "construction" ? " on this project" : " at this property"}?
 
 Respectfully,
 [NAME]
 [YOUR COMPANY] · [PHONE] · [EMAIL]`;
 
   return {
-    gk_ref: `GK-${(tabsNum ?? "X").replace(/\D/g, "").slice(-5) || "0"}`,
+    gk_ref: `GK-${(tabsNum ?? ref?.[2] ?? "X").replace(/\D/g, "").slice(-5) || "0"}`,
     name: facility,
     address: p.address,
     city: p.city,
