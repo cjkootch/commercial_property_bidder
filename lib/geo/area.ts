@@ -13,6 +13,9 @@ import {
 /** Normalize any stored/legacy kind to a current UI category. */
 export function normalizeKind(v: unknown): (typeof AREA_KINDS)[number] {
   if (v === "parking" || v === "sidewalk") return "pavement"; // merged
+  // The model's merged impervious channel (building+pavement trained as one —
+  // the product subtracts both from turf identically).
+  if (v === "hardscape") return "pavement";
   if (v === "exclude") return "other"; // legacy alias
   return (AREA_KINDS as readonly string[]).includes(v as string)
     ? (v as (typeof AREA_KINDS)[number])

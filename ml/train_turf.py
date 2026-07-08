@@ -47,10 +47,26 @@ BATCH = int(os.environ.get("BATCH", "4"))
 EVAL_EVERY = 5
 SEED = 0
 
-# Classes the model predicts, in output-channel order, mapped to the class-index
-# the exporter writes into the mask (lib/geo/raster CLASS_INDEX).
-CLASSES = ["turf", "sports_turf", "tree", "building", "pavement"]
+# Classes the model predicts, in output-channel order. Each output channel
+# learns from one or more label ids (lib/geo/raster CLASS_INDEX) via
+# CLASS_SOURCES — labels stay fine-grained in the DB; merging happens here,
+# at train time, where it's reversible:
+#   - sports_turf pixels TRAIN the turf channel: a sports field IS mowable
+#     grass, and the old setup taught the model the opposite (sports pixels
+#     were background for the turf channel). Whether turf is "sports" is a
+#     property-context question (see lib/integrations/turf-model screening),
+#     not a pixel question — its standalone channel scored 0.016 val IoU.
+#   - building + pavement merge into one "hardscape" channel: both are
+#     impervious non-mowable surface, the product treats them identically
+#     (SUBTRACT_FROM_TURF), and telling a flat roof from a parking lot in
+#     RGB is exactly what the old model couldn't do (pavement 0.14 IoU).
+CLASSES = ["turf", "tree", "hardscape"]
 CLASS_IDS = {"turf": 1, "bed": 2, "tree": 3, "building": 4, "pavement": 5, "other": 6, "sports_turf": 7}
+CLASS_SOURCES = {
+    "turf": [CLASS_IDS["turf"], CLASS_IDS["sports_turf"]],
+    "tree": [CLASS_IDS["tree"]],
+    "hardscape": [CLASS_IDS["building"], CLASS_IDS["pavement"]],
+}
 # Back-compat alias (older predict scripts imported TURF_CLASS).
 TURF_CLASS = CLASS_IDS["turf"]
 
@@ -71,8 +87,11 @@ def load_samples():
             m = Image.open(os.path.join(ROOT, r["mask"])).convert("RGB").resize((SIZE, SIZE), Image.NEAREST)
             x = torch.from_numpy(np.asarray(img, dtype=np.float32) / 255.0).permute(2, 0, 1)
             mask_cls = np.asarray(m)[:, :, 0]  # class id stored in R channel
-            # One binary plane per class -> (C, H, W).
-            planes = [(mask_cls == CLASS_IDS[c]).astype(np.float32) for c in CLASSES]
+            # One binary plane per class -> (C, H, W); a plane is the union
+            # of its source label ids (CLASS_SOURCES).
+            planes = [
+                np.isin(mask_cls, CLASS_SOURCES[c]).astype(np.float32) for c in CLASSES
+            ]
             y = torch.from_numpy(np.stack(planes, axis=0))
             items.append((r["property"], x, y))
     return items
