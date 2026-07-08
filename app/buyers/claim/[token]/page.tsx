@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { property } from "@/lib/db/schema";
+import { leadUnlock, property } from "@/lib/db/schema";
 import { verifyBuyerClaim } from "@/lib/buyer-auth";
 import { getDefaultCompany } from "@/lib/db/queries";
+import { FREE_MAX_PER_LEAD } from "@/lib/leads/allocation";
 import { leadAvailability, leadMaxBuyers } from "@/lib/leads/availability";
+import { leadKind } from "@/lib/leads/market";
 import { createBuyerProfile } from "../../actions";
 import { asTrade } from "@/lib/leads/trades";
 import { Logo } from "@/components/Logo";
@@ -51,13 +53,44 @@ export default async function ClaimPage({
 
   const [prop] = await db.select().from(property).where(eq(property.id, claim.property_id)).limit(1);
   // Pre-signup, the trade comes from the outreach link (?trade=).
-  const avail = prop && prop.parcel_geojson ? await leadAvailability(prop, asTrade(searchParams.trade)) : null;
-  const claimable = !!avail?.open;
+  const trade = asTrade(searchParams.trade);
+  const avail = prop && prop.parcel_geojson ? await leadAvailability(prop, trade) : null;
+  // "Claimable FREE" needs both an open spot AND the per-lead free budget —
+  // promising "reserved for you" and then quoting a price is the one flow
+  // that must never happen.
+  const freeSpent = prop
+    ? (
+        await db
+          .select({ trade: leadUnlock.trade })
+          .from(leadUnlock)
+          .where(and(eq(leadUnlock.property_id, prop.id), eq(leadUnlock.kind, "free")))
+      ).filter((u) => u.trade === trade).length >= FREE_MAX_PER_LEAD
+    : false;
+  const claimable = !!avail?.open && !freeSpent;
   const cap = leadMaxBuyers();
 
   const cost = note(prop?.notes ?? null, /est\. cost (\$[\d,]+)/);
   const workType = note(prop?.notes ?? null, /: ([^,]+), est\. cost/);
   const start = note(prop?.notes ?? null, /Est\. start ([\d-]+)/);
+  // The lead block mirrors the outreach memo, so the click delivers exactly
+  // what the email promised (still teaser-safe — no address, no owner).
+  const kind = prop ? leadKind(prop.name) : null;
+  const teaser = (prop?.lead_teaser ?? null) as
+    | { annual_lo?: number; annual_hi?: number; turf_sqft?: number; verified?: boolean }
+    | null;
+  const trigger =
+    kind === "transfer"
+      ? `Changed owners${note(prop!.notes, /HCAD transfer ([\d-]+)/) ? ` on ${note(prop!.notes, /HCAD transfer ([\d-]+)/)}` : " recently"} — new owners re-bid their vendors in the first year`
+      : kind === "opening"
+        ? `New business opening${note(prop!.notes, /Opens ([\d-]+)/) ? ` around ${note(prop!.notes, /Opens ([\d-]+)/)}` : " soon"} — vendor decisions in motion`
+        : kind === "violation"
+          ? `Cited by the city${note(prop!.notes, /311 case \S+ \(([\d-]+)\)/) ? ` on ${note(prop!.notes, /311 case \S+ \(([\d-]+)\)/)}` : ""} — the owner must arrange service now`
+          : kind === "distress"
+            ? `In the county tax-sale process${note(prop!.notes, /Tax sale scheduled ([\d-]+)/) ? ` — auction ${note(prop!.notes, /Tax sale scheduled ([\d-]+)/)}` : ""}`
+            : cost
+              ? `${cost} ${(workType ?? "commercial").toLowerCase()} project${start ? `, breaking ground around ${start}` : ""}`
+              : "Large commercial project";
+  const usdShort = (n: number) => `$${Math.round(n).toLocaleString()}`;
 
   return (
     <Shell brand={brand}>
@@ -67,8 +100,16 @@ export default async function ClaimPage({
         <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
           <div className="font-medium text-gray-900">Reserved for you:</div>
           <ul className="mt-2 space-y-1 text-gray-600">
-            {cost ? <li>• {cost} {workType ?? "commercial"} project</li> : <li>• Large commercial project</li>}
-            {start ? <li>• Breaking ground around {start}</li> : null}
+            <li>• {trigger}</li>
+            {teaser?.turf_sqft ? (
+              <li>
+                • ~{Math.round(teaser.turf_sqft).toLocaleString()} sq ft of maintainable grounds
+                {teaser.verified ? " (hand-verified measurement)" : ""}
+              </li>
+            ) : null}
+            {teaser?.annual_lo && teaser?.annual_hi ? (
+              <li>• Est. {usdShort(teaser.annual_lo)}–{usdShort(teaser.annual_hi)}/yr recurring contract value</li>
+            ) : null}
             {prop!.city ? <li>• {prop!.city} area</li> : null}
             <li>• Full sheet: exact location, decision contacts, our aerial measurement, contract value, and the window to bid</li>
           </ul>
@@ -80,9 +121,17 @@ export default async function ClaimPage({
         </div>
       ) : (
         <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          {prop
-            ? `This job hit its ${cap}-company cap — we never oversell a lead. Create your profile anyway and you'll see what's open in your area, plus get first look at the next one.`
-            : "Create your profile and you'll see the jobs open in your area."}
+          {prop ? (
+            <>
+              <span className="font-semibold">This one filled up</span> — all {cap} spots went to
+              other companies. First come, first served is real here.{" "}
+              <span className="font-semibold">Your free sheet is still yours:</span> create your
+              profile below and we&apos;ll line up the next best open job in the same area — most
+              can be claimed free, and you&apos;ll get first look when new jobs land near you.
+            </>
+          ) : (
+            "Create your profile and you'll see the jobs open in your area."
+          )}
         </p>
       )}
 
