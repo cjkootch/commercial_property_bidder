@@ -89,39 +89,88 @@ export type LeadScoreInput = {
   neighborsNearby: number;
 };
 
-export type LeadScore = { score: number; reasons: string[] };
+/** One scored signal, with a plain-English explanation for the audit UI. */
+export type LeadScorePart = { label: string; points: number; max: number; note: string };
+
+export type LeadScore = { score: number; reasons: string[]; parts: LeadScorePart[] };
 
 /**
  * Composite 0–100 lead score from signals we already collect — no external
  * calls. Higher = better prospect. Weights: grass fit 30, recent owner change
- * 25, actively leasing 20, margin fit 15, route density 10.
+ * 25, actively leasing 20, margin fit 15, route density 10. `parts` carries the
+ * per-signal breakdown so the UI can explain WHY a property scored what it did.
  */
 export function computeLeadScore(input: LeadScoreInput): LeadScore {
   const reasons: string[] = [];
+  const parts: LeadScorePart[] = [];
   let score = 0;
 
-  const grass = typeof input.grassFraction === "number" ? input.grassFraction : 0;
+  const screened = typeof input.grassFraction === "number";
+  const grass = screened ? (input.grassFraction as number) : 0;
   const grassPts = Math.min(grass / 0.6, 1) * 30; // 60%+ green = full
   score += grassPts;
   if (grassPts >= 15) reasons.push(`${Math.round(grass * 100)}% grass`);
+  parts.push({
+    label: "Grass coverage",
+    points: Math.round(grassPts),
+    max: 30,
+    note: screened
+      ? `${Math.round(grass * 100)}% of the parcel is vegetated — more grass, more mowing revenue (full credit at 60%+).`
+      : "Not screened yet — run the grass screen to score this signal.",
+  });
 
   if (input.recentOwnerChange) {
     score += 25;
     reasons.push("recent owner change");
   }
+  parts.push({
+    label: "Recent owner change",
+    points: input.recentOwnerChange ? 25 : 0,
+    max: 25,
+    note: input.recentOwnerChange
+      ? `County records show the property changed hands within the last ${RECENT_OWNER_MONTHS} months — new owners re-bid their vendors.`
+      : `No ownership change in the last ${RECENT_OWNER_MONTHS} months on county record (or no sale date available).`,
+  });
+
   if (input.activelyLeasing) {
     score += 20;
     reasons.push("actively leasing");
   }
+  parts.push({
+    label: "Actively leasing / new PM",
+    points: input.activelyLeasing ? 20 : 0,
+    max: 20,
+    note: input.activelyLeasing
+      ? "Flagged as actively leasing or under a new property manager — decisions are being made right now."
+      : "Not flagged as actively leasing (set it on the property when you spot a leasing banner or a new PM).",
+  });
 
-  const margin = typeof input.grossMarginPct === "number" ? input.grossMarginPct : 0;
+  const priced = typeof input.grossMarginPct === "number";
+  const margin = priced ? (input.grossMarginPct as number) : 0;
   const marginPts = Math.min(Math.max(margin, 0) / 0.4, 1) * 15; // 40%+ margin = full
   score += marginPts;
   if (marginPts >= 10) reasons.push(`${Math.round(margin * 100)}% margin`);
+  parts.push({
+    label: "Margin fit",
+    points: Math.round(marginPts),
+    max: 15,
+    note: priced
+      ? `Priced at ${Math.round(margin * 100)}% gross margin (full credit at 40%+).`
+      : "Not priced yet — measure it to score this signal.",
+  });
 
   const densityPts = Math.min(input.neighborsNearby / 3, 1) * 10; // 3+ neighbors = full
   score += densityPts;
   if (input.neighborsNearby >= 2) reasons.push(`${input.neighborsNearby} nearby`);
+  parts.push({
+    label: "Route density",
+    points: Math.round(densityPts),
+    max: 10,
+    note:
+      input.neighborsNearby > 0
+        ? `${input.neighborsNearby} other propert${input.neighborsNearby === 1 ? "y" : "ies"} in the book within ${ROUTE_RADIUS_MILES} miles — tight routes cut drive time and raise margins.`
+        : `Nothing else in the book within ${ROUTE_RADIUS_MILES} miles yet — winning this one makes it a route anchor.`,
+  });
 
-  return { score: Math.round(score), reasons };
+  return { score: Math.round(score), reasons, parts };
 }

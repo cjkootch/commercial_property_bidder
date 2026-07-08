@@ -179,6 +179,23 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
   return rows;
 }
 
+/** How many OTHER properties in the book sit within ROUTE_RADIUS_MILES of this
+ *  one — the route-density signal in the lead score. */
+export async function countNearbyProperties(propertyId: string): Promise<number> {
+  const props = await db
+    .select({ id: property.id, lat: property.lat, lng: property.lng })
+    .from(property)
+    .where(isNotNull(property.lat));
+  const me = props.find((p) => p.id === propertyId);
+  if (!me || me.lat == null || me.lng == null) return 0;
+  return props.filter(
+    (p) =>
+      p.id !== propertyId &&
+      p.lng != null &&
+      haversineMiles([me.lng!, me.lat!], [p.lng!, p.lat!]) <= ROUTE_RADIUS_MILES
+  ).length;
+}
+
 /** Everything the hosted proposal page needs, by slug. Null if not found. */
 export async function getProposalBySlug(slug: string) {
   const [prop_] = await db.select().from(proposal).where(eq(proposal.slug, slug)).limit(1);
