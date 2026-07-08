@@ -135,8 +135,21 @@ export function leadRank(
    *  must hire someone now). Gets the full open-window boost. */
   urgentSignal = false
 ): number {
+  // Unsized (no teaser) leads price at the standard tier, so rank them at a
+  // modest standard-ish value instead of zero — otherwise the waterfall and
+  // dashboard bury leads we charge $79 for.
+  return (annualHi ?? 8_000) * bidWindowMultiplier(monthsToCompletion, urgentSignal);
+}
+
+/** The bid-window openness multiplier, shared by every trade's ranking:
+ *  value models differ per trade, but "is the decision being made now" is
+ *  universal. */
+export function bidWindowMultiplier(
+  monthsToCompletion: number | null,
+  urgentSignal = false
+): number {
   const m = monthsToCompletion;
-  const window = urgentSignal
+  return urgentSignal
     ? 1.3
     : m == null
       ? 1 // existing property, always biddable
@@ -147,8 +160,4 @@ export function leadRank(
           : m >= -6
             ? 1.05 // recently done — fresh enough to contest
             : 0.8; // long settled
-  // Unsized (no teaser) leads price at the standard tier, so rank them at a
-  // modest standard-ish value instead of zero — otherwise the waterfall and
-  // dashboard bury leads we charge $79 for.
-  return (annualHi ?? 8_000) * window;
 }

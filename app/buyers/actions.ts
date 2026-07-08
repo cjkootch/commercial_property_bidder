@@ -24,6 +24,7 @@ import {
 } from "@/lib/leads/availability";
 import { createLeadCheckout } from "@/lib/integrations/stripe";
 import { leadTierFor } from "@/lib/leads/pricing-tiers";
+import { asTrade } from "@/lib/leads/trades";
 import { geocodeAddress, geocodeWithZip } from "@/lib/integrations/geocoding";
 import { sendEmail } from "@/lib/integrations/resend";
 import { getDefaultCompany } from "@/lib/db/queries";
@@ -54,6 +55,7 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
   const email = ((formData.get("email") as string) || "").trim().toLowerCase();
   const company = ((formData.get("company") as string) || "").trim();
   const city = ((formData.get("city") as string) || "").trim();
+  const trade = asTrade(formData.get("trade"));
   if (!email.includes("@") || !company) redirect(`/buyers/claim/${token}?error=1`);
 
   // Abuse cap on account creation.
@@ -71,6 +73,7 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
         .insert(buyer)
         .values({
           company_name: company,
+          trade,
           email,
           city: city || null,
           lng: coords?.[0] ?? null,
@@ -102,6 +105,7 @@ export async function createBuyerAccount(formData: FormData): Promise<void> {
   const email = ((formData.get("email") as string) || "").trim().toLowerCase();
   const company = ((formData.get("company") as string) || "").trim();
   const city = ((formData.get("city") as string) || "").trim();
+  const trade = asTrade(formData.get("trade"));
   if (!email.includes("@") || !company) redirect("/buyers/signup?error=1");
 
   const rl = await rateLimit(`buyersignup:ip:${clientIp()}`, 10, 3600);
@@ -115,6 +119,7 @@ export async function createBuyerAccount(formData: FormData): Promise<void> {
     .insert(buyer)
     .values({
       company_name: company,
+      trade,
       email,
       city: city || null,
       lng: coords?.[0] ?? null,
@@ -165,12 +170,14 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
 
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
   if (!prop || !prop.parcel_geojson) fail("This lead isn't ready for sale yet — check back soon.");
-  const avail = await leadAvailability(prop!);
+  const myTrade = asTrade(meCheck?.trade);
+  const avail = await leadAvailability(prop!, myTrade);
   if (!avail.open) fail("This one just sold out.");
 
   // Inventory-aware free-claim policy (lib/leads/allocation): fresh and
   // headline jobs stay paid, the free tap closes when the shelf runs thin.
-  const market = await loadMarketLeads();
+  // Scoped to the buyer's trade — each trade has its own shelf and spots.
+  const market = await loadMarketLeads(myTrade);
   const marketLead = market.find((l) => l.p.id === propertyId);
   if (!marketLead) fail("This one just sold out.");
   const verdict = freeVerdict(marketLead!, marketFreeContext(market));
@@ -185,7 +192,7 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
   const dossier = co ? await buildDossier(prop!, co.name, meLoc).catch(() => null) : null;
   const [unlock] = await db
     .insert(leadUnlock)
-    .values({ buyer_id: buyerId!, property_id: prop!.id, kind: "free", price_cents: 0, dossier })
+    .values({ buyer_id: buyerId!, property_id: prop!.id, kind: "free", trade: myTrade, price_cents: 0, dossier })
     .onConflictDoNothing({ target: [leadUnlock.property_id, leadUnlock.buyer_id] })
     .returning();
   if (!unlock) fail("You already have this lead — it's in your unlocked list.");
@@ -220,16 +227,19 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
   const buyerLoc: [number, number] | null =
     buyerRow?.lng != null && buyerRow?.lat != null ? [buyerRow.lng, buyerRow.lat] : null;
 
-  const avail = await leadAvailability(prop);
+  const myTrade = asTrade(buyerRow?.trade);
+  const avail = await leadAvailability(prop, myTrade);
   if (!avail.open) return;
 
   // Campaign tokens bypass the marketplace free-claim policy on purpose — the
   // operator chose this lead as the acquisition hook — but the per-lead free
-  // budget still holds so paid capacity is never fully given away.
-  const freeOnLead = await db
-    .select()
-    .from(leadUnlock)
-    .where(and(eq(leadUnlock.property_id, propertyId), eq(leadUnlock.kind, "free")));
+  // budget (per trade) still holds so paid capacity is never fully given away.
+  const freeOnLead = (
+    await db
+      .select()
+      .from(leadUnlock)
+      .where(and(eq(leadUnlock.property_id, propertyId), eq(leadUnlock.kind, "free")))
+  ).filter((u) => u.trade === myTrade);
   if (freeOnLead.length >= FREE_MAX_PER_LEAD) return;
 
   // "Your first sheet is free" — once per company, not once per campaign email.
@@ -247,7 +257,7 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
 
   const [unlock] = await db
     .insert(leadUnlock)
-    .values({ buyer_id: buyerId, property_id: prop.id, kind: "free", price_cents: 0, dossier })
+    .values({ buyer_id: buyerId, property_id: prop.id, kind: "free", trade: myTrade, price_cents: 0, dossier })
     .onConflictDoNothing({ target: [leadUnlock.property_id, leadUnlock.buyer_id] })
     .returning();
   if (!unlock) return; // this buyer already holds this lead
@@ -371,7 +381,7 @@ export async function startCheckout(propertyId: string, kind: "paid" | "exclusiv
   if (!prop) fail("Lead not found.");
   if (!prop!.parcel_geojson) fail("This lead isn't ready for sale yet — check back soon.");
 
-  const avail = await leadAvailability(prop!);
+  const avail = await leadAvailability(prop!, asTrade(row.trade));
   if (avail.closed) fail("This one just sold out.");
   if (kind === "exclusive" && !avail.exclusiveOpen)
     fail("Another company already has this lead, so the exclusive option is gone — a shared spot is still open.");
@@ -409,7 +419,7 @@ export async function startCheckout(propertyId: string, kind: "paid" | "exclusiv
           .where(eq(buyer.id, row.id));
       const [unlock] = await db
         .insert(leadUnlock)
-        .values({ buyer_id: row.id, property_id: propertyId, kind, price_cents: amount, dossier })
+        .values({ buyer_id: row.id, property_id: propertyId, kind, trade: asTrade(row.trade), price_cents: amount, dossier })
         .onConflictDoNothing({ target: [leadUnlock.property_id, leadUnlock.buyer_id] })
         .returning();
       if (!unlock) {

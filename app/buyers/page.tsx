@@ -16,6 +16,7 @@ import {
   type LeadKind,
   type MarketLead,
 } from "@/lib/leads/market";
+import { asTrade, tradeNoun } from "@/lib/leads/trades";
 import { haversineMiles } from "@/lib/sourcing/criteria";
 import {
   buyerLogout,
@@ -132,7 +133,7 @@ export default async function BuyerDashboard({
   // timing/city + distance) — never the address. The shelf itself comes from
   // lib/leads/market so the dashboard, the claim actions, and the operator's
   // offer blast all agree on what's open and what may go free.
-  const market = await loadMarketLeads();
+  const market = await loadMarketLeads(asTrade(me.trade));
   const freeCtx = marketFreeContext(market);
   const toItem = (l: MarketLead): LeadItem => {
     const { p, teaser, kind } = l;
@@ -582,7 +583,7 @@ export default async function BuyerDashboard({
             </span>
           </h2>
           <p className="mt-1 text-xs text-gray-400">
-            Every job is capped at {cap} companies — ever. Or lock one down as an exclusive and
+            Every job is capped at {cap} {tradeNoun(me.trade)} — ever. Or lock one down as an exclusive and
             nobody else gets it. If a job sells out before your payment settles, your payment
             instantly becomes account credit that auto-applies to any job at or below that amount — it never disappears.
           </p>

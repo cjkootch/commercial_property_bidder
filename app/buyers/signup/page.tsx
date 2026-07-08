@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createBuyerAccount } from "../actions";
+import { asTrade } from "@/lib/leads/trades";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { Logo } from "@/components/Logo";
 
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function BuyerSignup({
   searchParams,
 }: {
-  searchParams: { error?: string };
+  searchParams: { error?: string; trade?: string };
 }) {
   const co = await getDefaultCompany();
   return (
@@ -26,6 +27,8 @@ export default async function BuyerSignup({
         </p>
 
         <form action={createBuyerAccount} className="mt-6 space-y-3">
+          {/* Trade from the outreach link — scopes the shelf/copy after signup. */}
+          <input type="hidden" name="trade" value={asTrade(searchParams.trade)} />
           <input
             type="text"
             name="company"

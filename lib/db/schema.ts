@@ -424,6 +424,10 @@ export const suppression = pgTable("suppression", {
 export const buyer = pgTable("buyer", {
   id: uuid("id").primaryKey().defaultRandom(),
   company_name: text("company_name").notNull(),
+  // Which trade this company buys leads for (lib/leads/trades registry).
+  // The scarcity cap, exclusivity, ranking, and shelf relevance are ALL
+  // scoped per trade — trades don't compete for the same spots.
+  trade: text("trade").notNull().default("landscaping"),
   email: text("email").notNull().unique(),
   city: text("city"),
   lat: doublePrecision("lat"),
@@ -475,6 +479,9 @@ export const leadUnlock = pgTable(
       .notNull()
       .references(() => property.id),
     kind: text("kind").notNull().default("free"), // free | paid | exclusive
+    // Denormalized from buyer.trade at unlock time: the 3-spot cap, the
+    // exclusive, and the per-lead free budget all count WITHIN a trade.
+    trade: text("trade").notNull().default("landscaping"),
     price_cents: integer("price_cents").notNull().default(0),
     stripe_session_id: text("stripe_session_id"),
     dossier: jsonb("dossier"),

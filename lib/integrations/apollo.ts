@@ -70,7 +70,8 @@ export type BuyerCandidate = {
  */
 export async function searchLandscapers(
   location = "Houston, Texas",
-  perPage = 25
+  perPage = 25,
+  keywords: string[] = ["landscaping", "lawn care", "grounds maintenance"]
 ): Promise<BuyerCandidate[]> {
   const key = getApolloKey();
   if (!key) return [];
@@ -79,7 +80,7 @@ export async function searchLandscapers(
       method: "POST",
       headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
       body: JSON.stringify({
-        q_organization_keyword_tags: ["landscaping", "lawn care", "grounds maintenance"],
+        q_organization_keyword_tags: keywords,
         organization_locations: [location],
         page: 1,
         per_page: perPage,
