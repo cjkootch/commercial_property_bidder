@@ -121,9 +121,13 @@ export default async function PropertyWorkspace({
     monthsToCompletion: monthsUntil(completion?.iso ?? null),
   });
   const isTabsLead = /\(TABS /.test(prop.name);
+  const isTransferLead = /\(HCAD /.test(prop.name);
   const projectCost = prop.notes?.match(/est\. cost (\$[\d,]+)/)?.[1] ?? null;
+  const saleDate = prop.notes?.match(/HCAD transfer (\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
   const origin = isTabsLead
     ? `Found by the permit pipeline: a state construction filing (TABS)${projectCost ? ` for a ${projectCost} project` : ""}. New construction means the first grounds contract hasn't been won yet — someone gets this property's maintenance when it opens, and the sheet sells that head start.`
+    : isTransferLead
+    ? `Found by the ownership-transfer pipeline: county deed records show this property sold${saleDate ? ` on ${saleDate}` : " recently"}, and its parcel passed the ≥${Math.round(MIN_GRASS_FRACTION * 100)}% vegetation pre-screen. New owners re-bid their vendors in the first year — the grounds contract is in play right now.`
     : prop.source === "places"
       ? `Discovered by the sourcing pipeline: a commercial property in the NW-Houston corridor whose parcel passed the ≥${Math.round(MIN_GRASS_FRACTION * 100)}% vegetation pre-screen — enough grass to be worth measuring and quoting.`
       : prop.source === "inbound"
