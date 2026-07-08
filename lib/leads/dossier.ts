@@ -3,11 +3,13 @@
 // lead never re-spends imagery/API quota, and the buyer keeps exactly what they
 // purchased. Contacts are public-record / self-published ONLY (never Apollo).
 
-import { desc, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
+import area from "@turf/area";
 import { db } from "../db";
-import { pricingResult, property, type Property } from "../db/schema";
+import { measurement, pricingResult, property, type Property } from "../db/schema";
 import { getActiveConfig, toEngineConfig } from "../db/queries";
-import { sizeLead } from "./sizing";
+import { M2_TO_SQFT } from "../geo/area";
+import { sizeLead, sizeLeadFromMeasurement } from "./sizing";
 import { estimateServiceableArea, fetchParcelTile } from "../integrations/imagery";
 import { findTabsByNumber, fetchTabsDetails } from "../integrations/tabs";
 import { fetchDriveTime } from "../integrations/geocoding";
@@ -25,6 +27,9 @@ export type DossierAerial = {
   height: number;
   /** SVG polygon `points` strings (one per parcel ring) in image coordinates. */
   outline: string[];
+  /** Operator-drawn turf/bed polygons (image coordinates) when the lead was
+   *  hand-measured — the buyer sees exactly what was measured. */
+  measured?: { kind: string; points: string }[];
 };
 
 export type Dossier = {
@@ -61,6 +66,9 @@ export type Dossier = {
   /** Public-bid brief (RFP lead): no parcel/measurement — the deliverable is
    *  the solicitation. The sheet hides the measurement/pricing blocks. */
   is_bid?: boolean;
+  /** Numbers come from an operator measurement (drawn polygons), not the
+   *  automated estimate — the sheet badges this. */
+  verified?: boolean;
 };
 
 const note = (notes: string | null, re: RegExp) => notes?.match(re)?.[1]?.trim() ?? null;
@@ -91,7 +99,29 @@ export async function buildDossier(
   // One imagery pass feeds both the sizing numbers and the aerial snapshot.
   const engineCfg = toEngineConfig(cfgRow);
   const est = await estimateServiceableArea(parcel, token).catch(() => null);
-  const sizing = await sizeLead(parcel, token, engineCfg, est);
+
+  // An OPERATOR measurement (drawn polygons; never ml_pred) beats the
+  // automated estimate: hand-verified numbers, tighter value band, and the
+  // drawn areas render on the aerial so the buyer sees what was measured.
+  const [opMeas] = await db
+    .select()
+    .from(measurement)
+    .where(and(eq(measurement.property_id, p.id), ne(measurement.source, "ml_pred")))
+    .orderBy(desc(measurement.measured_at))
+    .limit(1);
+  const parcelSqftD = area(parcel.geometry as GeoJSON.Geometry) * M2_TO_SQFT;
+  const sizing = opMeas
+    ? sizeLeadFromMeasurement(
+        {
+          turf_sqft: opMeas.turf_sqft,
+          bed_sqft: opMeas.bed_sqft,
+          complexity: Number(opMeas.complexity) || 1.0,
+          confidence: opMeas.confidence,
+        },
+        parcelSqftD,
+        engineCfg
+      )
+    : await sizeLead(parcel, token, engineCfg, est);
 
   let aerial: DossierAerial | null = null;
   const tile = await fetchParcelTile(parcel, token).catch(() => null);
@@ -102,14 +132,30 @@ export async function buildDossier(
     const outline = parcelOuterRings(parcel).map((ring) =>
       ring.map(([lng, lat]) => `${px(lng).toFixed(1)},${py(lat).toFixed(1)}`).join(" ")
     );
+    // Operator-drawn turf/bed polygons in image coordinates (exclusion kinds
+    // like building/pavement are skipped — the buyer cares what's mowable).
+    const sa = opMeas?.service_areas as
+      | { features?: { properties?: { kind?: string }; geometry?: { type?: string; coordinates?: number[][][] } }[] }
+      | null;
+    const measured = (sa?.features ?? [])
+      .filter((f) => f.geometry?.type === "Polygon" && ["turf", "sports_turf", "bed"].includes(f.properties?.kind ?? ""))
+      .map((f) => ({
+        kind: f.properties!.kind!,
+        points: (f.geometry!.coordinates![0] as unknown as [number, number][])
+          .map(([lng, lat]) => `${px(lng).toFixed(1)},${py(lat).toFixed(1)}`)
+          .join(" "),
+      }));
     aerial = {
       image: `data:image/jpeg;base64,${tile.jpeg.toString("base64")}`,
-      // Always show what we detected — on projected (low-veg) sites the mask
-      // plus the projected number tells the honest story together.
-      mask: est?.mask_data_url ?? null,
+      // With an operator measurement the drawn polygons are the story — the
+      // raw detection mask would just muddy them. Otherwise always show what
+      // we detected: on projected (low-veg) sites the mask plus the projected
+      // number tells the honest story together.
+      mask: opMeas && measured.length ? null : est?.mask_data_url ?? null,
       width: tile.width,
       height: tile.height,
       outline,
+      measured: measured.length ? measured : undefined,
     };
   }
 
@@ -251,6 +297,7 @@ Respectfully,
     intro_letter,
     prepared_at: new Date().toISOString().slice(0, 10),
     aerial,
+    verified: sizing.verified ?? false,
     drive:
       buyerLoc && p.lng != null && p.lat != null
         ? await fetchDriveTime(buyerLoc, [p.lng, p.lat]).catch(() => null)

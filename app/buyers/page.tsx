@@ -714,6 +714,11 @@ function LeadCard({
                 {priceTier.label}
               </span>
             ) : null}
+            {(teaser as { verified?: boolean } | null)?.verified ? (
+              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
+                VERIFIED MEASUREMENT
+              </span>
+            ) : null}
             {outside && miles != null ? (
               <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-bold text-gray-500">
                 {miles} MI — OUTSIDE RANGE

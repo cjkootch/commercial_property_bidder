@@ -24,6 +24,9 @@ export type LeadSizing = {
   monthly: number;
   crew_hours_per_visit: number;
   turf_acres: number;
+  /** true when the numbers come from an OPERATOR measurement (drawn polygons),
+   *  not the automated imagery estimate — the sheet badges this. */
+  verified?: boolean;
 };
 
 const roundTo = (n: number, step: number) => Math.max(step, Math.round(n / step) * step);
@@ -52,5 +55,43 @@ export async function sizeLead(
     monthly: priced.monthly_price,
     crew_hours_per_visit: priced.crew_hours_per_visit,
     turf_acres: priced.turf_acres,
+  };
+}
+
+/**
+ * Sizing from an OPERATOR measurement (the map-workspace polygons) instead of
+ * the automated imagery estimate. Human-trimmed numbers get a tighter value
+ * band (±10% vs the estimate's ±20%) and are never "projected" — this is what
+ * makes hand-measuring a lead raise its quality on the shelf and the sheet.
+ */
+export function sizeLeadFromMeasurement(
+  meas: {
+    turf_sqft: number;
+    bed_sqft: number;
+    complexity: number;
+    confidence: "High" | "Med" | "Low";
+  },
+  parcelSqft: number,
+  cfg: PricingConfig
+): LeadSizing {
+  const priced = computePricing(
+    {
+      turf_sqft: meas.turf_sqft,
+      bed_sqft: meas.bed_sqft,
+      complexity: meas.complexity,
+      confidence: meas.confidence,
+    },
+    cfg
+  );
+  return {
+    turf_sqft: Math.round(meas.turf_sqft),
+    projected: false,
+    acres: parcelSqft / 43560,
+    annual_lo: roundTo(priced.annual_price * 0.9, 100),
+    annual_hi: roundTo(priced.annual_price * 1.1, 100),
+    monthly: priced.monthly_price,
+    crew_hours_per_visit: priced.crew_hours_per_visit,
+    turf_acres: priced.turf_acres,
+    verified: true,
   };
 }
