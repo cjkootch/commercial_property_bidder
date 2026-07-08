@@ -23,7 +23,9 @@ export const FREE_CLEARANCE_DAYS = 21;
  *  (until clearance age) — the #1 opportunity is what the offer email sells. */
 export const FREE_PROTECT_QUANTILE = 0.75;
 
-/** Fallback protection when inventory is too thin for a meaningful quantile. */
+/** Fallback protection when inventory is too thin for a meaningful quantile.
+ *  Shared with pricing (lib/leads/pricing-tiers.PREMIUM_MIN_ANNUAL_HI): a
+ *  lead worth a premium price is also never given away. */
 export const FREE_PROTECT_ANNUAL_HI = 25_000;
 
 /** Free claims pause entirely when open sellable spots drop below this —

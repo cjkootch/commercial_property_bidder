@@ -4,7 +4,7 @@ import { asc, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyer, chatMessage, leadUnlock, postcard, property, prospect } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
-import { exclusivePriceCents, leadPriceCents } from "@/lib/integrations/stripe";
+import { leadTierFor, type LeadTier } from "@/lib/leads/pricing-tiers";
 import { leadMaxBuyers } from "@/lib/leads/availability";
 import type { FreeClaimVerdict } from "@/lib/leads/allocation";
 import {
@@ -72,8 +72,6 @@ export default async function BuyerDashboard({
   const co = await getDefaultCompany();
   const brand = co?.name ?? "Greenkeep";
   const accent = co?.brand_color || "#2f7d4f";
-  const price = Math.round(leadPriceCents() / 100);
-  const exclusivePrice = Math.round(exclusivePriceCents() / 100);
   const cap = leadMaxBuyers();
 
   const mine = await db
@@ -156,6 +154,7 @@ export default async function BuyerDashboard({
       spotsLeft: l.spotsLeft,
       exclusiveOpen: l.exclusiveOpen,
       free: freeVerdict(l, freeCtx),
+      priceTier: leadTierFor(teaser?.annual_hi ?? null),
       miles:
         me.lat != null && me.lng != null && p.lat != null && p.lng != null
           ? Math.max(1, Math.round(haversineMiles([me.lng, me.lat], [p.lng, p.lat])))
@@ -416,7 +415,7 @@ export default async function BuyerDashboard({
             <div className="rounded-t-2xl border border-b-0 px-5 py-3 text-sm font-semibold text-white" style={{ backgroundColor: accent, borderColor: accent }}>
               🎯 Offered to you — {offerItem.spotsLeft === 1 ? "the LAST spot is open" : `${offerItem.spotsLeft} of ${cap} spots still open`}. First come, first served.
             </div>
-            <LeadCard item={offerItem} freeAvailable={freeAvailable} price={price} exclusivePrice={exclusivePrice} cap={cap} usd={usd} pinned />
+            <LeadCard item={offerItem} freeAvailable={freeAvailable} cap={cap} usd={usd} pinned />
           </section>
         ) : null}
         {offerMine ? (
@@ -431,7 +430,7 @@ export default async function BuyerDashboard({
               {nextBest ? " Here's the next best open job near you:" : " We'll email you the moment the next one lands in your area."}
             </div>
             {nextBest ? (
-              <LeadCard item={nextBest} freeAvailable={freeAvailable} price={price} exclusivePrice={exclusivePrice} cap={cap} usd={usd} pinned />
+              <LeadCard item={nextBest} freeAvailable={freeAvailable} cap={cap} usd={usd} pinned />
             ) : null}
           </section>
         ) : null}
@@ -583,8 +582,6 @@ export default async function BuyerDashboard({
                   key={item.p.id}
                   item={item}
                   freeAvailable={freeAvailable}
-                  price={price}
-                  exclusivePrice={exclusivePrice}
                   cap={cap}
                   usd={usd}
                 />
@@ -613,8 +610,6 @@ export default async function BuyerDashboard({
                   key={item.p.id}
                   item={item}
                   freeAvailable={freeAvailable}
-                  price={price}
-                  exclusivePrice={exclusivePrice}
                   cap={cap}
                   usd={usd}
                   outside
@@ -642,14 +637,13 @@ type LeadItem = {
   spotsLeft: number;
   exclusiveOpen: boolean;
   free: FreeClaimVerdict;
+  priceTier: LeadTier;
   miles: number | null;
 };
 
 function LeadCard({
   item,
   freeAvailable,
-  price,
-  exclusivePrice,
   cap,
   usd,
   outside,
@@ -657,14 +651,14 @@ function LeadCard({
 }: {
   item: LeadItem;
   freeAvailable: boolean;
-  price: number;
-  exclusivePrice: number;
   cap: number;
   usd: (n: number) => string;
   outside?: boolean;
   pinned?: boolean;
 }) {
-  const { p, teaser, kind, cost, workType, timing, spotsLeft, exclusiveOpen, free, miles } = item;
+  const { p, teaser, kind, cost, workType, timing, spotsLeft, exclusiveOpen, free, miles, priceTier } = item;
+  const price = Math.round(priceTier.price_cents / 100);
+  const exclusivePrice = Math.round(priceTier.exclusive_cents / 100);
   return (
     <div
       className={`overflow-hidden border bg-white shadow-sm transition hover:shadow-md ${
@@ -691,6 +685,15 @@ function LeadCard({
             >
               {spotsLeft === 1 ? "LAST SPOT" : `${spotsLeft} of ${cap} spots left`}
             </span>
+            {priceTier.label ? (
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                  priceTier.tier === "premium" ? "bg-amber-400/20 text-amber-700" : "bg-green-100 text-green-800"
+                }`}
+              >
+                {priceTier.label}
+              </span>
+            ) : null}
             {outside && miles != null ? (
               <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-[11px] font-bold text-gray-500">
                 {miles} MI — OUTSIDE RANGE
