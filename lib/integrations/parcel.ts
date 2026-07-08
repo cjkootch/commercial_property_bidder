@@ -60,7 +60,9 @@ const COUNTY_SERVICES: CountyService[] = [
             .filter(Boolean)
             .join(" ")
         )),
-      acres: numOrNull(p.Acreage),
+      // Acreage is a STRING on this layer ("2.2137 AC") — prefer the numeric
+      // twin, else parse the leading number (Number() alone yields NaN).
+      acres: numOrNull(p.acreage_1) ?? (Number.parseFloat(String(p.Acreage)) || null),
       last_sale_date: dateOrNull(p.new_owner_date),
       market_value: numOrNull(p.total_market_val),
       owner_mailing_address: str(

@@ -149,6 +149,20 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
     .limit(1);
   if (priorFree) fail("Your free sheet has been used — this one would be a paid unlock.");
 
+  // Same gates as paid checkout: suppressed accounts can't consume inventory,
+  // and claims are rate-limited (each burns a sellable spot + a dossier build).
+  const [meCheck] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
+  if (meCheck) {
+    const [sup] = await db
+      .select()
+      .from(suppression)
+      .where(eq(suppression.email, meCheck.email))
+      .limit(1);
+    if (sup) fail("This account can't make claims. Contact support via the chat.");
+  }
+  const rl = await rateLimit(`freeclaim:buyer:${buyerId}`, 10, 3600);
+  if (!rl.ok) fail("Too many attempts — try again in a bit.");
+
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
   if (!prop || !prop.parcel_geojson) fail("This lead isn't ready for sale yet — check back soon.");
   const avail = await leadAvailability(prop!);
@@ -177,6 +191,17 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
   if (!unlock) fail("You already have this lead — it's in your unlocked list.");
   if (!(await confirmUnlockWithinCap(unlock.id, prop!.id))) {
     fail("The last spot just went to another company.");
+  }
+  // Race guard for the PER-BUYER free cap (two tabs, two different leads):
+  // re-read all of this buyer's free unlocks; only the earliest survives.
+  const myFree = await db
+    .select()
+    .from(leadUnlock)
+    .where(and(eq(leadUnlock.buyer_id, buyerId!), eq(leadUnlock.kind, "free")));
+  myFree.sort((a, b) => a.created_at.getTime() - b.created_at.getTime() || a.id.localeCompare(b.id));
+  if (myFree.length > 1 && myFree[0].id !== unlock.id) {
+    await db.delete(leadUnlock).where(eq(leadUnlock.id, unlock.id));
+    fail("Your free sheet has been used — this one would be a paid unlock.");
   }
   await closeLeadIfDone(prop!.id);
   redirect("/buyers");
@@ -403,7 +428,10 @@ export async function startCheckout(propertyId: string, kind: "paid" | "exclusiv
   const base = baseUrl();
   const res = await createLeadCheckout({
     amountCents: amount,
-    leadName: prop!.name.replace(/ \(TABS [^)]+\)$/, ""),
+    // NEVER the property name: for transfer/violation leads the name IS the
+    // street address — the paid content — and Stripe shows the line item
+    // before payment. Teaser-safe label only.
+    leadName: `Job sheet — ${prop!.city ?? "Houston"} area ${leadKind(prop!.name)} lead`,
     buyerEmail: row.email,
     buyerId: row.id,
     propertyId,

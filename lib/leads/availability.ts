@@ -61,7 +61,11 @@ export async function confirmUnlockWithinCap(unlockId: string, propertyId: strin
   const ok =
     mine.kind === "exclusive"
       ? idx === 0
-      : idx < leadMaxBuyers() && !before.some((r) => r.kind === "exclusive");
+      : idx < leadMaxBuyers() &&
+        !before.some((r) => r.kind === "exclusive") &&
+        // Free cap (allocation.FREE_MAX_PER_LEAD = 1) re-checked post-insert:
+        // two concurrent free claims must not both survive the pre-read.
+        (mine.kind !== "free" || !before.some((r) => r.kind === "free"));
   if (!ok) await db.delete(leadUnlock).where(eq(leadUnlock.id, unlockId));
   return ok;
 }

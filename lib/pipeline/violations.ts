@@ -38,6 +38,7 @@ export type ViolationRow = {
   createdIso: string; // YYYY-MM-DD
   caseType: string;
   zip: string | null;
+  city: string | null;
 };
 
 /** Parse the pipe-delimited nightly extract into grounds-violation rows. */
@@ -55,6 +56,7 @@ export function parseExtract(text: string): ViolationRow[] {
   const iCreated = col("Created Date Local");
   const iType = col("Incident Case Type");
   const iZip = col("Zip Code");
+  const iCity = col("Incident City");
   if ([iCase, iAddr, iLat, iLng, iType].some((i) => i === -1)) return [];
 
   const out: ViolationRow[] = [];
@@ -68,6 +70,9 @@ export function parseExtract(text: string): ViolationRow[] {
     const address = (f[iAddr] ?? "").trim();
     const caseNumber = (f[iCase] ?? "").trim();
     if (!caseNumber || !address || !Number.isFinite(lat) || !Number.isFinite(lng) || lat === 0) continue;
+    // A stray pipe in a mid-row free-text field shifts trailing columns —
+    // validate the zip shape so shifted rows store null instead of garbage.
+    const zipRaw = (f[iZip] ?? "").trim();
     out.push({
       caseNumber,
       address,
@@ -76,7 +81,8 @@ export function parseExtract(text: string): ViolationRow[] {
       status: (f[iStatus] ?? "").trim(),
       createdIso: (f[iCreated] ?? "").trim().slice(0, 10),
       caseType,
-      zip: (f[iZip] ?? "").trim() || null,
+      zip: /^\d{5}/.test(zipRaw) ? zipRaw.slice(0, 5) : null,
+      city: iCity !== -1 ? (f[iCity] ?? "").trim() || null : null,
     });
   }
   return out;
@@ -122,6 +128,13 @@ export async function runViolationSourcing(opts?: {
   const candidates = rows
     .filter((v) => v.createdIso >= since && !/closed|cancel/i.test(v.status))
     .sort((a, b) => (a.createdIso < b.createdIso ? 1 : -1));
+  // The source file is MONTH-TO-DATE: early-month runs cannot see the tail of
+  // the previous month. Say so, loudly, so a thin run isn't misread.
+  if (new Date().getUTCDate() < sinceDays) {
+    log.push(
+      `note: extract is month-to-date — citations from the last ${sinceDays - new Date().getUTCDate()} day(s) of the previous month are not in this file`
+    );
+  }
   log.push(`${rows.length} grounds-violation cases MTD -> ${candidates.length} open in the last ${sinceDays}d`);
 
   const existing = await db
@@ -143,7 +156,12 @@ export async function runViolationSourcing(opts?: {
   let attempts = Math.min(candidates.length, 400);
   for (const v of candidates) {
     if (added >= want || attempts <= 0) break;
-    const name = `${v.address.replace(/ HOUSTON TX \d{5}$/i, "")} (H311 ${v.caseNumber})`;
+    // Strip "<CITY> TX <zip>" using the extract's own city column (addresses
+    // aren't all Houston: Kingwood, Katy annexations, zip+4 forms).
+    const stripped = v.city
+      ? v.address.replace(new RegExp(` ${v.city} TX \\d{5}(-\\d{4})?$`, "i"), "")
+      : v.address.replace(/ HOUSTON TX \d{5}(-\d{4})?$/i, "");
+    const name = `${stripped} (H311 ${v.caseNumber})`;
     if (haveName.has(name.trim().toLowerCase())) continue;
     attempts--;
 
@@ -187,8 +205,8 @@ export async function runViolationSourcing(opts?: {
     await db.insert(schema.property).values({
       company_id: co.id,
       name,
-      address: v.address.replace(/ HOUSTON TX \d{5}$/i, ""),
-      city: "Houston",
+      address: stripped,
+      city: v.city ? v.city.charAt(0) + v.city.slice(1).toLowerCase() : "Houston",
       zip: v.zip,
       lat: v.lat,
       lng: v.lng,
