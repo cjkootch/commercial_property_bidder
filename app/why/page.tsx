@@ -3,6 +3,7 @@ import { resolveTenant } from "@/lib/tenant";
 import { exclusivePriceCents, leadPriceCents } from "@/lib/integrations/stripe";
 import { leadMaxBuyers } from "@/lib/leads/availability";
 import { Logo } from "@/components/Logo";
+import { SiteFooter } from "@/components/SiteFooter";
 
 // The economics page: WHY buying jobs here beats buying clicks, why the
 // proactive approach beats waiting, and why we source high-intent signals.
@@ -215,6 +216,7 @@ export default async function WhyPage() {
           </p>
         </div>
       </section>
+      <SiteFooter name={brand} accent={accent} email={co?.email ?? null} />
     </main>
   );
 }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { leadMaxBuyers } from "@/lib/leads/availability";
 import { Logo } from "@/components/Logo";
+import { SiteFooter } from "@/components/SiteFooter";
 
 // Public marketplace terms. The buyer-facing surfaces promise "sold to a
 // maximum of 3 companies*" — the asterisk resolves here, where the per-trade
@@ -14,10 +15,11 @@ export default async function TermsPage() {
   const brand = co?.name ?? "Greenkeep";
   const cap = leadMaxBuyers();
   return (
-    <main className="mx-auto max-w-2xl px-6 py-12">
-      <Link href="/" className="inline-block">
-        <Logo name={brand} />
-      </Link>
+    <div className="min-h-screen bg-white">
+      <main className="mx-auto max-w-2xl px-6 py-12">
+        <Link href="/" className="inline-block">
+          <Logo name={brand} />
+        </Link>
       <h1 className="mt-8 text-2xl font-semibold text-gray-900">Marketplace terms</h1>
       <p className="mt-2 text-sm text-gray-500">Last updated July 8, 2026</p>
 
@@ -64,6 +66,12 @@ export default async function TermsPage() {
           </p>
         </div>
       </section>
-    </main>
+      </main>
+      <SiteFooter
+        name={brand}
+        accent={co?.brand_color || "#2f7d4f"}
+        email={co?.email ?? null}
+      />
+    </div>
   );
 }

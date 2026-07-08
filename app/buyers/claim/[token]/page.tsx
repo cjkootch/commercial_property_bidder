@@ -120,6 +120,12 @@ export default async function ClaimPage({
         >
           {claimable ? "Create profile & unlock my free sheet" : "Create profile"}
         </button>
+        <p className="text-center text-[11px] text-gray-400">
+          By creating a profile you agree to our{" "}
+          <Link href="/terms" className="underline">Terms</Link> and{" "}
+          <Link href="/privacy" className="underline">Privacy Policy</Link>.
+        </p>
+
         <p className="text-xs text-gray-400">
           No card required. We&apos;ll email you when new jobs open near your office — unsubscribe
           any time from your dashboard.
