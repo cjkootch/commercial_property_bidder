@@ -17,6 +17,15 @@
 export const MIN_GRASS_FRACTION = 0.35;
 
 /**
+ * Looser gate for INTENT-SIGNAL feeds (ownership transfers, business
+ * openings): there the reason to buy the lead is the event — a new owner or
+ * an opening re-bids vendors — not the turf size, and a 5-acre industrial
+ * site at 20% green is still real mowing money. Only bare-pavement parcels
+ * (gas stations, pad sites) are screened out.
+ */
+export const SIGNAL_MIN_GRASS_FRACTION = 0.15;
+
+/**
  * Does this parcel clear the grass pre-screen?
  * `fraction` is the vegetated share of the parcel in [0, 1] (or null if not yet
  * screened). Null is treated as not-qualified so unscreened properties don't

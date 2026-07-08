@@ -1,8 +1,8 @@
 // Ownership-transfer lead sourcing (HCAD deed feed), shared by the CLI script
 // (scripts/source-transfers) and the weekly cron (/api/cron/transfers): find
-// commercial parcels in the NW-Houston corridor that changed hands recently,
-// grass-screen them from imagery, size a marketplace teaser, and insert them
-// as sourced properties. A fresh owner is the highest-intent moment for an
+// commercial/industrial parcels ANYWHERE IN HARRIS COUNTY that changed hands
+// recently, grass-screen them from imagery, size a marketplace teaser, and
+// insert them as sourced properties. A fresh owner is the highest-intent moment for an
 // EXISTING building — new owners re-bid their vendors in the first year — and
 // the sale date lands in parcel_geojson.last_sale_date, so the lead score's
 // "recent owner change" signal lights up with no extra plumbing.
@@ -29,16 +29,12 @@ import { estimateServiceableArea } from "../integrations/imagery";
 import { getMapboxToken } from "../integrations/geocoding";
 import { sizeLead } from "../leads/sizing";
 import { getActiveConfig, toEngineConfig } from "../db/queries";
-import { isGrassQualified, MIN_GRASS_FRACTION } from "../sourcing/criteria";
+import { isGrassQualified, SIGNAL_MIN_GRASS_FRACTION } from "../sourcing/criteria";
 import { icpGuess } from "./permits";
 import type { ParcelResult } from "../geo/types";
 
 const HCAD_QUERY_URL =
   "https://www.gis.hctx.net/arcgis/rest/services/HCAD/Parcels/MapServer/0/query";
-
-// NW-Houston target corridor (Tomball / Spring / Cypress) — the same box the
-// discovery pipeline scans (lib/pipeline/runner.ts BBOX).
-const CORRIDOR = { xmin: -95.95, ymin: 29.95, xmax: -95.45, ymax: 30.3 };
 
 const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
 
@@ -196,7 +192,8 @@ export function normalizeTransfer(f: GeoJsonFeature): TransferCandidate | null {
   };
 }
 
-/** Query HCAD for recent commercial (state_class F1) transfers in the corridor. */
+/** Query HCAD for recent commercial (F1) / industrial (F2) transfers,
+ *  county-wide — the layer IS Harris County, no geometry filter needed. */
 export async function fetchRecentTransfers(opts: {
   sinceMonths: number;
   minMarketValue: number;
@@ -207,12 +204,8 @@ export async function fetchRecentTransfers(opts: {
   const sinceSql = `${since.toISOString().slice(0, 10)} 00:00:00`;
   const params = new URLSearchParams({
     where:
-      `state_class = 'F1' AND new_owner_date >= timestamp '${sinceSql}' ` +
+      `(state_class = 'F1' OR state_class = 'F2') AND new_owner_date >= timestamp '${sinceSql}' ` +
       `AND total_market_val > ${Math.round(opts.minMarketValue)}`,
-    geometry: JSON.stringify({ ...CORRIDOR, spatialReference: { wkid: 4326 } }),
-    geometryType: "esriGeometryEnvelope",
-    inSR: "4326",
-    spatialRel: "esriSpatialRelIntersects",
     outFields: "*",
     returnGeometry: "true",
     outSR: "4326",
@@ -241,7 +234,7 @@ export async function runTransferSourcing(opts?: {
   sinceMonths?: number;
 }): Promise<TransferRunSummary> {
   const want = opts?.want ?? 8;
-  const minMarketValue = opts?.minMarketValue ?? 400_000;
+  const minMarketValue = opts?.minMarketValue ?? 250_000;
   const sinceMonths = opts?.sinceMonths ?? 12;
   const log: string[] = [];
 
@@ -296,9 +289,11 @@ export async function runTransferSourcing(opts?: {
         continue;
       }
       grassFraction = est.vegetation_fraction;
-      if (!isGrassQualified(grassFraction)) {
+      // Signal feed: the sale is the reason to buy — only screen out
+      // bare-pavement parcels (gas stations, pad sites).
+      if (!isGrassQualified(grassFraction, SIGNAL_MIN_GRASS_FRACTION)) {
         skippedGrass++;
-        log.push(`skipped (${Math.round(grassFraction * 100)}% grass < ${Math.round(MIN_GRASS_FRACTION * 100)}%): ${t.address}`);
+        log.push(`skipped (${Math.round(grassFraction * 100)}% grass < ${Math.round(SIGNAL_MIN_GRASS_FRACTION * 100)}%): ${t.address}`);
         continue;
       }
       if (cfgRow) {

@@ -12,7 +12,7 @@ import { runTransferSourcing } from "../lib/pipeline/transfers";
 //       npm run source:transfers -- 5 1000000 6
 
 const WANT = Number(process.argv[2]) || 8;
-const MIN_VALUE = Number(process.argv[3]) || 400_000;
+const MIN_VALUE = Number(process.argv[3]) || 250_000;
 const SINCE_MONTHS = Number(process.argv[4]) || 12;
 
 async function main() {

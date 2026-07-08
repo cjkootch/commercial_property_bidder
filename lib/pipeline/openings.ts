@@ -30,20 +30,16 @@ import { fetchHarrisParcelAtPoint } from "../integrations/parcel";
 import { estimateServiceableArea } from "../integrations/imagery";
 import { sizeLead } from "../leads/sizing";
 import { getActiveConfig, toEngineConfig } from "../db/queries";
-import { isGrassQualified, MIN_GRASS_FRACTION } from "../sourcing/criteria";
+import { isGrassQualified, SIGNAL_MIN_GRASS_FRACTION } from "../sourcing/criteria";
 import type { ParcelResult } from "../geo/types";
 
 const SODA_URL = "https://data.texas.gov/resource/jrea-zgmq.json";
 
-/** NW-Houston corridor ZIPs (Tomball / Spring / Cypress / NW Houston) —
- *  the ZIP-code equivalent of the pipeline's corridor bbox. */
-export const CORRIDOR_ZIPS = [
-  "77375", "77377", // Tomball
-  "77379", "77388", "77389", "77373", // Spring
-  "77429", "77433", // Cypress
-  "77070", "77064", "77065", "77066", "77068", "77069", "77090",
-  "77086", "77088", "77040", "77041", "77095", "77084", // NW Houston
-];
+/** Comptroller county code for Harris County — the feed scans the whole
+ *  county (2,300+ new outlets/month vs ~600 in the old NW-corridor ZIP list).
+ *  Harris-only because the commercial-parcel gate below reads HCAD; add
+ *  Montgomery (170) / Fort Bend (079) once their CADs expose a class field. */
+export const HARRIS_COUNTY_CODE = "101";
 
 /**
  * NAICS prefixes for businesses that occupy real commercial buildings with
@@ -111,15 +107,27 @@ export function openingNotes(o: {
   );
 }
 
+/** The outlet's first-sales date, but only when it reads as an OPENING:
+ *  future or within the last ~90 days. Older = a re-registered existing
+ *  business; return null so the timing signal stays off. */
+export function freshOpensDate(
+  iso: string | null | undefined,
+  asOf: Date = new Date()
+): string | null {
+  if (!iso) return null;
+  const d = new Date(iso.slice(0, 10));
+  if (Number.isNaN(d.getTime())) return null;
+  return d.getTime() >= asOf.getTime() - 90 * 86400_000 ? iso.slice(0, 10) : null;
+}
+
 /** Query the Comptroller feed for recently-issued corridor permits. */
 export async function fetchRecentOpenings(opts: {
   sinceDays: number;
   limit: number;
 }): Promise<OpeningRow[]> {
   const since = new Date(Date.now() - opts.sinceDays * 86400_000).toISOString().slice(0, 10);
-  const zips = CORRIDOR_ZIPS.map((z) => `'${z}'`).join(",");
   const params = new URLSearchParams({
-    $where: `outlet_permit_issue_date >= '${since}' AND outlet_zip_code in (${zips})`,
+    $where: `outlet_permit_issue_date >= '${since}' AND outlet_county_code = '${HARRIS_COUNTY_CODE}'`,
     $select:
       "taxpayer_number,outlet_number,outlet_name,outlet_address,outlet_city," +
       "outlet_zip_code,outlet_naics_code,outlet_permit_issue_date,outlet_first_sales_date",
@@ -165,7 +173,7 @@ export async function runOpeningSourcing(opts?: {
   const rows = await fetchRecentOpenings({ sinceDays, limit: 1000 });
   const candidates = rows.filter(keepOpening);
   log.push(
-    `${rows.length} new corridor permits -> ${candidates.length} physical standalone candidates (last ${sinceDays}d)`
+    `${rows.length} new Harris County permits -> ${candidates.length} physical standalone candidates (last ${sinceDays}d)`
   );
 
   const token = getMapboxToken();
@@ -190,10 +198,16 @@ export async function runOpeningSourcing(opts?: {
       continue;
     }
     const hit = await fetchHarrisParcelAtPoint(coords[0], coords[1]);
-    if (!hit) continue;
+    if (!hit) {
+      // No parcel = outside Harris OR the county GIS is down; log so an
+      // HCAD outage doesn't read as "no qualified candidates".
+      log.push(`no parcel: ${r.outlet_name}`);
+      continue;
+    }
     const stateClass = String(hit.attrs.state_class ?? "").trim();
-    if (stateClass !== "F1") {
+    if (stateClass !== "F1" && stateClass !== "F2") {
       // Home businesses land on residential (A/B) parcels — the decisive gate.
+      // F1 commercial + F2 industrial both carry grounds contracts.
       skippedClass++;
       continue;
     }
@@ -206,10 +220,12 @@ export async function runOpeningSourcing(opts?: {
       log.push(`imagery failed: ${r.outlet_name}`);
       continue;
     }
-    if (!isGrassQualified(est.vegetation_fraction)) {
+    // Signal feed: the opening is the reason to buy — only screen out
+    // bare-pavement parcels.
+    if (!isGrassQualified(est.vegetation_fraction, SIGNAL_MIN_GRASS_FRACTION)) {
       skippedGrass++;
       log.push(
-        `skipped (${Math.round(est.vegetation_fraction * 100)}% grass < ${Math.round(MIN_GRASS_FRACTION * 100)}%): ${r.outlet_name}`
+        `skipped (${Math.round(est.vegetation_fraction * 100)}% grass < ${Math.round(SIGNAL_MIN_GRASS_FRACTION * 100)}%): ${r.outlet_name}`
       );
       continue;
     }
@@ -248,7 +264,10 @@ export async function runOpeningSourcing(opts?: {
         issueDateIso: (r.outlet_permit_issue_date ?? "").slice(0, 10),
         name: r.outlet_name ?? "New business",
         naics: r.outlet_naics_code ?? "?",
-        opensIso: r.outlet_first_sales_date ? r.outlet_first_sales_date.slice(0, 10) : null,
+        // A first-sales date far in the past means a re-registered EXISTING
+        // business (often a new operator) — still a good lead, but "Opens
+        // 2021-.." would read wrong and mis-drive the timing signal.
+        opensIso: freshOpensDate(r.outlet_first_sales_date),
         owner: parcel.owner,
       }),
     });

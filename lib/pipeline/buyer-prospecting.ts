@@ -22,7 +22,7 @@
 // unsubscribe headers. Apollo data is for our own targeting only — it never
 // ships inside a sold lead.
 
-import { eq, gte } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
 import { searchLandscapers, type BuyerCandidate } from "../integrations/apollo";
@@ -183,6 +183,9 @@ export async function runBuyerProspecting(opts?: {
   want?: number;
   /** Force-send this run regardless of PROSPECTING_AUTOSEND (CLI --send). */
   send?: boolean;
+  /** Report what WOULD happen — no rows written, nothing sent (the cron's
+   *  mode while automation is off, so unattended runs have zero side effects). */
+  dryRun?: boolean;
   /** Candidate source override (tests / campaign CSV); default Apollo. */
   candidates?: BuyerCandidate[];
 }): Promise<ProspectingRunSummary> {
@@ -242,11 +245,13 @@ export async function runBuyerProspecting(opts?: {
   // ---- 3. Exclusions: existing accounts + cooldown + already-offered-this-lead.
   const existingBuyers = await db.select({ name: schema.buyer.company_name }).from(schema.buyer);
   const accountKeys = new Set(existingBuyers.map((b) => companyKey(b.name)));
+  // Cooldown counts only ACTUAL contact (sent) — queued/skipped rows are
+  // records, not touches, and must not block a company for 30 days.
   const since = new Date(Date.now() - COOLDOWN_DAYS * 86400_000);
   const recent = await db
-    .select({ key: schema.buyerOutreach.company_key, pid: schema.buyerOutreach.property_id })
+    .select({ key: schema.buyerOutreach.company_key })
     .from(schema.buyerOutreach)
-    .where(gte(schema.buyerOutreach.created_at, since));
+    .where(and(gte(schema.buyerOutreach.created_at, since), eq(schema.buyerOutreach.status, "sent")));
   const cooled = new Set(recent.map((r) => r.key));
   const offeredThis = new Set(
     (
@@ -327,6 +332,11 @@ export async function runBuyerProspecting(opts?: {
   let queued = 0;
   let sent = 0;
   for (const q of [...emailable, ...manual]) {
+    if (opts?.dryRun) {
+      if (q.email) queued++;
+      log.push(`  DRY ${q.c.name} -> ${q.email ?? "(no email — would record for manual paste)"}`);
+      continue;
+    }
     const claimUrl = `${base}/buyers/claim/${signBuyerClaim(lead.id, q.c.name)}`;
     const msg = buildProspectMessage({
       company: q.c.name,
@@ -384,7 +394,9 @@ export async function runBuyerProspecting(opts?: {
       }
     }
   }
-  if (!doSend && queued) {
+  if (opts?.dryRun && queued) {
+    log.push(`DRY RUN — ${queued} offer(s) would send; nothing was written or sent.`);
+  } else if (!doSend && queued) {
     log.push(
       `${queued} offer(s) QUEUED, not sent — set PROSPECTING_AUTOSEND=1 (standing approval) or run the CLI with --send.`
     );
