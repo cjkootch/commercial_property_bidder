@@ -15,6 +15,8 @@ import {
   verifyBuyerSession,
 } from "@/lib/buyer-auth";
 import { buildDossier } from "@/lib/leads/dossier";
+import { FREE_MAX_PER_LEAD } from "@/lib/leads/allocation";
+import { freeVerdict, loadMarketLeads, marketFreeContext } from "@/lib/leads/market";
 import {
   closeLeadIfDone,
   confirmUnlockWithinCap,
@@ -151,6 +153,16 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
   const avail = await leadAvailability(prop!);
   if (!avail.open) fail("This one just sold out.");
 
+  // Inventory-aware free-claim policy (lib/leads/allocation): fresh and
+  // headline jobs stay paid, the free tap closes when the shelf runs thin.
+  const market = await loadMarketLeads();
+  const marketLead = market.find((l) => l.p.id === propertyId);
+  if (!marketLead) fail("This one just sold out.");
+  const verdict = freeVerdict(marketLead!, marketFreeContext(market));
+  if (!verdict.allowed) {
+    fail(`Free claim isn't open on this job — ${verdict.reason} You can still unlock it as a paid sheet.`);
+  }
+
   const co = await getDefaultCompany();
   const [meRow] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
   const meLoc: [number, number] | null =
@@ -184,6 +196,15 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
 
   const avail = await leadAvailability(prop);
   if (!avail.open) return;
+
+  // Campaign tokens bypass the marketplace free-claim policy on purpose — the
+  // operator chose this lead as the acquisition hook — but the per-lead free
+  // budget still holds so paid capacity is never fully given away.
+  const freeOnLead = await db
+    .select()
+    .from(leadUnlock)
+    .where(and(eq(leadUnlock.property_id, propertyId), eq(leadUnlock.kind, "free")));
+  if (freeOnLead.length >= FREE_MAX_PER_LEAD) return;
 
   // "Your first sheet is free" — once per company, not once per campaign email.
   const [priorFree] = await db

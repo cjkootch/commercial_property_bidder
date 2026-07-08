@@ -18,6 +18,7 @@ import {
   ensurePropertyOwnerSuggestion,
   archiveProperty,
   unarchiveProperty,
+  offerLeadToBuyers,
 } from "../actions";
 import { AckReviewToggle } from "@/components/AckReviewToggle";
 import { GrassScreen } from "@/components/GrassScreen";
@@ -45,8 +46,10 @@ export const maxDuration = 60;
 
 export default async function PropertyWorkspace({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams: { offered?: string; offer_err?: string };
 }) {
   // Lazy prep BEFORE the detail read (each is cached/no-op after first open):
   // geocode -> parcel -> model auto-draft, so a brand-new property opens with
@@ -181,6 +184,35 @@ export default async function PropertyWorkspace({
           {titleCase(prop.icp_type)}
           {prop.owner_org ? ` · ${prop.owner_org}` : ""}
         </p>
+        {searchParams.offered ? (
+          <p className="mt-3 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+            Offer sent to {searchParams.offered} nearby buyer{searchParams.offered === "1" ? "" : "s"} — the
+            3-spot cap locks it as they claim; latecomers get routed to the next best open job.
+          </p>
+        ) : null}
+        {searchParams.offer_err ? (
+          <p className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {searchParams.offer_err}
+          </p>
+        ) : null}
+        {!prop.archived_at && !prop.lead_exported_at && prop.parcel_geojson ? (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <form action={offerLeadToBuyers.bind(null, prop.id)}>
+              <button
+                title="Email this lead to the nearest opted-in buyers (nearest-first, max 30). First come, first served against the 3-spot cap."
+                className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark"
+              >
+                📣 Offer to nearby buyers
+              </button>
+            </form>
+            {prop.offer_sent_at ? (
+              <span className="text-xs text-gray-400">
+                Last offered to {prop.offer_sent_count ?? 0} buyer{(prop.offer_sent_count ?? 0) === 1 ? "" : "s"} on{" "}
+                {prop.offer_sent_at.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {/* Why this property: origin + the scored signals behind the lead number */}

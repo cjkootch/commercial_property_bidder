@@ -210,6 +210,10 @@ export const property = pgTable("property", {
   // contract value without spending imagery quota per view.
   lead_teaser: jsonb("lead_teaser"),
   lead_buyer: text("lead_buyer"),
+  // Waterfall offer blast: when the operator emailed this lead to nearby
+  // buyers, and to how many — prevents accidental double-blasts.
+  offer_sent_at: timestamp("offer_sent_at", { withTimezone: true }),
+  offer_sent_count: integer("offer_sent_count"),
   notes: text("notes"),
   ...timestamps,
 });
