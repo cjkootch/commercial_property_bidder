@@ -109,12 +109,12 @@ const COUNTY_SERVICES: CountyService[] = [
   },
 ];
 
-async function queryCounty(
+async function queryCountyWithAttrs(
   svc: CountyService,
   lng: number,
   lat: number,
   signal: AbortSignal
-): Promise<ParcelResult | null> {
+): Promise<{ parcel: ParcelResult; attrs: Record<string, unknown> } | null> {
   const params = new URLSearchParams({
     geometry: `${lng},${lat}`,
     geometryType: "esriGeometryPoint",
@@ -134,10 +134,33 @@ async function queryCounty(
   }
   const norm = svc.normalize(f.properties ?? {});
   return {
-    county: svc.county,
-    ...norm,
-    geometry: f.geometry as ParcelResult["geometry"],
+    parcel: {
+      county: svc.county,
+      ...norm,
+      geometry: f.geometry as ParcelResult["geometry"],
+    },
+    attrs: f.properties ?? {},
   };
+}
+
+/**
+ * Harris-county-only lookup that also returns the raw layer attributes —
+ * the openings pipeline needs `state_class` (F1 = real commercial) to reject
+ * home-business addresses, and that field isn't part of ParcelResult.
+ */
+export async function fetchHarrisParcelAtPoint(
+  lng: number,
+  lat: number
+): Promise<{ parcel: ParcelResult; attrs: Record<string, unknown> } | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 7000);
+  try {
+    return await queryCountyWithAttrs(COUNTY_SERVICES[0], lng, lat, controller.signal);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -154,10 +177,10 @@ export async function fetchParcelAtPoint(
   const timer = setTimeout(() => controller.abort(), 7000);
   try {
     const results = await Promise.allSettled(
-      COUNTY_SERVICES.map((s) => queryCounty(s, lng, lat, controller.signal))
+      COUNTY_SERVICES.map((s) => queryCountyWithAttrs(s, lng, lat, controller.signal))
     );
     for (const r of results) {
-      if (r.status === "fulfilled" && r.value) return r.value;
+      if (r.status === "fulfilled" && r.value) return r.value.parcel;
     }
     return null;
   } catch {

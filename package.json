@@ -21,6 +21,7 @@
     "source:residential": "tsx scripts/source-residential.ts",
     "source:permits": "tsx scripts/source-permits.ts",
     "source:transfers": "tsx scripts/source-transfers.ts",
+    "source:openings": "tsx scripts/source-openings.ts",
     "screen": "tsx scripts/screen-properties.ts",
     "export:training": "tsx scripts/export-training-data.ts",
     "ml:dump": "tsx scripts/dump-unlabeled.ts",
