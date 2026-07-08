@@ -206,14 +206,15 @@ export default async function Home() {
               High-intent leads for commercial landscapers
             </p>
             <h1 className="mt-4 text-4xl font-extrabold leading-[1.08] tracking-tight sm:text-[3.4rem]">
-              Your next commercial contract,{" "}
-              <span style={{ color: "#8fd6ab" }}>on one page.</span>
+              Win commercial grounds contracts{" "}
+              <span style={{ color: "#8fd6ab" }}>before the bid window closes.</span>
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-relaxed text-gray-300">
-              Every job on your dashboard is a verified commercial property that&apos;s about to
-              need a grounds crew. <strong className="text-white">Somebody wins that contract.</strong>{" "}
-              {name} puts you in the room first — site measured from the air, value priced, the
-              decision-maker&apos;s name on one page.
+              {name} finds properties when landscaping vendors are being{" "}
+              <strong className="text-white">selected, replaced, or urgently needed</strong> — new
+              construction, new owners, business openings, renovations, multifamily sales, and
+              city violations. Each job sheet gives you the trigger, measured grounds, estimated
+              annual value, owner/contact path, and next step — all on one page.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <Link
@@ -227,7 +228,7 @@ export default async function Home() {
                 href="#how"
                 className="rounded-xl border border-white/20 px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-white/5"
               >
-                How it works
+                See how it works
               </Link>
             </div>
             <ul className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-300">
@@ -301,8 +302,8 @@ export default async function Home() {
             Everything a bidder needs, on one page
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-center text-gray-600">
-            This isn&apos;t a list of businesses that might want a quote someday. Each sheet is a
-            property that&apos;s about to award a grounds contract — and the whole play to win it.
+            These are not &quot;maybe someday&quot; leads. Each sheet is a property at the exact
+            moment vendors get replaced, selected, or urgently hired — and the whole play to win it.
           </p>
           <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {sheetItems.map(([title, body]) => (
