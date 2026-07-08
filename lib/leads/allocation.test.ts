@@ -4,7 +4,7 @@ import {
   FREE_CLEARANCE_DAYS,
   FREE_MIN_AGE_DAYS,
   FREE_MIN_OPEN_SPOTS,
-  offerRank,
+  leadRank,
   quantile,
 } from "./allocation";
 
@@ -77,9 +77,15 @@ describe("leads/allocation — free-claim policy", () => {
     expect(quantile([0, 100], 0.5)).toBe(50);
   });
 
-  it("offerRank prefers value-per-mile (the waterfall order)", () => {
-    // $40k at 25mi beats $12k at 5mi; unknown distance assumes a 30mi run.
-    expect(offerRank(40000, 25)).toBeGreaterThan(offerRank(12000, 5));
-    expect(offerRank(20000, null)).toBeCloseTo(20000 / 50);
+  it("leadRank is universal: value x bid window, no buyer factors", () => {
+    // Value dominates…
+    expect(leadRank(40000, null)).toBeGreaterThan(leadRank(12000, null));
+    // …an open bid window boosts (3 months out beats no-timeline at equal value)…
+    expect(leadRank(20000, 3)).toBeGreaterThan(leadRank(20000, null));
+    // …a long-settled contract drags below an always-biddable existing property…
+    expect(leadRank(20000, -24)).toBeLessThan(leadRank(20000, null));
+    // …and the window can promote a smaller urgent job over a bigger far-out one.
+    expect(leadRank(20000, 2)).toBeGreaterThan(leadRank(28000, 18));
+    expect(leadRank(null, 3)).toBe(0);
   });
 });

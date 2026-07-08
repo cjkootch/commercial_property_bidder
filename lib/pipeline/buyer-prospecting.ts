@@ -222,7 +222,8 @@ export async function runBuyerProspecting(opts?: {
       .filter((l) => !campaigned.has(l.p.id) && l.ageDays <= 14)
       .map((l) => ({ l, pitch: toPitch(l) }))
       .filter((x) => x.pitch)
-      .sort((a, b) => b.pitch!.annualHi - a.pitch!.annualHi);
+      // Universal quality rank (value x bid-window) — same order buyers see.
+      .sort((a, b) => b.l.rank - a.l.rank);
     lead = fresh[0]?.pitch ?? null;
     if (!lead) {
       log.push("No fresh uncampaigned leads on the shelf — nothing to do.");

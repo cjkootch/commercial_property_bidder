@@ -155,6 +155,7 @@ export default async function BuyerDashboard({
       exclusiveOpen: l.exclusiveOpen,
       free: freeVerdict(l, freeCtx),
       priceTier: leadTierFor(teaser?.annual_hi ?? null),
+      rank: l.rank,
       miles:
         me.lat != null && me.lng != null && p.lat != null && p.lng != null
           ? Math.max(1, Math.round(haversineMiles([me.lng, me.lat], [p.lng, p.lat])))
@@ -178,17 +179,15 @@ export default async function BuyerDashboard({
         })()
       : null;
 
-  // Service-radius aware: leads within the buyer's radius come first (sorted by
-  // value-per-distance); jobs just past their range are shown lower, clearly
-  // flagged, up to a proportional cushion — you can always reach a bit further
-  // for a big enough contract. Unknown-distance leads stay in the primary list.
+  // Radius decides ELIGIBILITY (in-range first, a cushion band below, clearly
+  // flagged); the universal quality rank decides ORDER — contract value x
+  // bid-window openness, no buyer-specific factors. Distance is displayed on
+  // the card so the buyer weighs the drive themselves.
   const radius = me.service_radius_mi;
   const cushion = Math.max(15, Math.round(radius * 0.4));
-  const byValuePerDist = (a: (typeof eligible)[number], b: (typeof eligible)[number]) =>
-    (b.teaser?.annual_hi ?? 0) / ((b.miles ?? 30) + 20) - (a.teaser?.annual_hi ?? 0) / ((a.miles ?? 30) + 20);
   const inRange = eligible
     .filter((x) => x.miles == null || x.miles <= radius)
-    .sort(byValuePerDist)
+    .sort((a, b) => b.rank - a.rank)
     .slice(0, 12);
   const nearby = eligible
     .filter((x) => x.miles != null && x.miles > radius && x.miles <= radius + cushion)
@@ -638,6 +637,7 @@ type LeadItem = {
   exclusiveOpen: boolean;
   free: FreeClaimVerdict;
   priceTier: LeadTier;
+  rank: number;
   miles: number | null;
 };
 

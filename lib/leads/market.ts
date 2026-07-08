@@ -12,11 +12,15 @@ import { leadMaxBuyers } from "./availability";
 import {
   daysSince,
   evaluateFreeClaim,
-  offerRank,
+  leadRank,
   type FreeClaimContext,
   type FreeClaimVerdict,
 } from "./allocation";
-import { haversineMiles } from "../sourcing/criteria";
+import {
+  estimateCompletionFromNotes,
+  haversineMiles,
+  monthsUntil,
+} from "../sourcing/criteria";
 
 export type LeadKind = "construction" | "transfer" | "opening";
 
@@ -43,6 +47,10 @@ export type MarketLead = {
   /** Buyer ids already holding this lead. */
   holders: Set<string>;
   ageDays: number;
+  /** Signed months to completion/opening from the notes (null = no timeline). */
+  monthsToCompletion: number | null;
+  /** Universal quality rank: value x bid-window openness. NO buyer factors. */
+  rank: number;
 };
 
 /**
@@ -78,15 +86,19 @@ export async function loadMarketLeads(): Promise<MarketLead[]> {
     )
     .map((p) => {
       const e = byProp.get(p.id);
+      const teaser = p.lead_teaser as Teaser;
+      const monthsToCompletion = monthsUntil(estimateCompletionFromNotes(p.notes)?.iso ?? null);
       return {
         p,
         kind: leadKind(p.name),
-        teaser: p.lead_teaser as Teaser,
+        teaser,
         spotsLeft: cap - (e?.count ?? 0),
         exclusiveOpen: (e?.count ?? 0) === 0,
         freeUnlocksOnLead: e?.free ?? 0,
         holders: e?.holders ?? new Set<string>(),
         ageDays: daysSince(p.created_at),
+        monthsToCompletion,
+        rank: leadRank(teaser?.annual_hi ?? null, monthsToCompletion),
       };
     });
 }
@@ -112,9 +124,9 @@ export function freeVerdict(lead: MarketLead, ctx: FreeClaimContext): FreeClaimV
 }
 
 /**
- * The waterfall fallback: the best open lead for a buyer (value-per-mile,
- * within their radius + the standard cushion), excluding anything they hold
- * and anything explicitly excluded (e.g. the offer that just filled).
+ * The waterfall fallback: the best open lead for a buyer. Radius decides
+ * ELIGIBILITY (within their service radius + the standard cushion); the
+ * universal quality rank decides ORDER — distance never makes a lead "better".
  */
 export function nextBestFor(
   leads: MarketLead[],
@@ -133,7 +145,7 @@ export function nextBestFor(
           : null,
     }))
     .filter((l) => l.miles == null || l.miles <= reach)
-    .sort((a, b) => offerRank(b.teaser?.annual_hi, b.miles) - offerRank(a.teaser?.annual_hi, a.miles));
+    .sort((a, b) => b.rank - a.rank);
   return ranked[0] ?? null;
 }
 
