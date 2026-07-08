@@ -5,19 +5,19 @@
       "schedule": "17 11 * * *"
     },
     {
-      "path": "/api/cron/permits?want=12&minCost=250000",
+      "path": "/api/cron/permits?want=20&minCost=150000&sinceDays=60",
       "schedule": "7 11 * * 1"
     },
     {
-      "path": "/api/cron/transfers?want=20",
+      "path": "/api/cron/transfers?want=30",
       "schedule": "27 11 * * 1"
     },
     {
-      "path": "/api/cron/openings?want=15",
+      "path": "/api/cron/openings?want=25",
       "schedule": "47 11 * * 1"
     },
     {
-      "path": "/api/cron/violations?want=20",
+      "path": "/api/cron/violations?want=30",
       "schedule": "57 11 * * 1"
     },
     {

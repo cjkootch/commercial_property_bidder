@@ -232,6 +232,13 @@
       "when": 1783483569102,
       "tag": "0032_perfect_solo",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1783486586453,
+      "tag": "0033_tiny_jack_flag",
+      "breakpoints": true
     }
   ]
 }

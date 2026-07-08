@@ -393,6 +393,19 @@ export const buyerOutreach = pgTable("buyer_outreach", {
   ...timestamps,
 });
 
+// --- sourcing_reject -------------------------------------------------------
+// Candidates a feed screened and rejected (low grass, wrong parcel class,
+// dead imagery). Persisting them keeps weekly runs from re-buying the same
+// rejections — at higher caps the attempt budget must reach FRESH candidates,
+// and re-screens burn imagery spend. Key = "<feed>:<stable ref>".
+
+export const sourcingReject = pgTable("sourcing_reject", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  key: text("key").notNull().unique(),
+  reason: text("reason"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // --- suppression ---------------------------------------------------------
 // Checked before every send (build spec section 9). Email is unique.
 
