@@ -298,11 +298,18 @@ export async function runBuyerProspecting(opts?: {
   );
 
   // ---- 2. Candidate companies (Apollo near the lead's city, or injected).
-  const candidates =
+  // Small-town leads (New Caney, Crosby...) often have zero companies AT the
+  // city itself — the 40-mile office radius is measured from the lead's
+  // coordinates, so widen to the metro before concluding there's nobody.
+  let candidates =
     opts?.candidates ??
     (await searchLandscapers(`${lead.city ?? "Houston"}, Texas`, CANDIDATE_POOL, TRADES[trade].prospectKeywords));
+  if (!candidates.length && !opts?.candidates && lead.city && lead.city.toLowerCase() !== "houston") {
+    log.push(`No candidates in ${lead.city} — widening the search to the Houston metro.`);
+    candidates = await searchLandscapers("Houston, Texas", CANDIDATE_POOL, TRADES[trade].prospectKeywords);
+  }
   if (!candidates.length) {
-    log.push("No candidates (APOLLO_API_KEY unset or search empty).");
+    log.push("No candidates even metro-wide — check APOLLO_API_KEY.");
     return { lead: lead.id, candidates: 0, qualified: 0, queued: 0, sent: 0, skippedNoEmail: 0, log };
   }
   log.push(`${candidates.length} candidate companies`);
