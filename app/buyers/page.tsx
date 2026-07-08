@@ -148,9 +148,11 @@ export default async function BuyerDashboard({
           ? `changed owners ${note(p.notes, /HCAD transfer ([\d-]+)/) ?? "recently"}`
           : kind === "opening"
             ? `opens ~${note(p.notes, /Opens ([\d-]+)/) ?? "soon"}`
-            : start
-              ? `breaks ground ~${start}`
-              : "in development",
+            : kind === "violation"
+              ? `cited ${note(p.notes, /311 case \S+ \(([\d-]+)\)/) ?? "recently"} — needs service now`
+              : start
+                ? `breaks ground ~${start}`
+                : "in development",
       spotsLeft: l.spotsLeft,
       exclusiveOpen: l.exclusiveOpen,
       free: freeVerdict(l, freeCtx),
@@ -705,7 +707,9 @@ function LeadCard({
               ? "Grounds contract at a property under new ownership — vendors get re-bid"
               : kind === "opening"
                 ? "Grounds contract where a new business is opening — decisions in motion"
-                : `Grounds contract behind a ${cost ?? "major"} ${(workType ?? "commercial").toLowerCase()} project`}
+                : kind === "violation"
+                  ? "Property cited by the city for overgrown grounds — the owner must hire someone now"
+                  : `Grounds contract behind a ${cost ?? "major"} ${(workType ?? "commercial").toLowerCase()} project`}
             {p.city ? ` — ${p.city} area` : ""}
           </div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-gray-500">

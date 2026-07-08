@@ -111,9 +111,15 @@ export async function buildDossier(
   // Lead kind from the sourcing ref embedded in the name: TABS = construction
   // filing, HCAD = ownership transfer, STP = new business opening. Everything
   // buyer-facing (letter, guidance, timeline) frames the SIGNAL, never the feed.
-  const ref = p.name.match(/\((TABS|HCAD|STP) ([^)]+)\)$/);
-  const kind: "construction" | "transfer" | "opening" =
-    ref?.[1] === "HCAD" ? "transfer" : ref?.[1] === "STP" ? "opening" : "construction";
+  const ref = p.name.match(/\((TABS|HCAD|STP|H311) ([^)]+)\)$/);
+  const kind: "construction" | "transfer" | "opening" | "violation" =
+    ref?.[1] === "HCAD"
+      ? "transfer"
+      : ref?.[1] === "STP"
+        ? "opening"
+        : ref?.[1] === "H311"
+          ? "violation"
+          : "construction";
 
   const tabsNum = note(p.notes, /TABS (\S+):/);
   const proj = tabsNum ? await findTabsByNumber(tabsNum) : null;
@@ -177,7 +183,9 @@ export async function buildDossier(
       ? `The property changed hands${saleDate ? ` on ${saleDate}` : " recently"} — new owners re-bid their vendors in the first year, so the incumbent (if any) is beatable right now. Send the intro letter to the owner's mailing address and call any published number; ask who handles property maintenance decisions.`
       : kind === "opening"
         ? `A new business is opening here — the property's vendor decisions are being made now. The grounds contract usually belongs to the property owner (landlord), not the tenant: send the intro letter to the owner's mailing address, and use any published on-site number to ask who manages the property.`
-        : `Private owner: send the intro letter to the owner's mailing address and call any published number. The architect can route you to the GC or the property manager who will hold the maintenance contract.`;
+        : kind === "violation"
+          ? `The city cited this property for weeds/overgrowth — the owner is REQUIRED to arrange service, usually within days, and a citation means there's likely no vendor on the property at all. Move fast: call any published number first, send the letter same-day, and lead with "we can have the citation cleared this week." Quote the recurring contract after the cleanup.`
+          : `Private owner: send the intro letter to the owner's mailing address and call any published number. The architect can route you to the GC or the property manager who will hold the maintenance contract.`;
 
   const facility = facilityName;
   const situation =
@@ -185,7 +193,9 @@ export async function buildDossier(
       ? `recently changed ownership${saleDate ? ` (${saleDate})` : ""}, and property vendor arrangements are commonly reviewed after a sale`
       : kind === "opening"
         ? `has a new business opening${opensDate ? ` around ${opensDate}` : " soon"}, and property services are being arranged now`
-        : `is scheduled to complete construction around ${est_completion ?? "the coming year"}`;
+        : kind === "violation"
+          ? `may need immediate grounds attention, and we understand time can be of the essence in these situations`
+          : `is scheduled to complete construction around ${est_completion ?? "the coming year"}`;
   const intro_letter = `Subject: Grounds maintenance for ${facility} — local contractor
 
 Dear ${owner ?? "Owner"},
