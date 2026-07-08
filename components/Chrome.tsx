@@ -8,18 +8,21 @@ import { Logo } from "@/components/Logo";
 // facing proposal pages render bare — no internal nav or width constraint.
 export function Chrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  // Public / customer-facing routes render bare (their own headers); only the
-  // operator app gets the internal nav chrome.
-  const bare =
-    pathname === "/" ||
-    pathname?.startsWith("/residential") ||
-    pathname?.startsWith("/commercial") ||
-    pathname?.startsWith("/quote") ||
-    pathname?.startsWith("/proposals") ||
-    pathname?.startsWith("/customer") ||
-    pathname?.startsWith("/buyers") ||
-    pathname?.startsWith("/login");
-  if (bare) return <>{children}</>;
+  // DEFAULT BARE: only known operator routes get the internal nav chrome.
+  // (The nav is links only — every operator page behind it is auth-gated —
+  // but internal chrome must never wrap a public page, so new public pages
+  // are born bare instead of needing to remember an allowlist entry.)
+  const OPERATOR_PREFIXES = [
+    "/dashboard",
+    "/queue",
+    "/leads",
+    "/campaigns",
+    "/messages",
+    "/properties",
+    "/config",
+  ];
+  const operator = OPERATOR_PREFIXES.some((p) => pathname?.startsWith(p));
+  if (!operator) return <>{children}</>;
 
   return (
     <>
