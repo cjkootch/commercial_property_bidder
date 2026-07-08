@@ -46,6 +46,19 @@ describe("pipeline/violations", () => {
     expect(notes.match(/311 case \S+ \(([\d-]+)\)/)?.[1]).toBe("2026-07-07");
   });
 
+  it("dumping citations get cleanup wording, not weeds wording", () => {
+    const notes = violationNotes({
+      caseNumber: "2600221700",
+      createdIso: "2026-07-06",
+      owner: null,
+      caseType: "Trash Dumping or Illegal Dumpsite",
+    });
+    expect(notes).toContain("illegal dumping/debris");
+    expect(notes).not.toContain("weeds/overgrowth");
+    // Same card pattern as weeds citations.
+    expect(notes.match(/311 case \S+ \(([\d-]+)\)/)?.[1]).toBe("2026-07-06");
+  });
+
   it("H311 refs get the violation kind and strip from display names", () => {
     expect(leadKind("3920 Blossom St (H311 2600221658)")).toBe("violation");
     expect(displayName("3920 Blossom St (H311 2600221658)")).toBe("3920 Blossom St");

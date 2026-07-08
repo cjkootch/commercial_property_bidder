@@ -150,9 +150,15 @@ export default async function BuyerDashboard({
             ? `opens ~${note(p.notes, /Opens ([\d-]+)/) ?? "soon"}`
             : kind === "violation"
               ? `cited ${note(p.notes, /311 case \S+ \(([\d-]+)\)/) ?? "recently"} — needs service now`
-              : start
-                ? `breaks ground ~${start}`
-                : "in development",
+              : kind === "distress"
+                ? (note(p.notes, /Tax sale scheduled ([\d-]+)/)
+                    ? `tax sale ${note(p.notes, /Tax sale scheduled ([\d-]+)/)} — forced-action window`
+                    : "in the tax-sale pipeline — owner must act")
+                : kind === "rfp"
+                  ? `bids close ${note(p.notes, /Bids close ([\d-]+)/) ?? "soon"}`
+                  : start
+                    ? `breaks ground ~${start}`
+                    : "in development",
       spotsLeft: l.spotsLeft,
       exclusiveOpen: l.exclusiveOpen,
       free: freeVerdict(l, freeCtx),
@@ -718,8 +724,12 @@ function LeadCard({
               : kind === "opening"
                 ? "Grounds contract where a new business is opening — decisions in motion"
                 : kind === "violation"
-                  ? "Property cited by the city for overgrown grounds — the owner must hire someone now"
-                  : `Grounds contract behind a ${cost ?? "major"} ${(workType ?? "commercial").toLowerCase()} project`}
+                  ? "Property cited by the city for grounds/cleanup conditions — the owner must hire someone now"
+                  : kind === "distress"
+                    ? "Property in the county tax-sale pipeline — cleanup needed now, every vendor re-bid after the sale"
+                    : kind === "rfp"
+                      ? "Public grounds/landscaping contract out for bid — multi-year government money"
+                      : `Grounds contract behind a ${cost ?? "major"} ${(workType ?? "commercial").toLowerCase()} project`}
             {p.city ? ` — ${p.city} area` : ""}
           </div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-gray-500">
@@ -732,8 +742,9 @@ function LeadCard({
             {teaser?.turf_sqft ? <span>{teaser.turf_sqft.toLocaleString()} sf of grounds</span> : null}
           </div>
           <div className="mt-2 text-xs text-gray-400">
-            Sheet includes the exact address, aerial measurement, decision contacts, bid window, and
-            intro letter.
+            {kind === "rfp"
+              ? "Brief includes the solicitation link, agency, deadline, and a vendor-registration letter."
+              : "Sheet includes the exact address, aerial measurement, decision contacts, bid window, and intro letter."}
           </div>
         </div>
         <div className="flex w-full flex-col justify-center gap-2 sm:w-56">

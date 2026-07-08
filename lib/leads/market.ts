@@ -1,7 +1,8 @@
 // The open marketplace shelf, computed in ONE place so the buyer dashboard,
 // the free-claim actions, and the operator's offer blast all agree on what's
 // sellable, what's left, and what may go free. Covers every sourcing feed:
-// TABS (construction), HCAD (ownership transfer), STP (business opening).
+// TABS (construction), HCAD (ownership transfer), STP/TABC (business opening),
+// H311 (citation), TAX (tax-sale distress), RFP (public bid).
 
 import { desc, eq } from "drizzle-orm";
 import { db } from "../db";
@@ -22,18 +23,20 @@ import {
   monthsUntil,
 } from "../sourcing/criteria";
 
-export type LeadKind = "construction" | "transfer" | "opening" | "violation";
+export type LeadKind = "construction" | "transfer" | "opening" | "violation" | "distress" | "rfp";
 
 export function leadKind(name: string): LeadKind {
   if (/\(HCAD [^)]+\)$/.test(name)) return "transfer";
-  if (/\(STP [^)]+\)$/.test(name)) return "opening";
+  if (/\((STP|TABC) [^)]+\)$/.test(name)) return "opening";
   if (/\(H311 [^)]+\)$/.test(name)) return "violation";
+  if (/\(TAX [^)]+\)$/.test(name)) return "distress";
+  if (/\(RFP [^)]+\)$/.test(name)) return "rfp";
   return "construction";
 }
 
 /** Strip the sourcing ref from a property name for buyer-facing display. */
 export function displayName(name: string): string {
-  return name.replace(/ \((TABS|HCAD|STP|H311) [^)]+\)$/, "");
+  return name.replace(/ \((TABS|HCAD|STP|H311|TABC|TAX|RFP) [^)]+\)$/, "");
 }
 
 export type Teaser = { annual_lo?: number; annual_hi?: number; turf_sqft?: number } | null;
@@ -78,10 +81,12 @@ export async function loadMarketLeads(): Promise<MarketLead[]> {
   return props
     .filter(
       (p) =>
-        /\((TABS|HCAD|STP|H311) [^)]+\)$/.test(p.name) &&
+        /\((TABS|HCAD|STP|H311|TABC|TAX|RFP) [^)]+\)$/.test(p.name) &&
         p.archived_at == null &&
         p.lead_exported_at == null &&
-        p.parcel_geojson != null &&
+        // Public-bid (RFP) leads have no parcel — the solicitation IS the
+        // deliverable. Every property lead still requires one.
+        (p.parcel_geojson != null || leadKind(p.name) === "rfp") &&
         !byProp.get(p.id)?.exclusive &&
         (byProp.get(p.id)?.count ?? 0) < cap
     )
@@ -89,12 +94,24 @@ export async function loadMarketLeads(): Promise<MarketLead[]> {
       const e = byProp.get(p.id);
       const teaser = p.lead_teaser as Teaser;
       const kind = leadKind(p.name);
-      const monthsToCompletion = monthsUntil(estimateCompletionFromNotes(p.notes)?.iso ?? null);
+      // Public bids: the deadline is the timeline ("Bids close YYYY-MM-DD").
+      const closesIso = kind === "rfp" ? p.notes?.match(/Bids close ([\d-]+)/)?.[1] ?? null : null;
+      const monthsToCompletion =
+        kind === "rfp"
+          ? monthsUntil(closesIso)
+          : monthsUntil(estimateCompletionFromNotes(p.notes)?.iso ?? null);
       // A FRESH citation is an open decision window — the owner must hire
       // someone now. Stale citations (~45d+) mean resolved or ignored.
       const citedIso = kind === "violation" ? p.notes?.match(/311 case \S+ \(([\d-]+)\)/)?.[1] : null;
+      // A scheduled tax auction inside ~60 days is the same forced window.
+      const auctionIso = kind === "distress" ? p.notes?.match(/Tax sale scheduled ([\d-]+)/)?.[1] : null;
       const urgent =
-        citedIso != null && Date.now() - new Date(citedIso).getTime() < 45 * 86400_000;
+        (citedIso != null && Date.now() - new Date(citedIso).getTime() < 45 * 86400_000) ||
+        (auctionIso != null &&
+          new Date(auctionIso).getTime() - Date.now() < 60 * 86400_000 &&
+          new Date(auctionIso).getTime() - Date.now() > -30 * 86400_000) ||
+        // An open bid window on a public contract is urgent by definition.
+        (kind === "rfp" && closesIso != null && closesIso >= new Date().toISOString().slice(0, 10));
       return {
         p,
         kind,
