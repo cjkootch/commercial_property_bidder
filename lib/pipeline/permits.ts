@@ -27,7 +27,7 @@ const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
 // New builds + additions have site work; renovations usually don't.
 const WORK_TYPES = new Set([9001, 9003]);
 
-function icpGuess(text: string): (typeof schema.icpTypeEnum.enumValues)[number] {
+export function icpGuess(text: string): (typeof schema.icpTypeEnum.enumValues)[number] {
   const t = text.toLowerCase();
   if (/church|worship|ministr/.test(t)) return "church";
   if (/school|isd|academy|college|campus/.test(t)) return "other";
