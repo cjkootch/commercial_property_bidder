@@ -96,9 +96,11 @@ export async function runPermitSourcing(opts?: {
     const parcel = coords ? await fetchParcelAtPoint(coords[0], coords[1]) : null;
 
     const startsWhen = p.est_start ? ` Est. start ${p.est_start.slice(0, 10)}.` : "";
+    // Completion drives the timing/urgency lead-score signal.
+    const doneWhen = p.est_end ? ` Est. completion ${p.est_end.slice(0, 10)}.` : "";
     const notes =
       `TABS ${p.project_number}: ${TABS_WORK_TYPES[p.work_type] ?? "Construction"}, ` +
-      `est. cost ${usd(p.estimated_cost)}.${startsWhen}` +
+      `est. cost ${usd(p.estimated_cost)}.${startsWhen}${doneWhen}` +
       (det.owner ? ` Owner: ${det.owner}.` : "") +
       (det.scope ? ` Scope: ${det.scope.slice(0, 300)}` : "");
 

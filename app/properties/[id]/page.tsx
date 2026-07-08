@@ -29,7 +29,9 @@ import { MeasureMapLoader } from "@/components/MeasureMapLoader";
 import { CalcBreakdown } from "@/components/CalcBreakdown";
 import {
   computeLeadScore,
+  estimateCompletionFromNotes,
   isRecentOwnerChange,
+  monthsUntil,
   MIN_GRASS_FRACTION,
 } from "@/lib/sourcing/criteria";
 import { computePricing } from "@/lib/pricing/engine";
@@ -109,12 +111,14 @@ export default async function PropertyWorkspace({
 
   // "Why this property": how it entered the funnel + the scored signals.
   const neighborsNearby = await countNearbyProperties(prop.id);
+  const completion = estimateCompletionFromNotes(prop.notes);
   const leadScore = computeLeadScore({
     grassFraction: prop.grass_fraction,
     recentOwnerChange: isRecentOwnerChange(parcel?.last_sale_date ?? null),
     activelyLeasing: prop.actively_leasing,
     grossMarginPct: pricing?.gross_margin_pct ?? null,
     neighborsNearby,
+    monthsToCompletion: monthsUntil(completion?.iso ?? null),
   });
   const isTabsLead = /\(TABS /.test(prop.name);
   const projectCost = prop.notes?.match(/est\. cost (\$[\d,]+)/)?.[1] ?? null;
@@ -194,12 +198,12 @@ export default async function PropertyWorkspace({
             <li key={part.label} className="flex items-start gap-3">
               <div className="mt-0.5 w-24 shrink-0">
                 <div className="text-right text-sm font-semibold tabular-nums text-gray-700">
-                  {part.points} / {part.max}
+                  {part.max > 0 ? `${part.points} / ${part.max}` : "n/a"}
                 </div>
                 <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-gray-100">
                   <div
                     className={`h-full rounded-full ${part.points > 0 ? "bg-brand" : "bg-gray-200"}`}
-                    style={{ width: `${Math.round((part.points / part.max) * 100)}%` }}
+                    style={{ width: `${part.max > 0 ? Math.round((part.points / part.max) * 100) : 0}%` }}
                   />
                 </div>
               </div>

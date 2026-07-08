@@ -18,8 +18,10 @@ import type { PricingConfig, PricingFlags } from "../pricing/types";
 import type { MapView, ParcelResult, ServiceAreaCollection } from "../geo/types";
 import {
   computeLeadScore,
+  estimateCompletionFromNotes,
   haversineMiles,
   isRecentOwnerChange,
+  monthsUntil,
   ROUTE_RADIUS_MILES,
 } from "../sourcing/criteria";
 
@@ -148,6 +150,7 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
       activelyLeasing: p.actively_leasing,
       grossMarginPct: pr?.gross_margin_pct ?? null,
       neighborsNearby: neighborsNearby(p),
+      monthsToCompletion: monthsUntil(estimateCompletionFromNotes(p.notes)?.iso ?? null),
     });
 
     const teaser = p.lead_teaser as { annual_lo?: number; annual_hi?: number } | null;

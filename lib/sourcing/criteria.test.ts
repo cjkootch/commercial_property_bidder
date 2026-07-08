@@ -50,6 +50,7 @@ describe("sourcing/criteria", () => {
   });
 
   it("lead score components are weighted as documented", () => {
+    // No timeline -> normalized over 80 pts, so owner-change alone = 20/80 = 25.
     const onlyOwner = computeLeadScore({
       grassFraction: 0,
       recentOwnerChange: true,
@@ -58,5 +59,40 @@ describe("sourcing/criteria", () => {
       neighborsNearby: 0,
     });
     expect(onlyOwner.score).toBe(25);
+  });
+
+  it("timing/urgency peaks in the 1-6 month bid window and decays after completion", () => {
+    const base = {
+      grassFraction: 0,
+      recentOwnerChange: false,
+      activelyLeasing: false,
+      grossMarginPct: null,
+      neighborsNearby: 0,
+    };
+    const at = (m: number | null) => computeLeadScore({ ...base, monthsToCompletion: m });
+
+    expect(at(3).score).toBe(20); // sweet spot: 20/100
+    expect(at(3).reasons).toContain("urgent bid window");
+    expect(at(0).score).toBe(18); // completing now
+    expect(at(8).score).toBe(12); // get on the bidder list
+    expect(at(18).score).toBe(6); // far out
+    expect(at(-4).score).toBe(10); // recently completed
+    expect(at(-24).score).toBe(2); // long done
+    // No timeline: the part reports N/A and doesn't drag the score down.
+    const na = at(null);
+    expect(na.score).toBe(0);
+    expect(na.parts.find((p) => p.label === "Timing / urgency")?.max).toBe(0);
+  });
+
+  it("a fully-stacked construction lead still caps at 100", () => {
+    const strong = computeLeadScore({
+      grassFraction: 0.7,
+      recentOwnerChange: true,
+      activelyLeasing: true,
+      grossMarginPct: 0.45,
+      neighborsNearby: 5,
+      monthsToCompletion: 3,
+    });
+    expect(strong.score).toBe(100);
   });
 });
