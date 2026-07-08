@@ -26,12 +26,15 @@ export function buildPostcardHtml(
     ? `<img src="${esc(buyer.logo_url)}" style="max-height:0.9in;max-width:2.6in;object-fit:contain" />`
     : `<div style="font:700 26px sans-serif;color:#fff">${esc(buyer.company_name)}</div>`;
 
-  // Property facts fill the card's midsection — the dollar range is the hook,
-  // so it gets the biggest type on the card instead of hiding in body copy.
+  // Property facts + timing fill the card's midsection. Deliberately NO dollar
+  // figure on the owner-facing card: the sizing is often projected (raw-dirt
+  // sites), a wrong number burns credibility, and printing a range anchors the
+  // buyer's own future bid against them. The estimate stays in buyer-facing
+  // surfaces (teaser, job sheet); here the hook is timing + preparedness.
+  const heroTitle = d.est_completion ? `Opens ${fmtMonth(d.est_completion)}` : "Opening soon";
   const stats = [
-    `${Math.round(d.turf_sqft).toLocaleString()} sq ft of turf`,
+    `est. ${Math.round(d.turf_sqft).toLocaleString()} sq ft of grounds`,
     d.acres >= 0.5 ? `${d.acres >= 10 ? Math.round(d.acres) : d.acres.toFixed(1)}-acre site` : null,
-    d.est_completion ? `opens ${fmtMonth(d.est_completion)}` : null,
   ]
     .filter(Boolean)
     .join(" &nbsp;&middot;&nbsp; ");
@@ -61,8 +64,8 @@ export function buildPostcardHtml(
     </div>
     <div class="value">
       <div class="chip">
-        <div style="font:800 44px sans-serif;line-height:1">${usd(d.annual_lo)}&ndash;${usd(d.annual_hi)}<span style="font:700 22px sans-serif">/yr</span></div>
-        <div style="margin-top:8px;font:600 14px sans-serif;opacity:0.92">estimated year-round grounds contract</div>
+        <div style="font:800 44px sans-serif;line-height:1">${esc(heroTitle)}</div>
+        <div style="margin-top:8px;font:600 14px sans-serif;opacity:0.92">grounds vendors are typically chosen ~90 days before opening</div>
       </div>
       ${stats ? `<div style="margin-top:14px;font:600 15px sans-serif;opacity:0.92">${stats}</div>` : ""}
     </div>
