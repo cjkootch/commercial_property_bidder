@@ -176,6 +176,9 @@ export default async function Home() {
             <Link href="#pricing" className="hidden text-sm text-gray-600 hover:text-gray-900 md:inline">
               Pricing
             </Link>
+            <Link href="/why" className="hidden text-sm text-gray-600 hover:text-gray-900 md:inline">
+              The economics
+            </Link>
             <Link href="/buyers/login" className="whitespace-nowrap text-sm text-gray-600 hover:text-gray-900">
               Sign in
             </Link>
