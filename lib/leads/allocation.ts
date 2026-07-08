@@ -130,11 +130,15 @@ export function daysSince(at: Date, asOf: Date = new Date()): number {
 export function leadRank(
   annualHi: number | null | undefined,
   /** Signed months until completion/opening (null = no timeline). */
-  monthsToCompletion: number | null
+  monthsToCompletion: number | null,
+  /** An urgent non-timeline signal (e.g. a FRESH weeds citation — the owner
+   *  must hire someone now). Gets the full open-window boost. */
+  urgentSignal = false
 ): number {
   const m = monthsToCompletion;
-  const window =
-    m == null
+  const window = urgentSignal
+    ? 1.3
+    : m == null
       ? 1 // existing property, always biddable
       : m >= 12
         ? 0.9 // far out — on the radar only

@@ -10,6 +10,16 @@ describe("leads/pricing-tiers", () => {
     expect(leadTierFor(5_200).tier).toBe("value");
   });
 
+  it("violation leads floor at standard — urgency is worth the anchor price", () => {
+    // A small cited property would be a $39 volume deal on value alone…
+    expect(leadTierFor(5_200, "violation").tier).toBe("standard");
+    expect(leadTierFor(5_200, "violation").label).toBe("MUST-HIRE OWNER");
+    // …but a big cited property still reaches premium on value.
+    expect(leadTierFor(40_000, "violation").tier).toBe("premium");
+    // Other kinds keep the value tier.
+    expect(leadTierFor(5_200, "transfer").tier).toBe("value");
+  });
+
   it("unsized leads price at the standard anchor", () => {
     expect(leadTierFor(null).tier).toBe("standard");
     expect(leadTierFor(undefined).tier).toBe("standard");

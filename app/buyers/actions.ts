@@ -16,7 +16,7 @@ import {
 } from "@/lib/buyer-auth";
 import { buildDossier } from "@/lib/leads/dossier";
 import { FREE_MAX_PER_LEAD } from "@/lib/leads/allocation";
-import { freeVerdict, loadMarketLeads, marketFreeContext } from "@/lib/leads/market";
+import { freeVerdict, leadKind, loadMarketLeads, marketFreeContext } from "@/lib/leads/market";
 import {
   closeLeadIfDone,
   confirmUnlockWithinCap,
@@ -360,7 +360,7 @@ export async function startCheckout(propertyId: string, kind: "paid" | "exclusiv
 
   // Value-based tier: the same lead always quotes the same price everywhere.
   const teaser = prop!.lead_teaser as { annual_hi?: number } | null;
-  const tier = leadTierFor(teaser?.annual_hi ?? null);
+  const tier = leadTierFor(teaser?.annual_hi ?? null, leadKind(prop!.name));
 
   // Account credit (replacement-lead policy) covers it? Unlock right here — no
   // card, no Stripe. Credit is deducted atomically first (guards double-spend

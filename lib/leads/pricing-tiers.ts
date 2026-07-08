@@ -34,8 +34,15 @@ export type LeadTier = {
   exclusive_cents: number;
 };
 
-/** The tier for a lead given its teaser annual_hi (unsized = standard). */
-export function leadTierFor(annualHi: number | null | undefined): LeadTier {
+/** The tier for a lead given its teaser annual_hi (unsized = standard).
+ *  Violation (citation) leads floor at STANDARD regardless of contract size:
+ *  the buyer isn't paying for the contract, they're paying for a prospect
+ *  who is legally required to hire someone this week. Big cited properties
+ *  still reach premium on value alone. */
+export function leadTierFor(
+  annualHi: number | null | undefined,
+  kind?: string | null
+): LeadTier {
   if (typeof annualHi === "number" && annualHi >= PREMIUM_MIN_ANNUAL_HI) {
     return {
       tier: "premium",
@@ -44,7 +51,9 @@ export function leadTierFor(annualHi: number | null | undefined): LeadTier {
       exclusive_cents: envUsd("LEAD_EXCLUSIVE_PRICE_PREMIUM_USD", 29900),
     };
   }
-  if (typeof annualHi === "number" && annualHi > 0 && annualHi < VALUE_MAX_ANNUAL_HI) {
+  const value =
+    typeof annualHi === "number" && annualHi > 0 && annualHi < VALUE_MAX_ANNUAL_HI;
+  if (value && kind !== "violation") {
     return {
       tier: "value",
       label: "VOLUME DEAL",
@@ -54,7 +63,7 @@ export function leadTierFor(annualHi: number | null | undefined): LeadTier {
   }
   return {
     tier: "standard",
-    label: null,
+    label: kind === "violation" ? "MUST-HIRE OWNER" : null,
     price_cents: leadPriceCents(),
     exclusive_cents: exclusivePriceCents(),
   };
