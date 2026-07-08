@@ -16,7 +16,7 @@ import {
   type LeadKind,
   type MarketLead,
 } from "@/lib/leads/market";
-import { asTrade, tradeNoun } from "@/lib/leads/trades";
+import { asTrade } from "@/lib/leads/trades";
 import { haversineMiles } from "@/lib/sourcing/criteria";
 import {
   buyerLogout,
@@ -583,9 +583,10 @@ export default async function BuyerDashboard({
             </span>
           </h2>
           <p className="mt-1 text-xs text-gray-400">
-            Every job is capped at {cap} {tradeNoun(me.trade)} — ever. Or lock one down as an exclusive and
+            Every job is capped at {cap} companies* — ever. Or lock one down as an exclusive and
             nobody else gets it. If a job sells out before your payment settles, your payment
             instantly becomes account credit that auto-applies to any job at or below that amount — it never disappears.
+            {" "}<Link href="/terms" className="underline">*Terms</Link>
           </p>
           {inRange.length === 0 ? (
             <p className="mt-3 rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500">

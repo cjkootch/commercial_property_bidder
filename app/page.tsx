@@ -334,7 +334,8 @@ export default async function Home() {
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-center text-gray-600">
             Lead lists die when everyone has the same list. Every job here is capped at {cap}{" "}
-            companies — ever — and you can lock one down so nobody else gets it at all.
+            companies* — ever — and you can lock one down so nobody else gets it at all.{" "}
+            <Link href="/terms" className="text-sm underline">*Terms</Link>
           </p>
           <div className="mt-12 grid gap-5 sm:grid-cols-3">
             <div className="flex flex-col rounded-2xl border border-gray-200 bg-white p-7">

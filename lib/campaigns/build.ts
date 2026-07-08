@@ -118,7 +118,7 @@ A ${lead.cost} development breaks ground around ${lead.start},${distClause}${lea
 
 We measured the site from the air: ~${lead.turf.toLocaleString()} sq ft of maintainable turf. At market rates that's ${usd(lead.annualLo)}–${usd(lead.annualHi)} a year — every year.
 
-Everything a bidder needs is on one page: exact location, the owner and architect to contact, our measurement, crew sizing, and the window to bid. Every job is capped at ${o.cap} companies — ever — and you can lock one down as an exclusive so nobody else gets it.
+Everything a bidder needs is on one page: exact location, the owner and architect to contact, our measurement, crew sizing, and the window to bid. Every job is capped at ${o.cap} companies* — ever — and you can lock one down as an exclusive so nobody else gets it.
 
 Your first sheet is FREE — claim it here (takes 30 seconds, no card):
 ${o.claimUrl}

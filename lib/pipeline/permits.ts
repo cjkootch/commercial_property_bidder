@@ -204,7 +204,7 @@ export async function notifyBuyersOfFresh(
       html:
         `<p>${b.company_name} — ${fresh.length === 1 ? "a new job just opened" : `${fresh.length} new jobs just opened`}${miTxt}:</p>` +
         `<ul>${rows}</ul>` +
-        `<p>Every job is capped at ${leadMaxBuyers()} companies — first come, first served. Or lock one down as an exclusive.</p>` +
+        `<p>Every job is capped at ${leadMaxBuyers()} companies* — first come, first served. Or lock one down as an exclusive.</p>` +
         `<p><a href="${base}/buyers">See them in your dashboard</a></p>` +
         `<p style="color:#888;font-size:12px">You get these because you turned on new-job alerts. ` +
         `<a href="${unsubUrl}">Unsubscribe with one click</a> or manage alerts in <a href="${base}/buyers">your dashboard</a>.</p>`,
