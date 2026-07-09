@@ -93,7 +93,12 @@ export default async function CompaniesPage({
             {rows.map(({ p, f, score }) => (
               <tr key={p.id} className={score >= 5 ? "bg-amber-50/60" : "hover:bg-gray-50"}>
                 <td className="px-4 py-3">
-                  <div className="font-medium text-gray-900">{p.name}</div>
+                  <a
+                    href={`/companies/${p.id}`}
+                    className="font-medium text-gray-900 hover:text-brand hover:underline"
+                  >
+                    {p.name}
+                  </a>
                   <div className="text-xs text-gray-400">
                     {p.office_city ?? ""}
                     {p.email ? ` · ${p.email}` : ""}

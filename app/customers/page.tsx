@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, leadUnlock } from "@/lib/db/schema";
+import { buyer, leadUnlock, prospectCompany } from "@/lib/db/schema";
+import { companyKey } from "@/lib/leads/companies";
 
 // Operator roster of buyer accounts: who signed up, from where, what they've
 // unlocked and spent. Newest first — this is the page to watch after a blast.
@@ -29,6 +31,17 @@ export default async function CustomersPage() {
     .from(leadUnlock)
     .groupBy(leadUnlock.buyer_id);
   const agg = new Map(unlockAgg.map((a) => [a.buyer_id, a]));
+
+  // Company-graph profiles so the name can drill into the full outreach
+  // journey. Linked accounts match by buyer_id; direct signups fall back to
+  // the normalized-name key (same key campaigns use).
+  const profiles = await db
+    .select({ id: prospectCompany.id, key: prospectCompany.key, buyer_id: prospectCompany.buyer_id })
+    .from(prospectCompany);
+  const profileByBuyer = new Map(profiles.filter((p) => p.buyer_id).map((p) => [p.buyer_id, p.id]));
+  const profileByKey = new Map(profiles.map((p) => [p.key, p.id]));
+  const profileFor = (b: { id: string; company_name: string }) =>
+    profileByBuyer.get(b.id) ?? profileByKey.get(companyKey(b.company_name)) ?? null;
 
   const totalSpent = unlockAgg.reduce((s, a) => s + Number(a.spent_cents), 0) / 100;
 
@@ -60,7 +73,16 @@ export default async function CustomersPage() {
               return (
                 <tr key={b.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{b.company_name}</div>
+                    {profileFor(b) ? (
+                      <Link
+                        href={`/companies/${profileFor(b)}`}
+                        className="font-medium text-gray-900 hover:text-brand hover:underline"
+                      >
+                        {b.company_name}
+                      </Link>
+                    ) : (
+                      <div className="font-medium text-gray-900">{b.company_name}</div>
+                    )}
                     <div className="text-xs text-gray-400">
                       {b.notify ? "alerts on" : "alerts off"}
                       {b.credit_cents > 0 ? ` · $${(b.credit_cents / 100).toLocaleString()} credit` : ""}

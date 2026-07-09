@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, buyerOutreach, leadUnlock, property } from "@/lib/db/schema";
+import { buyer, buyerOutreach, leadUnlock, property, prospectCompany } from "@/lib/db/schema";
 import { displayName, leadKind } from "@/lib/leads/market";
 import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
 
@@ -52,6 +52,16 @@ export default async function ProspectingBlastPage({
 
   const emailed = tradeRows.filter((r) => r.status === "sent" || r.status === "bounced");
   const manual = tradeRows.filter((r) => r.status === "skipped");
+
+  // Company-graph profile ids so each name drills into the full journey.
+  const keys = [...new Set(tradeRows.map((r) => r.company_key))];
+  const profiles = keys.length
+    ? await db
+        .select({ id: prospectCompany.id, key: prospectCompany.key })
+        .from(prospectCompany)
+        .where(inArray(prospectCompany.key, keys))
+    : [];
+  const profileByKey = new Map(profiles.map((p) => [p.key, p.id]));
   const kind = prop ? leadKind(prop.name) : null;
   const est = prop && kind ? TRADES[trade].estimateValue(tradeValueInput(prop, kind)) : null;
   const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
@@ -140,7 +150,16 @@ export default async function ProspectingBlastPage({
             {emailed.map((r) => (
               <tr key={r.id} className={r.status === "bounced" ? "bg-red-50/50" : "hover:bg-gray-50"}>
                 <td className="px-4 py-3">
-                  <div className="font-medium text-gray-900">{r.company_name}</div>
+                  {profileByKey.has(r.company_key) ? (
+                    <Link
+                      href={`/companies/${profileByKey.get(r.company_key)}`}
+                      className="font-medium text-gray-900 hover:text-brand hover:underline"
+                    >
+                      {r.company_name}
+                    </Link>
+                  ) : (
+                    <div className="font-medium text-gray-900">{r.company_name}</div>
+                  )}
                   <div className="text-xs text-gray-400">
                     {r.office_city ?? ""}
                     {r.distance_mi != null ? ` · ${Math.round(r.distance_mi)} mi` : ""}
@@ -210,7 +229,16 @@ export default async function ProspectingBlastPage({
             {manual.map((r) => (
               <div key={r.id} className="flex items-center justify-between px-4 py-3 text-sm">
                 <div>
-                  <div className="font-medium text-gray-900">{r.company_name}</div>
+                  {profileByKey.has(r.company_key) ? (
+                    <Link
+                      href={`/companies/${profileByKey.get(r.company_key)}`}
+                      className="font-medium text-gray-900 hover:text-brand hover:underline"
+                    >
+                      {r.company_name}
+                    </Link>
+                  ) : (
+                    <div className="font-medium text-gray-900">{r.company_name}</div>
+                  )}
                   <div className="text-xs text-gray-400">
                     {r.office_city ?? ""}
                     {r.phone ? ` · ${r.phone}` : ""}
