@@ -26,6 +26,11 @@ type CountyService = {
     last_sale_date?: string | null;
     market_value?: number | null;
     owner_mailing_address?: string | null;
+    building_sqft?: number | null;
+    improvement_value?: number | null;
+    land_sqft?: number | null;
+    state_class?: string | null;
+    land_use?: string | null;
   };
 };
 
@@ -74,6 +79,12 @@ const COUNTY_SERVICES: CountyService[] = [
           .filter(Boolean)
           .join(", ")
       ),
+      // Trade value drivers (per-trade estimateValue models read these).
+      building_sqft: numOrNull(p.nra) || null, // 0 means "not stated"
+      improvement_value: numOrNull(p.impr_value) || null,
+      land_sqft: numOrNull(p.land_sqft) || null,
+      state_class: str(p.state_class),
+      land_use: str(p.land_use),
     }),
   },
   {

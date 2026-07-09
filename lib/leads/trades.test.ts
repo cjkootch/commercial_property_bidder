@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asTrade, DEFAULT_TRADE, TRADES, tradeNoun } from "./trades";
+import { asTrade, DEFAULT_TRADE, TRADES, tradeNoun, tradeValueInput } from "./trades";
 import { leadRank } from "./allocation";
 
 const input = (over: Partial<Parameters<typeof TRADES.pest.rank>[0]>) => ({
@@ -133,6 +133,70 @@ describe("leads/trades — per-trade ranking", () => {
     const ti = TRADES.hvac.rank(input({ kind: "construction" }));
     expect(restaurant).toBeGreaterThan(office);
     expect(office).toBeGreaterThan(ti);
+  });
+
+  it("per-trade value models price off their own drivers, never the turf teaser", () => {
+    const base = {
+      kind: "transfer" as const,
+      notes: null,
+      teaser: { annual_lo: 50_000, annual_hi: 70_000 },
+      buildingSqft: 40_000,
+      improvementValue: null,
+      landSqft: 200_000,
+      stateClass: "F1",
+      landUse: null,
+    };
+    // Landscaping = teaser passthrough.
+    expect(TRADES.landscaping.estimateValue(base)).toMatchObject({ annualLo: 50_000, annualHi: 70_000 });
+    // Cleaning: 40k sqft office at ~$0.96-1.80/sqft/yr.
+    const clean = TRADES.cleaning.estimateValue(base)!;
+    expect(clean.annualLo).toBe(38_400);
+    expect(clean.annualHi).toBe(72_000);
+    expect(clean.basis).toContain("40,000 sq ft");
+    // Industrial halves the rates (both trades) — via F2 class OR 8xxx land
+    // use (HCAD leaves many industrial facilities classed F1).
+    const ind = { ...base, stateClass: "F2" };
+    expect(TRADES.cleaning.estimateValue(ind)!.annualHi).toBeLessThan(clean.annualHi);
+    expect(TRADES.hvac.estimateValue(ind)!.annualHi).toBeLessThan(TRADES.hvac.estimateValue(base)!.annualHi);
+    const indByUse = { ...base, landUse: "8002" };
+    expect(TRADES.cleaning.estimateValue(indByUse)!.annualHi).toBe(
+      TRADES.cleaning.estimateValue(ind)!.annualHi
+    );
+    // Paving prices the lot, not the building: 200k land * 40% paved * $0.06-0.12.
+    const pave = TRADES.paving.estimateValue(base)!;
+    expect(pave.annualLo).toBe(4_800);
+    expect(pave.annualHi).toBe(9_600);
+    // Security prices exposure: construction/distress fixed bands beat sqft.
+    expect(TRADES.security.estimateValue({ ...base, kind: "construction" })!.annualHi).toBe(60_000);
+    expect(TRADES.security.estimateValue({ ...base, kind: "distress" })!.annualLo).toBe(18_000);
+    // Pest: restaurants flat, apartments per-unit, otherwise tiers.
+    expect(TRADES.pest.estimateValue({ ...base, notes: "TABC license application" })!.annualHi).toBe(3_600);
+    const apts = TRADES.pest.estimateValue({ ...base, stateClass: "B1" })!;
+    expect(apts.basis).toContain("units");
+    expect(TRADES.pest.estimateValue(base)!.annualLo).toBe(2_400); // 40k sqft tier
+    // No data -> no number invented.
+    const empty = { ...base, teaser: null, buildingSqft: null, improvementValue: null, landSqft: null };
+    expect(TRADES.cleaning.estimateValue(empty)).toBeNull();
+    expect(TRADES.landscaping.estimateValue(empty)).toBeNull();
+    expect(TRADES.paving.estimateValue(empty)).toBeNull();
+  });
+
+  it("tradeValueInput degrades gracefully on pre-capture parcels", () => {
+    const i = tradeValueInput(
+      {
+        notes: "n",
+        lead_teaser: { annual_lo: 1, annual_hi: 2 },
+        // An old parcel_geojson: no nra/impr_value/land_sqft, but acres +
+        // county market value exist.
+        parcel_geojson: { acres: 2, market_value: 1_200_000 },
+      },
+      "transfer"
+    );
+    expect(i.landSqft).toBe(Math.round(2 * 43_560));
+    expect(i.improvementValue).toBe(780_000); // 65% of market value
+    expect(i.buildingSqft).toBeNull();
+    // And a parcel-less lead (RFP) never crashes.
+    expect(tradeValueInput({ notes: null, lead_teaser: null, parcel_geojson: null }, "rfp").landSqft).toBeNull();
   });
 
   it("the same lead ranks differently across trades — each shelf has its own order", () => {
