@@ -158,6 +158,7 @@ export function orgNameMatches(expected: string, got: string | null | undefined)
 }
 
 type ApolloPerson = {
+  id?: string;
   name?: string;
   title?: string | null;
   email?: string | null;
@@ -180,14 +181,21 @@ export async function findDecisionContact(
   const key = getApolloKey();
   if (!raw || !key) return null;
   try {
+    const domain =
+      opts?.domain?.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "").toLowerCase() || null;
+    // People search filters by employer DOMAIN; an org-name param is silently
+    // ignored, so without a domain the keyword filter is the real scoping.
     const res = await fetch("https://api.apollo.io/api/v1/mixed_people/search", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
-      body: JSON.stringify({ q_organization_name: raw, page: 1, per_page: 10 }),
+      body: JSON.stringify({
+        ...(domain ? { q_organization_domains_list: [domain] } : { q_keywords: raw }),
+        page: 1,
+        per_page: 10,
+      }),
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { people?: ApolloPerson[]; contacts?: ApolloPerson[] };
-    const domain = opts?.domain?.replace(/^https?:\/\//, "").replace(/\/.*$/, "") ?? null;
     const candidates = [...(data.people ?? []), ...(data.contacts ?? [])].filter(
       (p) =>
         p.name?.trim() &&
@@ -232,9 +240,12 @@ export async function findCompanyEmail(
     const res = await fetch("https://api.apollo.io/api/v1/mixed_people/search", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
+      // People search filters by employer DOMAIN (q_organization_domains_list);
+      // an org-NAME param is not a people-search filter and gets silently
+      // ignored — which returned unrelated people our gate then rejected.
+      // Without a domain, keywords are the closest supported scoping.
       body: JSON.stringify({
-        q_organization_name: raw,
-        ...(domain ? { q_organization_domains: domain } : {}),
+        ...(domain ? { q_organization_domains_list: [domain] } : { q_keywords: raw }),
         page: 1,
         per_page: 10,
       }),
@@ -242,7 +253,10 @@ export async function findCompanyEmail(
     if (!res.ok) return null;
     const data = (await res.json()) as { people?: ApolloPerson[]; contacts?: ApolloPerson[] };
     const people = [...(data.people ?? []), ...(data.contacts ?? [])].filter(
-      (p) => p.name?.trim() && orgNameMatches(raw, p.organization?.name)
+      (p) =>
+        (p.name?.trim() || p.id) &&
+        (orgNameMatches(raw, p.organization?.name) ||
+          (domain && p.organization?.primary_domain?.toLowerCase() === domain))
     );
     // Rank by decision authority, then take the first with a real, on-domain
     // (or freemail) email — a wrong-company personal address is worse than none.
@@ -265,16 +279,14 @@ export async function findCompanyEmail(
       if (ok(cand.email)) {
         return { email: cand.email!, name: cand.name?.trim() ?? null, title: cand.title?.trim() ?? null };
       }
-      const [first, ...rest] = (cand.name ?? "").trim().split(/\s+/);
-      if (!first || !rest.length) continue;
+      // Match by the search result's person id — exact, and immune to the
+      // last-name masking search responses apply on some plans.
+      if (!cand.id) continue;
       const mres = await fetch("https://api.apollo.io/api/v1/people/match", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
         body: JSON.stringify({
-          first_name: first,
-          last_name: rest.join(" "),
-          organization_name: cand.organization?.name ?? raw,
-          ...(domain ? { domain } : {}),
+          id: cand.id,
           reveal_personal_emails: false,
         }),
       });
