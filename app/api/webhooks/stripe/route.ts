@@ -177,6 +177,7 @@ export async function POST(req: NextRequest) {
       price_cents: session.amount_total ?? 0,
       stripe_session_id: session.id,
       dossier,
+      cycle: prop.sale_cycle,
     })
     .onConflictDoNothing({ target: [leadUnlock.property_id, leadUnlock.buyer_id] })
     .returning();

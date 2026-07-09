@@ -12,6 +12,11 @@
 //     exclusive sells. The property-wide lead_exported_at stamp (operator CSV
 //     export) closes it for every trade; the automatic stamp only lands when
 //     ALL registered trades are closed.
+//   - RENEWALS: contracts re-bid annually, so the renewal cron bumps
+//     property.sale_cycle and clears lead_exported_at ~11 months after a
+//     sale. Cap counting is WITHIN the current cycle (fresh spots each
+//     anniversary), but an EXCLUSIVE closes its trade across ALL cycles —
+//     "yours alone, permanently" is the promise the buyer paid for.
 //
 // Neon's HTTP driver has no transactions, so cap races are handled optimistically:
 // insert first, then confirmUnlockWithinCap() re-reads and rolls back the rows
@@ -38,15 +43,18 @@ export type LeadAvailability = {
 };
 
 export async function leadAvailability(
-  prop: Pick<Property, "id" | "lead_exported_at">,
+  prop: Pick<Property, "id" | "lead_exported_at"> & { sale_cycle?: number },
   trade: Trade = DEFAULT_TRADE
 ): Promise<LeadAvailability> {
   const closed: LeadAvailability = { open: false, exclusiveOpen: false, spotsLeft: 0, closed: true };
   if (prop.lead_exported_at != null) return closed;
-  const unlocks = (
+  const cycle = prop.sale_cycle ?? 0;
+  const all = (
     await db.select().from(leadUnlock).where(eq(leadUnlock.property_id, prop.id))
   ).filter((u) => u.trade === trade);
-  if (unlocks.some((u) => u.kind === "exclusive")) return closed;
+  // An exclusive closes its trade forever — including future renewal cycles.
+  if (all.some((u) => u.kind === "exclusive")) return closed;
+  const unlocks = all.filter((u) => u.cycle === cycle);
   const spotsLeft = Math.max(0, leadMaxBuyers() - unlocks.length);
   return { open: spotsLeft > 0, exclusiveOpen: unlocks.length === 0, spotsLeft, closed: spotsLeft === 0 };
 }
@@ -54,9 +62,9 @@ export async function leadAvailability(
 /**
  * Post-insert cap check for the no-transaction race window. Re-reads this
  * TRADE's unlocks for the property in deterministic order; if this row landed
- * past the trade's cap (or after someone else's exclusive, or alongside
- * another row when it IS the exclusive), it is deleted. Returns true when the
- * unlock stands.
+ * past the trade's cap in ITS CYCLE (or after someone else's exclusive in any
+ * cycle, or alongside another row when it IS the exclusive), it is deleted.
+ * Returns true when the unlock stands.
  */
 export async function confirmUnlockWithinCap(unlockId: string, propertyId: string): Promise<boolean> {
   const all = await db
@@ -67,13 +75,20 @@ export async function confirmUnlockWithinCap(unlockId: string, propertyId: strin
   const mine = all.find((r) => r.id === unlockId);
   if (!mine) return false;
   // The cap race is within the trade — rows from other trades never block.
-  const rows = all.filter((r) => r.trade === mine.trade);
+  const tradeRows = all.filter((r) => r.trade === mine.trade);
+  // Exclusives block their trade across every cycle.
+  const exclusiveBeforeMine = tradeRows.some(
+    (r) => r.kind === "exclusive" && r.id !== mine.id && tradeRows.indexOf(r) < tradeRows.indexOf(mine)
+  );
+  // Cap/free counting happens within the row's own cycle.
+  const rows = tradeRows.filter((r) => r.cycle === mine.cycle);
   const idx = rows.findIndex((r) => r.id === unlockId);
   const before = rows.slice(0, idx);
   const ok =
     mine.kind === "exclusive"
-      ? idx === 0
+      ? idx === 0 && !exclusiveBeforeMine
       : idx < leadMaxBuyers() &&
+        !exclusiveBeforeMine &&
         !before.some((r) => r.kind === "exclusive") &&
         // Free cap (allocation.FREE_MAX_PER_LEAD = 1, per trade) re-checked
         // post-insert: two concurrent free claims must not both survive.
@@ -84,17 +99,28 @@ export async function confirmUnlockWithinCap(unlockId: string, propertyId: strin
 
 /**
  * Stamp the property closed (lead_exported_at + lead_buyer) once EVERY
- * registered trade is done (cap full or exclusive sold). Safe to call after
- * every unlock; no-ops while any trade still has spots. Never overwrites an
- * existing stamp. (With one live trade this behaves exactly as before.)
+ * registered trade is done for the CURRENT cycle (cap full or exclusive
+ * sold). Safe to call after every unlock; no-ops while any trade still has
+ * spots. Never overwrites an existing stamp. The renewal cron clears the
+ * stamp and bumps the cycle when the anniversary arrives.
  */
 export async function closeLeadIfDone(propertyId: string): Promise<void> {
+  const [prop] = await db
+    .select({ sale_cycle: property.sale_cycle })
+    .from(property)
+    .where(eq(property.id, propertyId))
+    .limit(1);
+  const cycle = prop?.sale_cycle ?? 0;
   const rows = await db.select().from(leadUnlock).where(eq(leadUnlock.property_id, propertyId));
   const cap = leadMaxBuyers();
   const trades = Object.keys(TRADES) as Trade[];
   const doneFor = (t: Trade) => {
     const mine = rows.filter((r) => r.trade === t);
-    return mine.some((r) => r.kind === "exclusive") || mine.length >= cap;
+    // Any-cycle exclusive keeps the trade closed; the cap counts this cycle.
+    return (
+      mine.some((r) => r.kind === "exclusive") ||
+      mine.filter((r) => r.cycle === cycle).length >= cap
+    );
   };
   if (!trades.every(doneFor)) return;
   const excl = rows.find((r) => r.kind === "exclusive");

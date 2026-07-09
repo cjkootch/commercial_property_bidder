@@ -253,6 +253,13 @@
       "when": 1783543071832,
       "tag": "0035_brainy_luke_cage",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1783568619182,
+      "tag": "0036_slimy_spirit",
+      "breakpoints": true
     }
   ]
 }
