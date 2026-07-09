@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyerOutreach, property } from "@/lib/db/schema";
-import { displayName } from "@/lib/leads/market";
+import { buyer, buyerOutreach, leadUnlock, property } from "@/lib/db/schema";
+import { displayName, leadKind } from "@/lib/leads/market";
+import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
 
-// Per-blast drill-down: every company we offered this lead to, with its Resend
-// funnel state (sent → delivered → opened → clicked, or bounced) and the
-// no-email companies queued for manual paste outreach.
+// Per-blast drill-down: the property + its campaign trade and value estimate,
+// who claimed it (name, kind, price), every company's Resend funnel state
+// (sent → delivered → opened → clicked, or bounced) with the exact email each
+// received, and the no-email companies queued for manual paste outreach.
 export const dynamic = "force-dynamic";
 
 const fmt = (d: Date | null) =>
@@ -25,7 +27,7 @@ export default async function ProspectingBlastPage({
   params: { propertyId: string };
 }) {
   const [prop] = await db
-    .select({ id: property.id, name: property.name, city: property.city })
+    .select()
     .from(property)
     .where(eq(property.id, params.propertyId))
     .limit(1);
@@ -39,16 +41,45 @@ export default async function ProspectingBlastPage({
   const emailed = rows.filter((r) => r.status === "sent" || r.status === "bounced");
   const manual = rows.filter((r) => r.status === "skipped");
 
+  // The campaign's trade rides in the claim links (?trade=...).
+  const trade = asTrade(rows.find((r) => r.claim_url)?.claim_url?.match(/[?&]trade=([a-z]+)/)?.[1]);
+  const kind = prop ? leadKind(prop.name) : null;
+  const est = prop && kind ? TRADES[trade].estimateValue(tradeValueInput(prop, kind)) : null;
+  const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
+
+  // Who claimed it — every unlock on the property, any trade, with the buyer.
+  const claims = prop
+    ? await db
+        .select({
+          kind: leadUnlock.kind,
+          trade: leadUnlock.trade,
+          price_cents: leadUnlock.price_cents,
+          at: leadUnlock.created_at,
+          company: buyer.company_name,
+          email: buyer.email,
+        })
+        .from(leadUnlock)
+        .innerJoin(buyer, eq(leadUnlock.buyer_id, buyer.id))
+        .where(eq(leadUnlock.property_id, prop.id))
+        .orderBy(desc(leadUnlock.created_at))
+    : [];
+
   return (
     <div>
       <Link href="/campaigns" className="text-sm text-gray-400 hover:text-gray-600">
         ← Campaigns
       </Link>
-      <h1 className="mt-2 text-2xl font-semibold">
+      <h1 className="mt-2 flex flex-wrap items-center gap-2 text-2xl font-semibold">
         {prop ? displayName(prop.name) : "Lead-offer blast"}
+        <span className="rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-bold text-brand">
+          {TRADES[trade].label}
+        </span>
       </h1>
       <p className="mt-1 text-sm text-gray-500">
-        {prop?.city ? `${prop.city} · ` : ""}
+        {prop?.address ? `${prop.address}, ` : ""}
+        {prop?.city ?? ""}
+        {est ? ` · est. ${usd(est.annualLo)}–${usd(est.annualHi)}/yr (${est.basis})` : ""}
+        {" · "}
         {emailed.length} emailed · {manual.length} without an email
         {prop ? (
           <>
@@ -59,6 +90,30 @@ export default async function ProspectingBlastPage({
           </>
         ) : null}
       </p>
+
+      {claims.length ? (
+        <div className="mt-4 rounded-xl border border-green-200 bg-green-50 p-4">
+          <h2 className="text-sm font-bold text-green-900">
+            Claimed by {claims.length} compan{claims.length === 1 ? "y" : "ies"}
+          </h2>
+          <ul className="mt-2 space-y-1 text-sm text-green-900">
+            {claims.map((c, i) => (
+              <li key={i}>
+                <span className="font-semibold">{c.company}</span>{" "}
+                <span className="text-green-700">({c.email})</span> —{" "}
+                {c.kind === "free"
+                  ? "free claim"
+                  : c.kind === "exclusive"
+                    ? `EXCLUSIVE, ${usd(c.price_cents / 100)}`
+                    : `paid, ${usd(c.price_cents / 100)}`}{" "}
+                · {c.trade} · {fmt(c.at)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-gray-400">No claims yet — spots are still open.</p>
+      )}
 
       <div className="mt-6 overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <table className="w-full text-sm">
@@ -82,6 +137,16 @@ export default async function ProspectingBlastPage({
                     {r.distance_mi != null ? ` · ${Math.round(r.distance_mi)} mi` : ""}
                     {r.commercial_signal ? " · commercial" : ""}
                   </div>
+                  {r.message ? (
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-xs text-brand hover:underline">
+                        view email
+                      </summary>
+                      <pre className="mt-2 max-w-xl whitespace-pre-wrap rounded-md bg-gray-50 p-3 text-xs leading-relaxed text-gray-700">
+                        {r.message}
+                      </pre>
+                    </details>
+                  ) : null}
                 </td>
                 <td className="px-3 py-3 text-gray-600">{r.email}</td>
                 <td className="px-3 py-3 text-gray-500">
