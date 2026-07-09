@@ -605,8 +605,11 @@ export async function runBuyerProspecting(opts?: {
       distanceMi: q.distance,
       brand: co.name,
       replyEmail,
-      // Tiered: the pitch quotes the same price checkout will charge.
-      price: Math.round(leadTierFor(lead.annualHi, lead.kind).price_cents / 100),
+      // Tiered off THIS trade's value estimate: the pitch quotes the same
+      // price checkout will charge a buyer of this trade.
+      price: Math.round(
+        leadTierFor(lead.value?.annualHi ?? null, lead.kind).price_cents / 100
+      ),
       cap,
       claimUrl,
       trade,

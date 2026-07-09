@@ -24,7 +24,7 @@ import {
 } from "@/lib/leads/availability";
 import { createLeadCheckout } from "@/lib/integrations/stripe";
 import { leadTierFor } from "@/lib/leads/pricing-tiers";
-import { asTrade } from "@/lib/leads/trades";
+import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
 import { geocodeAddress, geocodeWithZip } from "@/lib/integrations/geocoding";
 import { sendEmail } from "@/lib/integrations/resend";
 import { getDefaultCompany } from "@/lib/db/queries";
@@ -398,9 +398,11 @@ export async function startCheckout(propertyId: string, kind: "paid" | "exclusiv
     .limit(1);
   if (mine) fail("You already have this lead — it's in your unlocked list.");
 
-  // Value-based tier: the same lead always quotes the same price everywhere.
-  const teaser = prop!.lead_teaser as { annual_hi?: number } | null;
-  const tier = leadTierFor(teaser?.annual_hi ?? null, leadKind(prop!.name));
+  // Value-based tier keyed to THIS BUYER'S TRADE's estimate — the memo, the
+  // shelf card, and this checkout all quote the same per-trade price.
+  const kindOfLead = leadKind(prop!.name);
+  const est = TRADES[asTrade(row.trade)].estimateValue(tradeValueInput(prop!, kindOfLead));
+  const tier = leadTierFor(est?.annualHi ?? null, kindOfLead);
 
   // Account credit (replacement-lead policy) covers it? Unlock right here — no
   // card, no Stripe. Credit is deducted atomically first (guards double-spend
