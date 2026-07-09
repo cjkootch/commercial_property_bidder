@@ -277,12 +277,12 @@ export function buildProspectMessage(o: {
   const subject =
     trade === "landscaping"
       ? `Grounds contract lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""} — est. ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr`
-      : `Commercial ${TRADES[trade].label.toLowerCase()} lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""}`;
+      : `Commercial ${TRADES[trade].service} lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""}`;
 
   const valueRows =
     trade === "landscaping"
       ? `${lead.turf ? `GROUNDS — ~${Math.round(lead.turf).toLocaleString()} sq ft of maintainable turf, ${lead.verified ? "hand-verified measurement" : "measured from the air"}\n` : ""}EST. VALUE — ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr at market rates, recurring`
-      : `CONTRACT — year-round ${TRADES[trade].label.toLowerCase()} contract, vendor decision in motion`;
+      : `CONTRACT — year-round ${TRADES[trade].service} contract, vendor decision in motion`;
 
   const body = `${o.company} team —
 
