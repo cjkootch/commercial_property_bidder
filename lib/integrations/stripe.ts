@@ -156,6 +156,47 @@ export async function createLeadCheckout(opts: {
   }
 }
 
+/** Subscription Checkout Session for First Look (24h early access, monthly).
+ *  metadata rides on BOTH the session and the subscription so renewal and
+ *  cancellation events can find the buyer without a customer table. */
+export async function createFirstLookCheckout(opts: {
+  amountCents: number;
+  buyerEmail: string;
+  buyerId: string;
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<CheckoutResult> {
+  const key = getStripeKey();
+  if (!key) return { ok: false, error: "Payments not configured (STRIPE_SECRET_KEY)." };
+  const params = new URLSearchParams({
+    mode: "subscription",
+    customer_email: opts.buyerEmail,
+    success_url: opts.successUrl,
+    cancel_url: opts.cancelUrl,
+    "line_items[0][quantity]": "1",
+    "line_items[0][price_data][currency]": "usd",
+    "line_items[0][price_data][unit_amount]": String(opts.amountCents),
+    "line_items[0][price_data][recurring][interval]": "month",
+    "line_items[0][price_data][product_data][name]": "First Look — see every new job 24h early",
+    "metadata[type]": "first_look",
+    "metadata[buyer_id]": opts.buyerId,
+    "subscription_data[metadata][type]": "first_look",
+    "subscription_data[metadata][buyer_id]": opts.buyerId,
+  });
+  try {
+    const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
+    const data = (await res.json()) as { url?: string; error?: { message?: string } };
+    if (!res.ok || !data.url) return { ok: false, error: data.error?.message ?? `Stripe error (${res.status}).` };
+    return { ok: true, url: data.url };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Stripe request failed." };
+  }
+}
+
 /**
  * Refund a payment in full (lost cap race, duplicate purchase, unsellable
  * lead). Best-effort: returns false on any failure so callers flag the session

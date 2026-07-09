@@ -23,6 +23,13 @@ import {
   type Trade,
   type TradeValueEstimate,
 } from "@/lib/leads/trades";
+import {
+  FIRST_LOOK_HOURS,
+  firstLookActive,
+  firstLookPriceCents,
+  hoursUntilPublic,
+  inFirstLookWindow,
+} from "@/lib/leads/subscription";
 import { haversineMiles } from "@/lib/sourcing/criteria";
 import {
   buyerLogout,
@@ -31,6 +38,7 @@ import {
   markAlertsSeen,
   sendChatMessage,
   startCheckout,
+  startFirstLookCheckout,
   toggleNotifications,
 } from "./actions";
 import { Logo } from "@/components/Logo";
@@ -186,7 +194,18 @@ export default async function BuyerDashboard({
           : null,
     };
   };
-  const eligible = market.filter((l) => !l.holders.has(me.id)).map(toItem);
+  // First Look: brand-new leads live on members' shelves only during the
+  // early-access window. Display-level gate — operator-sent links (campaign
+  // claims, waterfall offers) keep working for everyone.
+  const hasFirstLook = firstLookActive(me);
+  const allEligible = market.filter((l) => !l.holders.has(me.id)).map(toItem);
+  const lockedFresh = hasFirstLook
+    ? []
+    : allEligible.filter(
+        (x) => inFirstLookWindow(x.p.created_at) && x.p.id !== searchParams.offer
+      );
+  const lockedIds = new Set(lockedFresh.map((x) => x.p.id));
+  const eligible = allEligible.filter((x) => !lockedIds.has(x.p.id));
 
   // Waterfall offer landing (?offer=<propertyId> from the offer email): pin
   // the offered job if it's still open; if it filled, say so honestly and
@@ -612,6 +631,46 @@ export default async function BuyerDashboard({
             instantly becomes account credit that auto-applies to any job at or below that amount — it never disappears.
             {" "}<Link href="/terms" className="underline">*Terms</Link>
           </p>
+          {/* First Look: what the machine manufactures is EARLINESS — sold
+              directly. Members see the window's jobs; others see the count. */}
+          {!hasFirstLook && lockedFresh.length > 0 ? (
+            <div className="mt-3 rounded-2xl border-2 border-dashed border-brand/40 bg-brand/5 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-bold text-gray-900">
+                    🔒 {lockedFresh.length} brand-new job{lockedFresh.length === 1 ? "" : "s"} in
+                    the First Look window
+                  </div>
+                  <p className="mt-1 text-xs text-gray-600">
+                    First Look members see every job the moment it lands — a{" "}
+                    {FIRST_LOOK_HOURS}-hour head start on a market where jobs cap at {cap}{" "}
+                    companies. The freshest one here goes public in ~
+                    {hoursUntilPublic(
+                      lockedFresh.reduce(
+                        (m, x) => (x.p.created_at > m ? x.p.created_at : m),
+                        lockedFresh[0].p.created_at
+                      )
+                    )}
+                    h.
+                  </p>
+                </div>
+                <form action={startFirstLookCheckout}>
+                  <button className="rounded-lg bg-brand px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-brand-dark">
+                    Get First Look — ${Math.round(firstLookPriceCents() / 100)}/mo
+                  </button>
+                </form>
+              </div>
+            </div>
+          ) : null}
+          {hasFirstLook ? (
+            <p className="mt-2 text-xs font-semibold text-brand">
+              ⚡ First Look active — you see new jobs {FIRST_LOOK_HOURS}h before everyone else
+              {me.plan_expires_at
+                ? ` (renews by ${me.plan_expires_at.toLocaleDateString("en-US", { month: "short", day: "numeric" })})`
+                : ""}
+              .
+            </p>
+          ) : null}
           {inRange.length === 0 ? (
             <p className="mt-3 rounded-lg border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500">
               Nothing open inside your {radius}-mile range right now.

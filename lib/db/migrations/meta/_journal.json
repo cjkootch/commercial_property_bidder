@@ -260,6 +260,13 @@
       "when": 1783568619182,
       "tag": "0036_slimy_spirit",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1783569515675,
+      "tag": "0037_pretty_ted_forrester",
+      "breakpoints": true
     }
   ]
 }
