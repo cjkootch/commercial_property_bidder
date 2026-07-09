@@ -22,8 +22,8 @@ export default async function BuyerSignup({
         </Link>
         <h1 className="mt-4 text-xl font-semibold">Create your free profile</h1>
         <p className="mt-1 text-sm text-gray-500">
-          See the commercial grounds jobs open near your office. Your first job sheet is free —
-          no card required.
+          See the commercial jobs open near your office, in your trade. Your first job sheet is
+          free — no card required.
         </p>
 
         <form action={createBuyerAccount} className="mt-6 space-y-3">
