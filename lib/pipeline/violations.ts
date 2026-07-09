@@ -15,6 +15,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
+import { currentMarket } from "../markets";
 import { fetchHarrisParcelAtPoint } from "../integrations/parcel";
 import { estimateServiceableArea } from "../integrations/imagery";
 import { getMapboxToken } from "../integrations/geocoding";
@@ -24,8 +25,7 @@ import { icpGuess } from "./permits";
 import { loadRejects, recordReject } from "./rejects";
 import type { ParcelResult } from "../geo/types";
 
-const EXTRACT_URL =
-  "https://hfdapp.houstontx.gov/311/311-CRIS-Public-Data-Extract-D365-MTD-compressed.txt";
+const EXTRACT_URL = currentMarket().violations311Url;
 
 /** 311 case types that mean "the grounds are the problem". Values verified
  *  against the live extract (2026-07): dumping (~154/mo) and heavy-trash

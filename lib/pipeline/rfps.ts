@@ -20,15 +20,12 @@
 import { and, isNull, like, sql } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
+import { currentMarket } from "../markets";
 
-/** Houston-area Bonfire portals (all verified to serve the public JSON). */
-export const BONFIRE_PORTALS: { slug: string; agency: string; city: string }[] = [
-  { slug: "harriscountytx", agency: "Harris County", city: "Houston" },
-  { slug: "hccs", agency: "Houston Community College", city: "Houston" },
-  { slug: "ridemetro", agency: "METRO (Harris County Transit)", city: "Houston" },
-  { slug: "fortbendcountytx", agency: "Fort Bend County", city: "Richmond" },
-  { slug: "galvestoncountytx", agency: "Galveston County", city: "Galveston" },
-];
+/** The market's Bonfire portals (lib/markets registry — verified to serve
+ *  the public JSON for Houston; verify per metro when adding one). */
+export const BONFIRE_PORTALS: { slug: string; agency: string; city: string }[] =
+  currentMarket().bonfirePortals;
 
 /** A solicitation is ours if the title reads like grounds/landscape work. */
 const KEYWORDS =

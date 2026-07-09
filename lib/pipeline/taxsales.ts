@@ -19,6 +19,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
+import { currentMarket } from "../markets";
 import { fetchHarrisParcelAtPoint } from "../integrations/parcel";
 import { estimateServiceableArea } from "../integrations/imagery";
 import { getMapboxToken } from "../integrations/geocoding";
@@ -86,7 +87,7 @@ export async function fetchTaxSales(opts?: { limit?: number }): Promise<TaxSaleR
   while (out.length < limit) {
     const page = Math.min(200, limit - out.length);
     const params = new URLSearchParams({
-      county: "HARRIS COUNTY",
+      county: currentMarket().taxSaleCounty,
       state: "TX",
       limit: String(page),
       offset: String(offset),

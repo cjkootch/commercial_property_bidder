@@ -25,6 +25,7 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
+import { currentMarket } from "../markets";
 import { searchLandscapers, type BuyerCandidate } from "../integrations/apollo";
 import {
   DEFAULT_TRADE,
@@ -518,16 +519,16 @@ export async function runBuyerProspecting(opts?: {
     candidates = opts.candidates;
   } else if (needDiscovery) {
     candidates = await searchLandscapers(
-      `${lead.city ?? "Houston"}, Texas`,
+      lead.city ? `${lead.city}, Texas` : currentMarket().metroSearch,
       CANDIDATE_POOL,
       TRADES[trade].prospectKeywords
     );
     // A small town yielding fewer companies than the target list can't fill the
     // blast — merge in the metro pool (deduped) whenever the town runs short.
-    if (candidates.length < want && lead.city && lead.city.toLowerCase() !== "houston") {
+    if (candidates.length < want && lead.city && lead.city.toLowerCase() !== currentMarket().metroCity) {
       log.push(`Only ${candidates.length} candidate(s) in ${lead.city} — widening to the Houston metro.`);
       const seen = new Set(candidates.map((c) => companyKey(c.name)));
-      const metro = await searchLandscapers("Houston, Texas", CANDIDATE_POOL, TRADES[trade].prospectKeywords);
+      const metro = await searchLandscapers(currentMarket().metroSearch, CANDIDATE_POOL, TRADES[trade].prospectKeywords);
       candidates = [...candidates, ...metro.filter((c) => !seen.has(companyKey(c.name)))];
     }
   } else {
