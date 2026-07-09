@@ -274,6 +274,13 @@
       "when": 1783569789479,
       "tag": "0038_dusty_sentinels",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1783615609816,
+      "tag": "0039_high_arachne",
+      "breakpoints": true
     }
   ]
 }

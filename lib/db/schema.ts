@@ -410,6 +410,34 @@ export const buyerOutreach = pgTable("buyer_outreach", {
   ...timestamps,
 });
 
+// --- prospect_company ------------------------------------------------------
+// One profile per company we've ever pitched (keyed by normalized name),
+// enriched as they act. Email-funnel aggregates (sends/opens/clicks) are
+// computed on read from buyer_outreach to avoid dual-write drift; this row
+// stores identity plus the events that have no other home: claim-page views
+// (the hottest unconverted signal — they read the offer) and the account
+// linkage once they sign up.
+
+export const prospectCompany = pgTable("prospect_company", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  key: text("key").notNull().unique(), // companyKey(name)
+  name: text("name").notNull(),
+  trade: text("trade").notNull().default("landscaping"),
+  website: text("website"),
+  email: text("email"),
+  phone: text("phone"),
+  contact_form_url: text("contact_form_url"),
+  office_city: text("office_city"),
+  office_lat: doublePrecision("office_lat"),
+  office_lng: doublePrecision("office_lng"),
+  commercial_signal: boolean("commercial_signal"),
+  claim_views: integer("claim_views").notNull().default(0),
+  last_claim_view_at: timestamp("last_claim_view_at", { withTimezone: true }),
+  // Set when a signup arrives via a claim token carrying this company name.
+  buyer_id: uuid("buyer_id").references(() => buyer.id, { onDelete: "set null" }),
+  ...timestamps,
+});
+
 // --- bid_request -----------------------------------------------------------
 // The other side of the marketplace: a property owner/manager asking for
 // competing bids. v1 is capture + operator routing (the buyer roster is the

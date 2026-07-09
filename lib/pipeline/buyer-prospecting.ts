@@ -42,6 +42,7 @@ import { leadMaxBuyers } from "../leads/availability";
 import { haversineMiles } from "../sourcing/criteria";
 import { loadMarketLeads, type LeadKind, type MarketLead } from "../leads/market";
 import { leadTierFor } from "../leads/pricing-tiers";
+import { upsertProspectCompany } from "../leads/companies";
 
 /** Don't email a NEWLY DISCOVERED company again within this window. Known
  *  contacts (past recipients) instead follow the area-alert cadence below. */
@@ -670,6 +671,20 @@ export async function runBuyerProspecting(opts?: {
         status: q.email ? "queued" : "skipped",
       })
       .returning();
+    // Refresh the company's profile (identity + trade) — the company graph
+    // every enrichment event (claim views, signup linkage) lands on.
+    await upsertProspectCompany({
+      name: q.c.name,
+      trade,
+      website: q.c.website,
+      email: q.email,
+      phone: q.phone,
+      contact_form_url: q.form,
+      office_city: q.c.city,
+      office_lat: q.coords?.[1] ?? null,
+      office_lng: q.coords?.[0] ?? null,
+      commercial_signal: q.commercial,
+    });
     if (!q.email) continue;
     queued++;
 

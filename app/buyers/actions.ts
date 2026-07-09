@@ -24,6 +24,7 @@ import {
 } from "@/lib/leads/availability";
 import { createFirstLookCheckout, createLeadCheckout } from "@/lib/integrations/stripe";
 import { firstLookPriceCents } from "@/lib/leads/subscription";
+import { companyKey as companyKeyOf, linkCompanyToBuyer } from "@/lib/leads/companies";
 import { leadTierFor } from "@/lib/leads/pricing-tiers";
 import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
 import { geocodeAddress, geocodeWithZip } from "@/lib/integrations/geocoding";
@@ -84,6 +85,14 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
     )[0];
 
   const claimed = await tryFreeUnlock(row.id, claim.property_id, co?.name ?? null);
+
+  // Stitch the journey: the claim token carries the company we pitched, so
+  // the prospect profile links to the account it became (and the signup name
+  // links too, when they typed something different).
+  await linkCompanyToBuyer(claim.company, row.id);
+  if (companyKeyOf(company) !== companyKeyOf(claim.company ?? "")) {
+    await linkCompanyToBuyer(company, row.id);
+  }
 
   cookies().set(BUYER_COOKIE, signBuyerSession(row.id), {
     httpOnly: true,
