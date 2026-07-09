@@ -865,6 +865,7 @@ export async function offerLeadToBuyers(propertyId: string): Promise<void> {
     return b && !/localhost|127\.0\.0\.1/.test(b) ? b : "https://greenkeep.us";
   })();
   const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
+  const { tradeValueInput } = await import("@/lib/leads/trades");
   const teaser = prop!.lead_teaser as { annual_lo?: number; annual_hi?: number } | null;
   const kind = kindOf(prop!.name);
   const kindLine =
@@ -877,24 +878,42 @@ export async function offerLeadToBuyers(propertyId: string): Promise<void> {
           : kind === "distress"
             ? "The property is in the county tax-sale pipeline — cleanup is needed now, and the next owner re-bids every vendor."
             : kind === "rfp"
-              ? "A government agency is taking bids on this grounds contract — multi-year public money with a hard deadline."
-              : "It's behind a new construction project — the first grounds contract hasn't been won yet.";
-  const valueTxt = teaser?.annual_lo
-    ? `${usd(teaser.annual_lo)}–${usd(teaser.annual_hi ?? teaser.annual_lo)}/yr`
-    : "a year-round";
-  const subject = teaser?.annual_lo
-    ? `First come, first served: ${valueTxt} grounds contract${prop!.city ? ` near ${prop!.city}` : ""}`
-    : `First come, first served: a grounds contract${prop!.city ? ` near ${prop!.city}` : ""}`;
+              ? "A government agency is taking bids on this contract — multi-year public money with a hard deadline."
+              : "It's behind a new construction project — the first contract hasn't been won yet.";
+
+  // LEAD INTEGRITY: every recipient reads the offer in THEIR trade's terms —
+  // a security company gets a security contract at security value, never a
+  // "grounds contract" with landscaping dollars. Landscaping keeps the
+  // measured turf teaser; other trades use their county-records value model.
+  const offerVoice = (t: ReturnType<typeof asTrade>): { valueTxt: string | null; noun: string } => {
+    if (t === "landscaping") {
+      return {
+        valueTxt: teaser?.annual_lo
+          ? `${usd(teaser.annual_lo)}–${usd(teaser.annual_hi ?? teaser.annual_lo)}/yr`
+          : null,
+        noun: "grounds contract",
+      };
+    }
+    const est = TRADES[t].estimateValue(tradeValueInput(prop!, kind));
+    return {
+      valueTxt: est ? `${usd(est.annualLo)}–${usd(est.annualHi)}/yr` : null,
+      noun: `commercial ${TRADES[t].service} contract`,
+    };
+  };
 
   let sent = 0;
   for (const { b, miles } of recipients) {
+    const voice = offerVoice(asTrade(b.trade));
+    const subject = voice.valueTxt
+      ? `First come, first served: ${voice.valueTxt} ${voice.noun}${prop!.city ? ` near ${prop!.city}` : ""}`
+      : `First come, first served: a ${voice.noun}${prop!.city ? ` near ${prop!.city}` : ""}`;
     const unsubUrl = `${base}/api/unsubscribe?token=${encodeURIComponent(signBuyerUnsub(b.email))}`;
     const res = await sendEmail({
       to: b.email,
       subject,
       html:
         `<p>${b.company_name} — we're offering you a job${prop!.city ? ` in the ${prop!.city} area` : ""}${miles != null ? `, about ${Math.max(1, Math.round(miles))} mi from your office` : ""}:</p>` +
-        `<p style="font-size:18px;font-weight:700;margin:8px 0">${teaser?.annual_lo ? `${valueTxt} grounds contract` : "A year-round grounds contract"}</p>` +
+        `<p style="font-size:18px;font-weight:700;margin:8px 0">${voice.valueTxt ? `${voice.valueTxt} ${voice.noun}` : `A year-round ${voice.noun}`}</p>` +
         `<p>${kindLine}</p>` +
         `<p>Every job is capped at ${leadMaxBuyers()} companies* and this one is going to the ${recipients.length} closest — first come, first served. ${(availByTrade.get(asTrade(b.trade))?.spotsLeft ?? 0) === 1 ? "One spot is left." : `${availByTrade.get(asTrade(b.trade))?.spotsLeft ?? 0} spots are open right now.`}</p>` +
         `<p><a href="${base}/buyers?offer=${prop!.id}" style="display:inline-block;background:#2f7d4f;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">See the job & claim a spot</a></p>` +
