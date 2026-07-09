@@ -211,6 +211,61 @@ export async function findDecisionContact(
   }
 }
 
+/**
+ * Find a deliverable BUSINESS email for a company we qualified but couldn't
+ * scrape one for. Apollo people search scoped to the company name; gated on
+ * an org-name match AND (when we know the site) a same-domain email — so the
+ * result is the company's own address, never a personal gmail from a namesake.
+ * Returns null without a key, on error, or when nothing clears the gate.
+ * Enriched companies enter the normal compliant email pipeline (identify +
+ * unsubscribe + suppression), same as any scraped address.
+ */
+export async function findCompanyEmail(
+  companyName: string | null | undefined,
+  opts?: { domain?: string | null }
+): Promise<{ email: string; name: string | null; title: string | null } | null> {
+  const raw = companyName?.trim();
+  const key = getApolloKey();
+  if (!raw || !key) return null;
+  const domain = opts?.domain?.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "").toLowerCase() || null;
+  try {
+    const res = await fetch("https://api.apollo.io/api/v1/mixed_people/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
+      body: JSON.stringify({
+        q_organization_name: raw,
+        ...(domain ? { q_organization_domains: domain } : {}),
+        page: 1,
+        per_page: 10,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { people?: ApolloPerson[]; contacts?: ApolloPerson[] };
+    const people = [...(data.people ?? []), ...(data.contacts ?? [])].filter(
+      (p) => p.name?.trim() && orgNameMatches(raw, p.organization?.name)
+    );
+    // Rank by decision authority, then take the first with a real, on-domain
+    // (or freemail) email — a wrong-company personal address is worse than none.
+    const ok = (e: string | null | undefined): e is string => {
+      if (!e || /not_unlocked|@domain\.|@example\./i.test(e)) return false;
+      if (!domain) return true;
+      const d = e.split("@")[1]?.toLowerCase() ?? "";
+      return d === domain || d.endsWith(`.${domain}`) ||
+        /@(gmail|yahoo|outlook|hotmail|aol|icloud)\./i.test(e);
+    };
+    const titleRank = (t?: string | null) => {
+      const i = t ? TITLE_PRIORITY.findIndex((re) => re.test(t)) : -1;
+      return i === -1 ? TITLE_PRIORITY.length : i; // no ranked title -> last
+    };
+    const ranked = [...people].sort((a, b) => titleRank(a.title) - titleRank(b.title));
+    const hit = ranked.find((p) => ok(p.email)) ?? people.find((p) => ok(p.email));
+    if (!hit?.email) return null;
+    return { email: hit.email, name: hit.name?.trim() ?? null, title: hit.title?.trim() ?? null };
+  } catch {
+    return null;
+  }
+}
+
 export async function enrichCompanyByName(
   ownerName: string | null | undefined
 ): Promise<OwnerSuggestion | null> {

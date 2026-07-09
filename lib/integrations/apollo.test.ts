@@ -27,3 +27,19 @@ describe("integrations/apollo decision-contact gates", () => {
     expect(pickDecisionPerson([])).toBeNull();
   });
 });
+
+import { findCompanyEmail } from "./apollo";
+
+describe("integrations/apollo findCompanyEmail domain gate", () => {
+  // No key in tests -> returns null without hitting the network.
+  it("returns null without an API key (safe default)", async () => {
+    const prev = process.env.APOLLO_API_KEY;
+    const prev2 = process.env.APOLLO_API;
+    delete process.env.APOLLO_API_KEY;
+    delete process.env.APOLLO_API;
+    expect(await findCompanyEmail("Acme Pest Control", { domain: "acmepest.com" })).toBeNull();
+    expect(await findCompanyEmail("", {})).toBeNull();
+    if (prev) process.env.APOLLO_API_KEY = prev;
+    if (prev2) process.env.APOLLO_API = prev2;
+  });
+});
