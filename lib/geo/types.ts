@@ -106,6 +106,19 @@ export interface ParcelResult {
    *  reach-the-owner channel when no digital contact exists, and what makes a
    *  sold lead contactable by its buyer. */
   owner_mailing_address?: string | null;
+  /** Net rentable area (HCAD `nra`) — interior sqft, the direct value driver
+   *  for cleaning/HVAC. Often null even on commercial accounts. */
+  building_sqft?: number | null;
+  /** County improvement (building) value — the building-size proxy when nra
+   *  is missing. Null where the county doesn't expose it. */
+  improvement_value?: number | null;
+  /** Parcel land area in sqft when the county provides it directly. */
+  land_sqft?: number | null;
+  /** County state class (F1 commercial, F2 industrial, B1 apartments...). */
+  state_class?: string | null;
+  /** County land-use code (HCAD: 8xxx = industrial) — state_class alone
+   *  marks many industrial facilities F1. */
+  land_use?: string | null;
   /** GeoJSON Polygon/MultiPolygon ring(s), [lng,lat]. */
   geometry: {
     type: "Polygon" | "MultiPolygon";

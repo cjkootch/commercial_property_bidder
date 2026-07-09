@@ -8,7 +8,7 @@ import { FREE_MAX_PER_LEAD } from "@/lib/leads/allocation";
 import { leadAvailability, leadMaxBuyers } from "@/lib/leads/availability";
 import { leadKind } from "@/lib/leads/market";
 import { createBuyerProfile } from "../../actions";
-import { asTrade } from "@/lib/leads/trades";
+import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
 import { Logo } from "@/components/Logo";
 
 // Public claim landing (token-authenticated): the campaign teaser links here.
@@ -91,6 +91,10 @@ export default async function ClaimPage({
               ? `${cost} ${(workType ?? "commercial").toLowerCase()} project${start ? `, breaking ground around ${start}` : ""}`
               : "Large commercial project";
   const usdShort = (n: number) => `$${Math.round(n).toLocaleString()}`;
+  // The value lines mirror the trade's OWN memo: landscaping quotes the
+  // aerial teaser; every other trade quotes its county-records estimate and
+  // never a turf number (meaningless to a cleaning or HVAC company).
+  const est = prop && kind ? TRADES[trade].estimateValue(tradeValueInput(prop, kind)) : null;
 
   return (
     <Shell brand={brand}>
@@ -101,14 +105,15 @@ export default async function ClaimPage({
           <div className="font-medium text-gray-900">Reserved for you:</div>
           <ul className="mt-2 space-y-1 text-gray-600">
             <li>• {trigger}</li>
-            {teaser?.turf_sqft ? (
+            {trade === "landscaping" && teaser?.turf_sqft ? (
               <li>
                 • ~{Math.round(teaser.turf_sqft).toLocaleString()} sq ft of maintainable grounds
                 {teaser.verified ? " (hand-verified measurement)" : ""}
               </li>
             ) : null}
-            {teaser?.annual_lo && teaser?.annual_hi ? (
-              <li>• Est. {usdShort(teaser.annual_lo)}–{usdShort(teaser.annual_hi)}/yr recurring contract value</li>
+            {trade !== "landscaping" && est ? <li>• {est.basis}</li> : null}
+            {est ? (
+              <li>• Est. {usdShort(est.annualLo)}–{usdShort(est.annualHi)}/yr recurring contract value</li>
             ) : null}
             {prop!.city ? <li>• {prop!.city} area</li> : null}
             <li>• Full sheet: exact location, decision contacts, our aerial measurement, contract value, and the window to bid</li>

@@ -26,7 +26,13 @@ import { and, desc, eq, gte } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
 import { searchLandscapers, type BuyerCandidate } from "../integrations/apollo";
-import { DEFAULT_TRADE, TRADES, type Trade } from "../leads/trades";
+import {
+  DEFAULT_TRADE,
+  TRADES,
+  tradeValueInput,
+  type Trade,
+  type TradeValueEstimate,
+} from "../leads/trades";
 import { scrapeBusinessContact } from "../integrations/contact";
 import { geocodeAddress } from "../integrations/geocoding";
 import { sendEmail } from "../integrations/resend";
@@ -196,9 +202,12 @@ type LeadPitch = {
   spotsLeft: number;
   /** Operator hand-measured — the memo says so; it sells. */
   verified: boolean;
+  /** THIS trade's contract-value estimate (landscaping = the teaser; other
+   *  trades price off county records). Null = no honest number to quote. */
+  value: TradeValueEstimate | null;
 };
 
-export function toPitch(l: MarketLead): LeadPitch | null {
+export function toPitch(l: MarketLead, trade: Trade = DEFAULT_TRADE): LeadPitch | null {
   const t = l.teaser;
   if (!t?.annual_lo || !t.annual_hi || l.p.lat == null || l.p.lng == null) return null;
   return {
@@ -213,6 +222,7 @@ export function toPitch(l: MarketLead): LeadPitch | null {
     notes: l.p.notes,
     spotsLeft: l.spotsLeft,
     verified: (t as { verified?: boolean }).verified ?? false,
+    value: TRADES[trade].estimateValue(tradeValueInput(l.p, l.kind)),
   };
 }
 
@@ -272,17 +282,22 @@ export function buildProspectMessage(o: {
               ? "public bid"
               : "new construction";
 
-  // The landscaping memo quotes our measured value; other trades never
-  // borrow it — their line sells the recurring contract + the open decision.
+  // The landscaping memo quotes our measured value; other trades quote THEIR
+  // OWN estimate (county-records value model) and never borrow the turf
+  // number — a pest company doesn't care about grass, and quoting a
+  // landscaping figure would read as exactly the spam it isn't.
+  const est = lead.value;
   const subject =
     trade === "landscaping"
       ? `Grounds contract lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""} — est. ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr`
-      : `Commercial ${TRADES[trade].service} lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""}`;
+      : `Commercial ${TRADES[trade].service} lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""}${est ? ` — est. ${usd(est.annualLo)}–${usd(est.annualHi)}/yr` : ""}`;
 
   const valueRows =
     trade === "landscaping"
       ? `${lead.turf ? `GROUNDS — ~${Math.round(lead.turf).toLocaleString()} sq ft of maintainable turf, ${lead.verified ? "hand-verified measurement" : "measured from the air"}\n` : ""}EST. VALUE — ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr at market rates, recurring`
-      : `CONTRACT — year-round ${TRADES[trade].service} contract, vendor decision in motion`;
+      : est
+        ? `SCOPE — ${est.basis}\nEST. VALUE — ${usd(est.annualLo)}–${usd(est.annualHi)}/yr at market rates, recurring`
+        : `CONTRACT — year-round ${TRADES[trade].service} contract, vendor decision in motion`;
 
   const body = `${o.company} team —
 
@@ -376,7 +391,7 @@ export async function runBuyerProspecting(opts?: {
   let lead: LeadPitch | null = null;
   if (opts?.propertyId) {
     const l = market.find((m) => m.p.id === opts.propertyId);
-    lead = l ? toPitch(l) : null;
+    lead = l ? toPitch(l, trade) : null;
     if (!lead) {
       log.push("Requested property is not an open, teaser-priced lead — nothing to offer.");
       return { lead: null, candidates: 0, qualified: 0, queued: 0, sent: 0, skippedNoEmail: 0, log };
@@ -393,7 +408,7 @@ export async function runBuyerProspecting(opts?: {
     );
     const fresh = market
       .filter((l) => !campaigned.has(l.p.id) && l.ageDays <= 14)
-      .map((l) => ({ l, pitch: toPitch(l) }))
+      .map((l) => ({ l, pitch: toPitch(l, trade) }))
       .filter((x) => x.pitch)
       // Universal quality rank (value x bid-window) — same order buyers see.
       .sort((a, b) => b.l.rank - a.l.rank);

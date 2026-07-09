@@ -20,6 +20,7 @@ const pitch = {
   notes: "Ownership transfer: HCAD transfer 2026-06-30. Owner: ACME HOLDINGS LLC.",
   spotsLeft: 3,
   verified: false,
+  value: null as { annualLo: number; annualHi: number; basis: string } | null,
 };
 
 describe("pipeline/buyer-prospecting", () => {
@@ -89,6 +90,43 @@ describe("pipeline/buyer-prospecting", () => {
     expect(at("construction", "TABS 1: office, est. cost $2,000,000, Est. start 2026-08-15.")).toContain(
       "TRIGGER — New construction, breaks ground around 2026-08-15"
     );
+  });
+
+  it("non-landscaping memos quote the trade's own estimate, never the turf teaser", () => {
+    const est = { annualLo: 48_000, annualHi: 90_000, basis: "~50,000 sq ft est. interior (county records)" };
+    const m = buildProspectMessage({
+      company: "Shine Janitorial",
+      lead: { ...pitch, value: est },
+      distanceMi: 8,
+      brand: "Greenkeep",
+      replyEmail: "leads@greenkeep.us",
+      price: 89,
+      cap: 3,
+      claimUrl: "https://x",
+      trade: "cleaning",
+    });
+    expect(m.subject).toBe(
+      "Commercial cleaning lead — new owner, Spring area — est. $48,000–$90,000/yr"
+    );
+    expect(m.body).toContain("SCOPE — ~50,000 sq ft est. interior (county records)");
+    expect(m.body).toContain("EST. VALUE — $48,000–$90,000/yr at market rates, recurring");
+    // Never the landscaping numbers or turf.
+    expect(m.body).not.toContain("$14,900");
+    expect(m.body).not.toContain("turf");
+    // Without an estimate, fall back to the trigger-only contract line.
+    const bare = buildProspectMessage({
+      company: "X",
+      lead: { ...pitch, value: null },
+      distanceMi: null,
+      brand: "G",
+      replyEmail: "",
+      price: 89,
+      cap: 3,
+      claimUrl: "https://x",
+      trade: "hvac",
+    });
+    expect(bare.subject).toBe("Commercial HVAC service lead — new owner, Spring area");
+    expect(bare.body).toContain("CONTRACT — year-round HVAC service contract, vendor decision in motion");
   });
 
   it("toPitch requires a priced teaser and coordinates, and carries the memo fields", () => {
