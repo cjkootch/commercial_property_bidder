@@ -29,6 +29,7 @@ import { leadTierFor } from "@/lib/leads/pricing-tiers";
 import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
 import { geocodeAddress, geocodeWithZip } from "@/lib/integrations/geocoding";
 import { sendEmail } from "@/lib/integrations/resend";
+import { magicLinkEmail } from "@/lib/email/transactional";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { rateLimit, clientIp, LIMITS } from "@/lib/ratelimit";
 
@@ -295,7 +296,14 @@ export async function requestBuyerLink(formData: FormData): Promise<void> {
       const res = await sendEmail({
         to: email,
         subject: `Your ${co?.name ?? "Greenkeep"} sign-in link`,
-        html: `<p>Sign in to your job-leads dashboard:</p><p><a href="${link}">${link}</a></p><p>Link expires in 30 minutes.</p>`,
+        html: magicLinkEmail({
+          brand: co?.name ?? "Greenkeep",
+          heading: "Sign in to your job-leads dashboard",
+          intro: "One tap and you're in — no password needed. This link expires in 30 minutes.",
+          buttonLabel: "Open my dashboard",
+          link,
+          footnote: "Didn't request this? You can safely ignore it — nobody can sign in without this email.",
+        }),
       });
       // The page must stay anti-enumeration (always "check your inbox"), so
       // the ONLY place a failed magic-link send is visible is the server log.
