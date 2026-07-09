@@ -176,10 +176,12 @@ export async function runTabcSourcing(opts?: {
     }
     // Gate on the NORMALIZED class so each county's field mapping applies.
     // Bars and restaurants live on F1/F2 — a home address on the application
-    // (paperwork mailing address, not the venue) fails this gate. A county
-    // with no class data also fails (conservative: never add a house).
+    // (paperwork mailing address, not the venue) fails this gate. Counties
+    // without PTAD classes (Dallas) pass on an explicit commercial land-use
+    // flag instead; no signal at all fails (conservative: never add a house).
     const stateClass = (hit.parcel.state_class ?? "").trim();
-    if (!["F1", "F2"].includes(stateClass)) {
+    const commercialFlag = /^com/i.test(hit.parcel.land_use ?? "");
+    if (!["F1", "F2"].includes(stateClass) && !(!stateClass && commercialFlag)) {
       skippedClass++;
       await recordReject(rejectKey, `parcel class ${stateClass || "none"}`);
       continue;

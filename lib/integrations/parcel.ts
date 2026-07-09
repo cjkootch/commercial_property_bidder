@@ -100,6 +100,58 @@ const COUNTY_SERVICES: CountyService[] = [
     }),
   },
   {
+    // DCAD's county-wide public layer (verified live 2026-07-09, works
+    // outside Dallas city limits too). No PTAD state class and no building
+    // sqft — feeds gate on the normalized fallbacks; Division ("Res"/"Com")
+    // rides in land_use as the commercial discriminator.
+    county: "Dallas",
+    url: "https://services9.arcgis.com/Csff1W9rNs7Zx9MT/arcgis/rest/services/Parcel_View/FeatureServer/0",
+    normalize: (p) => {
+      // AREA_SIZE is a string qualified by AREA_UNIT ("SQFT" | "ACRE").
+      const size = Number.parseFloat(String(p.AREA_SIZE ?? "")) || null;
+      const isSqft = String(p.AREA_UNIT ?? "").toUpperCase().startsWith("SQ");
+      return {
+        owner: str(p.Owner_Name1),
+        parcel_id: str(p.Account_Num) ?? str(p.GIS_Parcel_Id),
+        address: str([str(p.Street_Num), str(p.Full_Street_Name)].filter(Boolean).join(" ")),
+        acres: size == null ? null : isSqft ? size / 43560 : size,
+        market_value: numOrNull(p.Tot_Val) || null,
+        owner_mailing_address: str(
+          [
+            [str(p.Owner_Address_Line1), str(p.Owner_Address_Line2)].filter(Boolean).join(" "),
+            str(p.Owner_City),
+            [str(p.Owner_State), str(p.Owner_ZipCode)].filter(Boolean).join(" "),
+          ]
+            .filter(Boolean)
+            .join(", ")
+        ),
+        improvement_value: numOrNull(p.Imp_Val) || null,
+        land_sqft: size != null && isSqft ? size : null,
+        state_class: null, // not published county-wide
+        land_use: str(p.Division), // "Res" | "Com"
+      };
+    },
+  },
+  {
+    // Tarrant County GIS Tax/TCProperty (verified live 2026-07-09). Strings
+    // arrive fixed-width padded (str() trims). No PTAD class or land use.
+    county: "Tarrant",
+    url: "https://mapit.tarrantcounty.com/arcgis/rest/services/Tax/TCProperty/MapServer/0",
+    normalize: (p) => ({
+      owner: str(p.OWNER_NAME),
+      parcel_id: str(p.ACCOUNT) ?? str(p.TAXPIN),
+      address: str(p.SITUS_ADDR),
+      acres: numOrNull(p.LAND_ACRES),
+      market_value: numOrNull(p.TOTAL_VALU) || null,
+      owner_mailing_address: str(
+        [str(p.OWNER_ADDR), str(p.OWNER_CITY), str(p.OWNER_ZIP)].filter(Boolean).join(", ")
+      ),
+      building_sqft: numOrNull(p.LIVING_ARE) || null,
+      improvement_value: numOrNull(p.IMPR_VALUE) || null,
+      land_sqft: numOrNull(p.LAND_SQFT) || null,
+    }),
+  },
+  {
     county: "Fort Bend",
     url: "https://gisweb.fbcad.org/arcgis/rest/services/Hosted/FBCAD_Public_Data/FeatureServer/0",
     normalize: (p) => ({

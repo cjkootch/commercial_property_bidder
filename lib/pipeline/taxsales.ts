@@ -197,16 +197,18 @@ export async function runTaxSaleSourcing(opts?: {
       continue;
     }
     // Gate on NORMALIZED fields so every county's mapping applies (Harris
-    // publishes PTAD classes; counties without one fall back to lot size —
-    // the LGBS minValue filter and the grass gate still stand behind it).
+    // publishes PTAD classes; counties without one fall back to lot size and
+    // an explicit-residential rejection — the LGBS minValue filter and the
+    // grass gate still stand behind it).
     const stateClass = (hit.parcel.state_class ?? "").trim();
     const acres = hit.parcel.acres ?? 0;
+    const explicitlyResidential = /^res/i.test(hit.parcel.land_use ?? "");
     // Same aperture as the transfer feed: commercial, industrial, apartments,
     // and vacant land big enough to be a mowing contract.
     const classOk = stateClass
       ? ["F1", "F2", "B1"].includes(stateClass) ||
         (["C1", "C2"].includes(stateClass) && acres >= 0.5)
-      : acres >= 0.4;
+      : acres >= 0.4 && !explicitlyResidential;
     if (!classOk) {
       skippedClass++;
       await recordReject(rejectKey, `parcel class ${stateClass || "none"}`);
