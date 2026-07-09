@@ -125,6 +125,12 @@ export default async function CampaignsPage({
       (a, b) =>
         a.trade.localeCompare(b.trade) || (b.lastSent?.getTime() ?? 0) - (a.lastSent?.getTime() ?? 0)
     );
+  } else if (searchParams.sort === "city") {
+    blasts.sort(
+      (a, b) =>
+        (a.city ?? "zzz").localeCompare(b.city ?? "zzz") ||
+        (b.lastSent?.getTime() ?? 0) - (a.lastSent?.getTime() ?? 0)
+    );
   }
   const tradeCounts = new Map<Trade, number>();
   for (const b of all) tradeCounts.set(b.trade, (tradeCounts.get(b.trade) ?? 0) + 1);
@@ -194,6 +200,15 @@ export default async function CampaignsPage({
                       Industry {searchParams.sort === "trade" ? "\u2193" : "\u2195"}
                     </Link>
                   </th>
+                  <th className="px-3 py-2.5 font-medium">
+                    <Link
+                      href={searchParams.sort === "city" ? `/campaigns${tradeFilter ? `?trade=${tradeFilter}` : ""}` : `/campaigns?${tradeFilter ? `trade=${tradeFilter}&` : ""}sort=city`}
+                      className="hover:text-gray-600"
+                      title="Sort by city"
+                    >
+                      City {searchParams.sort === "city" ? "\u2193" : "\u2195"}
+                    </Link>
+                  </th>
                   <th className="px-3 py-2.5 text-right font-medium">Sent</th>
                   <th className="px-3 py-2.5 text-right font-medium">Delivered</th>
                   <th className="px-3 py-2.5 text-right font-medium">Opened</th>
@@ -225,6 +240,7 @@ export default async function CampaignsPage({
                         {TRADES[b.trade].label}
                       </span>
                     </td>
+                    <td className="px-3 py-3 text-gray-600">{b.city ?? "\u2014"}</td>
                     <td className="px-3 py-3 text-right tabular-nums">{b.sent}</td>
                     <td className="px-3 py-3 text-right tabular-nums">{b.delivered}</td>
                     <td className="px-3 py-3 text-right tabular-nums">{b.opened}</td>

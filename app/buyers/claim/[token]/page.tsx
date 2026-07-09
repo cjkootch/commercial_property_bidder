@@ -9,6 +9,7 @@ import { leadAvailability, leadMaxBuyers } from "@/lib/leads/availability";
 import { leadKind } from "@/lib/leads/market";
 import { createBuyerProfile } from "../../actions";
 import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
+import { recordClaimView } from "@/lib/leads/companies";
 import { Logo } from "@/components/Logo";
 
 // Public claim landing (token-authenticated): the campaign teaser links here.
@@ -52,6 +53,10 @@ export default async function ClaimPage({
   }
 
   const [prop] = await db.select().from(property).where(eq(property.id, claim.property_id)).limit(1);
+  // The hot unconverted signal: this company opened the offer. Best-effort —
+  // never blocks the render. (Link-preview bots inflate this slightly; it's
+  // a call-list ranking signal, not billing.)
+  await recordClaimView(claim.company);
   // Pre-signup, the trade comes from the outreach link (?trade=).
   const trade = asTrade(searchParams.trade);
   const avail = prop && prop.parcel_geojson ? await leadAvailability(prop, trade) : null;

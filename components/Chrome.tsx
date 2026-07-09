@@ -22,6 +22,7 @@ export function Chrome({ children }: { children: React.ReactNode }) {
     "/config",
     "/customers",
     "/requests",
+    "/companies",
   ];
   const operator = OPERATOR_PREFIXES.some((p) => pathname?.startsWith(p));
   if (!operator) return <>{children}</>;
@@ -56,6 +57,9 @@ export function Chrome({ children }: { children: React.ReactNode }) {
             </Link>
             <Link href="/customers" className="hover:text-brand">
               Customers
+            </Link>
+            <Link href="/companies" className="hover:text-brand">
+              Companies
             </Link>
             <Link href="/requests" className="hover:text-brand">
               Requests
