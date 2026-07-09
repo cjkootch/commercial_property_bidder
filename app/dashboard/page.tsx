@@ -6,6 +6,7 @@ import { getDefaultCompany, listDashboard, type DashboardRow } from "@/lib/db/qu
 import { usd, titleCase } from "@/lib/format";
 import { isGrassQualified, grassPercentLabel } from "@/lib/sourcing/criteria";
 import { leadMaxBuyers } from "@/lib/leads/availability";
+import { TRADES, asTrade, type Trade } from "@/lib/leads/trades";
 import { archiveProperty, unarchiveProperty } from "@/app/properties/actions";
 
 // Operator dashboard, organized around the business as it actually runs now:
@@ -48,6 +49,19 @@ export default async function DashboardPage({
   const buyers = await db.select().from(buyer);
   const cards = await db.select().from(postcard).where(eq(postcard.status, "created"));
   const leadRevenue = unlocks.reduce((s, u) => s + u.price_cents, 0) / 100;
+  // Per-trade spots per property — the cap is per trade now, and this powers
+  // the expandable Spots column. (Counts all cycles; per-cycle nuance starts
+  // mattering when renewals fire in ~a year.)
+  const tradeSpots = new Map<string, Partial<Record<Trade, { n: number; excl: boolean }>>>();
+  for (const u of unlocks) {
+    const t = asTrade(u.trade);
+    const e = tradeSpots.get(u.property_id) ?? {};
+    const cell = e[t] ?? { n: 0, excl: false };
+    cell.n++;
+    if (u.kind === "exclusive") cell.excl = true;
+    e[t] = cell;
+    tradeSpots.set(u.property_id, e);
+  }
   const postcardRevenue = cards.reduce((s, c) => s + c.price_cents, 0) / 100;
   const paidUnlocks = unlocks.filter((u) => u.kind !== "free").length;
   const freeUnlocks = unlocks.length - paidUnlocks;
@@ -123,7 +137,7 @@ export default async function DashboardPage({
             No sellable leads right now — run the pipeline to source and measure new permits.
           </p>
         ) : (
-          <PropertyTable rows={inventory} cap={cap} kind="inventory" />
+          <PropertyTable rows={inventory} cap={cap} kind="inventory" tradeSpots={tradeSpots} />
         )}
       </section>
 
@@ -167,10 +181,12 @@ function PropertyTable({
   rows,
   cap,
   kind,
+  tradeSpots,
 }: {
   rows: DashboardRow[];
   cap: number;
   kind: "inventory" | "production" | "archived";
+  tradeSpots?: Map<string, Partial<Record<Trade, { n: number; excl: boolean }>>>;
 }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
@@ -219,23 +235,36 @@ function PropertyTable({
                         : "—"}
                   </td>
                   <td className="px-4 py-2.5">
-                    {r.sold_exclusive ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                        EXCLUSIVE
-                      </span>
-                    ) : (
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                          r.spots_sold >= cap
-                            ? "bg-gray-200 text-gray-600"
-                            : r.spots_sold > 0
-                              ? "bg-green-100 text-green-800"
-                              : "bg-gray-100 text-gray-500"
+                    {/* Caps are per trade — collapsed shows the total, expand
+                        for the six-trade breakdown. */}
+                    <details>
+                      <summary
+                        className={`inline-flex cursor-pointer list-none items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          r.spots_sold > 0 ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-500"
                         }`}
                       >
-                        {r.spots_sold} / {cap}
-                      </span>
-                    )}
+                        {r.spots_sold} sold <span className="text-[9px]">\u25be</span>
+                      </summary>
+                      <div className="mt-1.5 flex w-40 flex-wrap gap-1">
+                        {Object.values(TRADES).map((t) => {
+                          const cell = tradeSpots?.get(r.id)?.[t.key];
+                          return (
+                            <span
+                              key={t.key}
+                              className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                                cell?.excl
+                                  ? "bg-amber-100 text-amber-800"
+                                  : cell?.n
+                                    ? "bg-green-100 text-green-800"
+                                    : "bg-gray-100 text-gray-400"
+                              }`}
+                            >
+                              {t.label} {cell?.excl ? "EXCL" : `${cell?.n ?? 0}/${cap}`}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </details>
                   </td>
                 </>
               ) : (
