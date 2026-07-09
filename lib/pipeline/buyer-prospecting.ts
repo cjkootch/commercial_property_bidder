@@ -22,7 +22,7 @@
 // unsubscribe headers. Apollo data is for our own targeting only — it never
 // ships inside a sold lead.
 
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
 import { marketForCoords } from "../markets";
@@ -571,12 +571,28 @@ export async function runBuyerProspecting(opts?: {
   }
   if (candidates.length) log.push(`${candidates.length} candidate companies`);
 
+  // Permanent operator verdicts: profiles blocked on /companies never get
+  // another email from ANY campaign (the per-run ?exclude= list was
+  // groundhog-day pruning \u2014 the same junk resurfaced every run).
+  const blockedKeys = new Set(
+    (
+      await db
+        .select({ key: schema.prospectCompany.key })
+        .from(schema.prospectCompany)
+        .where(isNotNull(schema.prospectCompany.blocked_at))
+    ).map((r) => r.key)
+  );
+
   // ---- 5. Qualify one by one until the list is full (bounded attempts).
   let attempts = Math.min(candidates.length, want * 3);
   for (const c of candidates) {
     if (qualified.filter((q) => q.email).length >= want || attempts <= 0) break;
     const key = companyKey(c.name);
     if (accountKeys.has(key) || cooled.has(key) || offeredThis.has(key)) continue;
+    if (blockedKeys.has(key)) {
+      log.push(`  \u00d7 ${c.name} \u2014 blocked (operator verdict on /companies)`);
+      continue;
+    }
     if (opts?.excludeKeys?.some((x) => x && key.includes(x))) {
       log.push(`  \u00d7 ${c.name} \u2014 excluded by operator`);
       continue;
