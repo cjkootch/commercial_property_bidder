@@ -26,6 +26,11 @@ export async function GET(req: NextRequest) {
   const summary = await runBuyerProspecting({
     propertyId: sp.get("propertyId") ?? undefined,
     trade: asTrade(sp.get("trade")),
+    // ?exclude=cetane,sawin — operator prunes the dry-run list before &send=1.
+    excludeKeys: (sp.get("exclude") ?? "")
+      .split(",")
+      .map((x) => x.trim().toLowerCase())
+      .filter(Boolean),
     want: Number.isFinite(want) && want > 0 ? want : undefined,
     send: sendOnce || undefined,
     dryRun: !sendOnce && !autosendEnabled() ? true : undefined,

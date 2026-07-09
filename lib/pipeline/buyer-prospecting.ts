@@ -394,6 +394,9 @@ export async function runBuyerProspecting(opts?: {
   dryRun?: boolean;
   /** Candidate source override (tests / campaign CSV); default Apollo. */
   candidates?: BuyerCandidate[];
+  /** Operator prune list: normalized name fragments to drop from the run
+   *  (cron ?exclude=cetane,sawin) — the human eyeball is the final gate. */
+  excludeKeys?: string[];
 }): Promise<ProspectingRunSummary> {
   const want = opts?.want ?? WANT_COMPANIES;
   const trade = opts?.trade ?? DEFAULT_TRADE;
@@ -563,6 +566,10 @@ export async function runBuyerProspecting(opts?: {
     if (qualified.filter((q) => q.email).length >= want || attempts <= 0) break;
     const key = companyKey(c.name);
     if (accountKeys.has(key) || cooled.has(key) || offeredThis.has(key)) continue;
+    if (opts?.excludeKeys?.some((x) => x && key.includes(x))) {
+      log.push(`  \u00d7 ${c.name} \u2014 excluded by operator`);
+      continue;
+    }
     attempts--;
 
     // Vertical gate: Apollo keyword search pulls in adjacent verticals
