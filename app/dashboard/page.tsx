@@ -67,7 +67,7 @@ export default async function DashboardPage({
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <h1 className="text-2xl font-semibold">Marketplace</h1>
         <div className="flex items-center gap-3">
           <Link
@@ -86,7 +86,7 @@ export default async function DashboardPage({
       </div>
 
       {/* Money first. */}
-      <div className="grid grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6">
         <Metric label="Lead revenue" value={`$${Math.round(leadRevenue).toLocaleString()}`} accent={leadRevenue > 0} />
         <Metric label="Postcard revenue" value={`$${Math.round(postcardRevenue).toLocaleString()}`} />
         <Metric label="Paid unlocks" value={String(paidUnlocks)} />
@@ -100,7 +100,7 @@ export default async function DashboardPage({
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-500">
           Buyer activity
         </h2>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           <Metric label="Buyers (alerts on)" value={`${buyers.length} (${buyers.filter((b) => b.notify).length})`} />
           <Metric label="Self-serve prospects" value={String(prospects.length)} />
           <Metric label="Quote-page opens" value={String(prospectViews)} />
@@ -173,7 +173,7 @@ function PropertyTable({
   kind: "inventory" | "production" | "archived";
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+    <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
       <table className="min-w-full divide-y divide-gray-200 text-sm">
         <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
           <tr>

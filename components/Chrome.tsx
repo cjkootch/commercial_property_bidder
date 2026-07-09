@@ -28,14 +28,16 @@ export function Chrome({ children }: { children: React.ReactNode }) {
   return (
     <>
       <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <Link href="/dashboard" aria-label="Greenkeep" className="flex items-center gap-2">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+          <Link href="/dashboard" aria-label="Greenkeep" className="flex shrink-0 items-center gap-2">
             <Logo name="Greenkeep" />
-            <span className="hidden text-xs font-medium uppercase tracking-wide text-gray-400 sm:inline">
+            <span className="hidden text-xs font-medium uppercase tracking-wide text-gray-400 lg:inline">
               Operator
             </span>
           </Link>
-          <nav className="flex items-center gap-4 text-sm text-gray-600">
+          {/* min-w-0 lets the nav shrink instead of overlapping the logo; it
+              scrolls horizontally on phones so every link stays reachable. */}
+          <nav className="flex min-w-0 items-center gap-4 overflow-x-auto whitespace-nowrap py-1 text-sm text-gray-600">
             <Link href="/dashboard" className="hover:text-brand">
               Dashboard
             </Link>
@@ -63,7 +65,7 @@ export function Chrome({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">{children}</main>
     </>
   );
 }
