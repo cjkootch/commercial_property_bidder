@@ -196,7 +196,7 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
   const dossier = co ? await buildDossier(prop!, co.name, meLoc).catch(() => null) : null;
   const [unlock] = await db
     .insert(leadUnlock)
-    .values({ buyer_id: buyerId!, property_id: prop!.id, kind: "free", trade: myTrade, price_cents: 0, dossier })
+    .values({ buyer_id: buyerId!, property_id: prop!.id, kind: "free", trade: myTrade, price_cents: 0, dossier, cycle: prop!.sale_cycle })
     .onConflictDoNothing({ target: [leadUnlock.property_id, leadUnlock.buyer_id] })
     .returning();
   if (!unlock) fail("You already have this lead — it's in your unlocked list.");
@@ -261,7 +261,7 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
 
   const [unlock] = await db
     .insert(leadUnlock)
-    .values({ buyer_id: buyerId, property_id: prop.id, kind: "free", trade: myTrade, price_cents: 0, dossier })
+    .values({ buyer_id: buyerId, property_id: prop.id, kind: "free", trade: myTrade, price_cents: 0, dossier, cycle: prop.sale_cycle })
     .onConflictDoNothing({ target: [leadUnlock.property_id, leadUnlock.buyer_id] })
     .returning();
   if (!unlock) return true; // this buyer already holds this lead — that's a win
@@ -426,7 +426,7 @@ export async function startCheckout(propertyId: string, kind: "paid" | "exclusiv
           .where(eq(buyer.id, row.id));
       const [unlock] = await db
         .insert(leadUnlock)
-        .values({ buyer_id: row.id, property_id: propertyId, kind, trade: asTrade(row.trade), price_cents: amount, dossier })
+        .values({ buyer_id: row.id, property_id: propertyId, kind, trade: asTrade(row.trade), price_cents: amount, dossier, cycle: prop!.sale_cycle })
         .onConflictDoNothing({ target: [leadUnlock.property_id, leadUnlock.buyer_id] })
         .returning();
       if (!unlock) {

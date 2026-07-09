@@ -205,6 +205,13 @@ export const property = pgTable("property", {
   // (sold once — exported leads are excluded from future packages). Sold leads
   // carry PUBLIC-RECORD data only; see lib/leads/package.ts.
   lead_exported_at: timestamp("lead_exported_at"),
+  // Current sale cycle (renewal annuity): commercial contracts re-bid
+  // annually, so ~11 months after a lead sells, the renewal cron bumps this,
+  // clears lead_exported_at, and the lead re-sells with fresh per-trade caps.
+  // Unlocks record the cycle they were bought in (lead_unlock.cycle).
+  sale_cycle: integer("sale_cycle").notNull().default(0),
+  // When the renewal cron last reopened this lead (guards double-renewals).
+  renewed_at: timestamp("renewed_at", { withTimezone: true }),
   // Marketplace teaser snapshot ({annual_lo, annual_hi, turf_sqft, projected,
   // computed_at}) — sized ONCE at sourcing so dashboard cards can show the
   // contract value without spending imagery quota per view.
@@ -489,6 +496,11 @@ export const leadUnlock = pgTable(
       .notNull()
       .references(() => property.id),
     kind: text("kind").notNull().default("free"), // free | paid | exclusive
+    // Sale cycle this unlock belongs to (matches property.sale_cycle at
+    // unlock time). Contracts re-bid annually: the renewal cron bumps the
+    // property's cycle, giving each anniversary a FRESH per-trade cap while
+    // history stays intact. Exclusives close their trade across ALL cycles.
+    cycle: integer("cycle").notNull().default(0),
     // Denormalized from buyer.trade at unlock time: the 3-spot cap, the
     // exclusive, and the per-lead free budget all count WITHIN a trade.
     trade: text("trade").notNull().default("landscaping"),

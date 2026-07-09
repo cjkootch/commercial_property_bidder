@@ -68,17 +68,23 @@ export async function loadMarketLeads(trade: Trade = DEFAULT_TRADE): Promise<Mar
   const props = await db.select().from(property).orderBy(desc(property.created_at));
   // Spots, exclusives, and the free budget all count WITHIN the trade: a
   // pest exclusive never closes the landscaping shelf and vice versa.
+  // Renewals: the cap counts only the CURRENT sale cycle (fresh spots each
+  // contract anniversary); exclusives close their trade across every cycle;
+  // past-cycle holders still hold the sheet (they can't re-buy it).
+  const cycleOf = new Map(props.map((p) => [p.id, p.sale_cycle]));
   const unlocks = await db
-    .select({ pid: leadUnlock.property_id, bid: leadUnlock.buyer_id, kind: leadUnlock.kind, trade: leadUnlock.trade })
+    .select({ pid: leadUnlock.property_id, bid: leadUnlock.buyer_id, kind: leadUnlock.kind, trade: leadUnlock.trade, cycle: leadUnlock.cycle })
     .from(leadUnlock);
   const byProp = new Map<string, { count: number; free: number; exclusive: boolean; holders: Set<string> }>();
   for (const u of unlocks) {
     if (u.trade !== trade) continue;
     const e = byProp.get(u.pid) ?? { count: 0, free: 0, exclusive: false, holders: new Set<string>() };
-    e.count++;
-    if (u.kind === "free") e.free++;
     if (u.kind === "exclusive") e.exclusive = true;
     e.holders.add(u.bid);
+    if (u.cycle === (cycleOf.get(u.pid) ?? 0)) {
+      e.count++;
+      if (u.kind === "free") e.free++;
+    }
     byProp.set(u.pid, e);
   }
 
