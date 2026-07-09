@@ -258,9 +258,37 @@ export async function findCompanyEmail(
       return i === -1 ? TITLE_PRIORITY.length : i; // no ranked title -> last
     };
     const ranked = [...people].sort((a, b) => titleRank(a.title) - titleRank(b.title));
-    const hit = ranked.find((p) => ok(p.email)) ?? people.find((p) => ok(p.email));
-    if (!hit?.email) return null;
-    return { email: hit.email, name: hit.name?.trim() ?? null, title: hit.title?.trim() ?? null };
+    // Search results carry LOCKED emails (email_not_unlocked@...) — a real
+    // address needs the people/match reveal, which spends a credit. Try the
+    // top 2 candidates only, so a stubborn company costs at most 2 credits.
+    for (const cand of ranked.slice(0, 2)) {
+      if (ok(cand.email)) {
+        return { email: cand.email!, name: cand.name?.trim() ?? null, title: cand.title?.trim() ?? null };
+      }
+      const [first, ...rest] = (cand.name ?? "").trim().split(/\s+/);
+      if (!first || !rest.length) continue;
+      const mres = await fetch("https://api.apollo.io/api/v1/people/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
+        body: JSON.stringify({
+          first_name: first,
+          last_name: rest.join(" "),
+          organization_name: cand.organization?.name ?? raw,
+          ...(domain ? { domain } : {}),
+          reveal_personal_emails: false,
+        }),
+      });
+      if (!mres.ok) continue;
+      const m = (await mres.json()) as { person?: ApolloPerson };
+      if (ok(m.person?.email)) {
+        return {
+          email: m.person!.email!,
+          name: m.person?.name?.trim() ?? cand.name?.trim() ?? null,
+          title: m.person?.title?.trim() ?? cand.title?.trim() ?? null,
+        };
+      }
+    }
+    return null;
   } catch {
     return null;
   }
