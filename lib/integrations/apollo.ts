@@ -102,6 +102,115 @@ export async function searchLandscapers(
   }
 }
 
+// --- decision-contact enrichment (person level) -----------------------------
+// The gap between an $89 sheet and a premium one: county records name the
+// owner LLC; Apollo names the PERSON. Deliberate policy change (Jul 2026):
+// buyer-DISCOVERY data still never ships in a sold lead, but decision-contact
+// enrichment for the property owner is a product feature of the sheet itself.
+
+export type DecisionContact = {
+  name: string;
+  title: string | null;
+  /** Only a REAL address — Apollo's locked placeholders are dropped. */
+  email: string | null;
+  phone: string | null;
+  linkedin: string | null;
+  /** The organization Apollo matched — shown so the buyer can sanity-check. */
+  org: string;
+};
+
+/** Who actually awards vendor contracts, in priority order. */
+const TITLE_PRIORITY = [
+  /owner/i,
+  /president/i,
+  /\bceo\b|chief executive/i,
+  /principal/i,
+  /managing (partner|director|member)/i,
+  /facilit/i, // facilities manager/director
+  /property manager|asset manager/i,
+  /general manager/i,
+  /operations/i,
+];
+
+export function pickDecisionPerson<T extends { title?: string | null }>(people: T[]): T | null {
+  for (const re of TITLE_PRIORITY) {
+    const hit = people.find((p) => p.title && re.test(p.title));
+    if (hit) return hit;
+  }
+  return people[0] ?? null;
+}
+
+const ORG_STOPWORDS = new Set([
+  "the", "and", "inc", "llc", "llp", "ltd", "corp", "corporation", "company",
+  "group", "holdings", "properties", "property", "partners", "trust", "management",
+]);
+const orgTokens = (s: string) =>
+  s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((t) => t.length > 2 && !ORG_STOPWORDS.has(t));
+
+/** Does Apollo's matched org plausibly BE the company we asked about? A
+ *  significant-token overlap gate so "SMITH FAMILY LP" never returns a
+ *  random Smith from another company. */
+export function orgNameMatches(expected: string, got: string | null | undefined): boolean {
+  if (!got) return false;
+  const want = new Set(orgTokens(expected));
+  if (!want.size) return false;
+  return orgTokens(got).some((t) => want.has(t));
+}
+
+type ApolloPerson = {
+  name?: string;
+  title?: string | null;
+  email?: string | null;
+  linkedin_url?: string | null;
+  phone_numbers?: { sanitized_number?: string }[];
+  organization?: { name?: string; primary_domain?: string; phone?: string };
+};
+
+/**
+ * Find the decision-maker at an owner organization: Apollo people search
+ * scoped to the org name, gated on an org-name match, ranked by title.
+ * Returns null without a key, on error, or when nothing passes the gate —
+ * the sheet then falls back to the county owner + mailing address as before.
+ */
+export async function findDecisionContact(
+  orgName: string | null | undefined,
+  opts?: { domain?: string | null }
+): Promise<DecisionContact | null> {
+  const raw = orgName?.trim();
+  const key = getApolloKey();
+  if (!raw || !key) return null;
+  try {
+    const res = await fetch("https://api.apollo.io/api/v1/mixed_people/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
+      body: JSON.stringify({ q_organization_name: raw, page: 1, per_page: 10 }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { people?: ApolloPerson[]; contacts?: ApolloPerson[] };
+    const domain = opts?.domain?.replace(/^https?:\/\//, "").replace(/\/.*$/, "") ?? null;
+    const candidates = [...(data.people ?? []), ...(data.contacts ?? [])].filter(
+      (p) =>
+        p.name?.trim() &&
+        (orgNameMatches(raw, p.organization?.name) ||
+          (domain && p.organization?.primary_domain === domain))
+    );
+    const person = pickDecisionPerson(candidates);
+    if (!person?.name) return null;
+    const email =
+      person.email && !/not_unlocked|@domain\.|@example\./i.test(person.email) ? person.email : null;
+    return {
+      name: person.name.trim(),
+      title: person.title?.trim() || null,
+      email,
+      phone: person.phone_numbers?.[0]?.sanitized_number ?? person.organization?.phone ?? null,
+      linkedin: person.linkedin_url ?? null,
+      org: person.organization?.name?.trim() || raw,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function enrichCompanyByName(
   ownerName: string | null | undefined
 ): Promise<OwnerSuggestion | null> {
