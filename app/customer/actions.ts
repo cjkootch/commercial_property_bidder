@@ -14,6 +14,7 @@ import {
   verifyToken,
 } from "@/lib/customer-auth";
 import { sendEmail, getResendKey } from "@/lib/integrations/resend";
+import { magicLinkEmail } from "@/lib/email/transactional";
 
 /** The signed-in customer's email from the session cookie, or null. */
 function currentCustomer(): string | null {
@@ -43,10 +44,14 @@ export async function requestMagicLink(formData: FormData): Promise<void> {
     await sendEmail({
       to: email,
       subject: `Your ${co?.name ?? "account"} sign-in link`,
-      html:
-        `<p>Click below to sign in — the link expires in 30 minutes.</p>` +
-        `<p><a href="${link}">Sign in</a></p>` +
-        `<p style="font-size:12px;color:#888">If you didn't request this, you can ignore it.</p>`,
+      html: magicLinkEmail({
+        brand: co?.name ?? "Greenkeep",
+        heading: "Sign in to your account",
+        intro: "One tap and you're in — no password needed. This link expires in 30 minutes.",
+        buttonLabel: "Sign in",
+        link,
+        footnote: "Didn't request this? You can safely ignore it — nobody can sign in without this email.",
+      }),
     });
   }
   redirect("/customer/login?sent=1");
