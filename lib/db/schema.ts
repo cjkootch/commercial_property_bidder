@@ -410,6 +410,25 @@ export const buyerOutreach = pgTable("buyer_outreach", {
   ...timestamps,
 });
 
+// --- bid_request -----------------------------------------------------------
+// The other side of the marketplace: a property owner/manager asking for
+// competing bids. v1 is capture + operator routing (the buyer roster is the
+// supply); matching automation comes later. Public form, rate-limited.
+
+export const bidRequest = pgTable("bid_request", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  address: text("address").notNull(),
+  city: text("city"),
+  // Which trade they need (lib/leads/trades registry key).
+  trade: text("trade").notNull().default("landscaping"),
+  notes: text("notes"),
+  status: text("status").notNull().default("new"), // new | routed | closed
+  ...timestamps,
+});
+
 // --- sourcing_reject -------------------------------------------------------
 // Candidates a feed screened and rejected (low grass, wrong parcel class,
 // dead imagery). Persisting them keeps weekly runs from re-buying the same
