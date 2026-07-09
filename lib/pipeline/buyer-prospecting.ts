@@ -22,7 +22,7 @@
 // unsubscribe headers. Apollo data is for our own targeting only — it never
 // ships inside a sold lead.
 
-import { and, desc, eq, gte, isNotNull } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
 import { marketForCoords } from "../markets";
@@ -193,10 +193,15 @@ export function selectKnownContacts(
       null
     );
     if (!lastSent) continue; // never actually emailed — let discovery requalify them
-    if (now.getTime() - lastSent.getTime() < ALERT_COOLDOWN_DAYS * 86400_000) continue;
+    // 12h grace: the weekly cron drifts by processing order — an exact 7-day
+    // gate flapped contacts to biweekly when this Monday ran minutes early.
+    if (now.getTime() - lastSent.getTime() < ALERT_COOLDOWN_DAYS * 86400_000 - 12 * 3600_000)
+      continue;
 
     // Engagement gate: tracked sends that all went unread = stop emailing.
-    const tracked = group.filter((r) => r.resend_message_id);
+    // Only CAMPAIGN sends count toward the engagement gate — operator 1:1
+    // replies carry a message id too but say nothing about campaign fatigue.
+    const tracked = group.filter((r) => r.resend_message_id && r.claim_url);
     if (
       tracked.length >= ALERT_MAX_UNOPENED &&
       !tracked.some((r) => r.opened_at || r.clicked_at)
@@ -445,14 +450,19 @@ export async function runBuyerProspecting(opts?: {
       return { lead: null, candidates: 0, qualified: 0, queued: 0, sent: 0, skippedNoEmail: 0, log };
     }
   } else {
+    // "Campaigned" is per TRADE: a property blasted to pest is still fresh
+    // inventory for the landscaping auto-pick (each trade has its own spots).
     const campaigned = new Set(
       (
         await db
-          .select({ pid: schema.buyerOutreach.property_id })
+          .select({
+            pid: schema.buyerOutreach.property_id,
+            claim_url: schema.buyerOutreach.claim_url,
+          })
           .from(schema.buyerOutreach)
       )
-        .map((r) => r.pid)
-        .filter(Boolean) as string[]
+        .filter((r) => r.pid && rowTrade(r.claim_url) === trade)
+        .map((r) => r.pid) as string[]
     );
     const fresh = market
       .filter((l) => !campaigned.has(l.p.id) && l.ageDays <= 14)
@@ -473,6 +483,25 @@ export async function runBuyerProspecting(opts?: {
   // ---- 2. Exclusions: existing accounts + cooldown + already-offered-this-lead.
   const existingBuyers = await db.select({ name: schema.buyer.company_name }).from(schema.buyer);
   const accountKeys = new Set(existingBuyers.map((b) => companyKey(b.name)));
+  // The company graph carries operator verdicts and enrichment for every
+  // company we've pitched: blocked profiles never get another email from ANY
+  // path (discovery or area alert); buyer-linked profiles are accounts even
+  // when the signup name was spelled differently than the pitched name; and
+  // graph emails (Apollo enrichment) back-fill companies whose sites hide
+  // their address from the scraper.
+  const graphProfiles = await db
+    .select({
+      key: schema.prospectCompany.key,
+      email: schema.prospectCompany.email,
+      blocked_at: schema.prospectCompany.blocked_at,
+      buyer_id: schema.prospectCompany.buyer_id,
+    })
+    .from(schema.prospectCompany);
+  const blockedKeys = new Set(graphProfiles.filter((p) => p.blocked_at).map((p) => p.key));
+  for (const p of graphProfiles) if (p.buyer_id) accountKeys.add(p.key);
+  const graphEmail = new Map(
+    graphProfiles.filter((p) => p.email).map((p) => [p.key, p.email as string])
+  );
   // Cooldown counts only ACTUAL contact (sent) — queued/skipped rows are
   // records, not touches, and must not block a company for 30 days.
   const since = new Date(Date.now() - COOLDOWN_DAYS * 86400_000);
@@ -491,7 +520,9 @@ export async function runBuyerProspecting(opts?: {
   );
 
   const suppressed = new Set(
-    (await db.select({ email: schema.suppression.email }).from(schema.suppression)).map((r) => r.email)
+    (await db.select({ email: schema.suppression.email }).from(schema.suppression)).map((r) =>
+      r.email.toLowerCase()
+    )
   );
 
   type Qualified = {
@@ -536,7 +567,7 @@ export async function runBuyerProspecting(opts?: {
       .orderBy(desc(schema.buyerOutreach.created_at))
       .limit(5000);
     const known = selectKnownContacts(history, lead, new Date(), trade).filter(
-      (k) => !accountKeys.has(k.key) && !suppressed.has(k.email.toLowerCase())
+      (k) => !accountKeys.has(k.key) && !blockedKeys.has(k.key) && !suppressed.has(k.email.toLowerCase())
     );
     for (const k of known.slice(0, want)) {
       qualified.push({
@@ -591,18 +622,6 @@ export async function runBuyerProspecting(opts?: {
   }
   if (candidates.length) log.push(`${candidates.length} candidate companies`);
 
-  // Permanent operator verdicts: profiles blocked on /companies never get
-  // another email from ANY campaign (the per-run ?exclude= list was
-  // groundhog-day pruning \u2014 the same junk resurfaced every run).
-  const blockedKeys = new Set(
-    (
-      await db
-        .select({ key: schema.prospectCompany.key })
-        .from(schema.prospectCompany)
-        .where(isNotNull(schema.prospectCompany.blocked_at))
-    ).map((r) => r.key)
-  );
-
   // ---- 5. Qualify one by one until the list is full (bounded attempts).
   let attempts = Math.min(candidates.length, want * 3);
   for (const c of candidates) {
@@ -637,12 +656,17 @@ export async function runBuyerProspecting(opts?: {
     if (distance != null && distance > MAX_DISTANCE_MI) continue;
 
     // Deliverable channel + commercial signal (both from their own website).
+    // A site that hides its address falls back to the company graph — the
+    // weekly Apollo enrichment writes emails there for exactly this pool, and
+    // without this fallback those credits bought addresses nothing ever read.
     const contact = c.website
       ? await scrapeBusinessContact(c.website)
       : { email: null, phone: null, contact_form_url: null };
-    if (contact.email && suppressed.has(contact.email.toLowerCase())) continue;
+    const enriched = !contact.email ? graphEmail.get(key) ?? null : null;
+    const email = contact.email ?? enriched;
+    if (email && suppressed.has(email.toLowerCase())) continue;
     const commercial = await looksCommercial(c.website);
-    if (!contact.email) skippedNoEmail++;
+    if (!email) skippedNoEmail++;
 
     qualified.push({
       c,
@@ -650,14 +674,15 @@ export async function runBuyerProspecting(opts?: {
       coords,
       distance,
       commercial,
-      email: contact.email,
+      email,
       phone: contact.phone,
       form: contact.contact_form_url,
     });
     offeredThis.add(key); // guard against duplicate names inside one pool
     log.push(
-      `  ${contact.email ? "✓" : "·"} ${c.name}${distance != null ? ` (${distance.toFixed(0)} mi)` : ""}` +
-        `${commercial ? " [commercial]" : commercial === false ? " [resi?]" : ""}${contact.email ? "" : " — no email, queued as skipped"}`
+      `  ${email ? "✓" : "·"} ${c.name}${distance != null ? ` (${distance.toFixed(0)} mi)` : ""}` +
+        `${commercial ? " [commercial]" : commercial === false ? " [resi?]" : ""}` +
+        `${enriched ? " [email via enrichment]" : ""}${email ? "" : " — no email, queued as skipped"}`
     );
   }
 
@@ -700,7 +725,11 @@ export async function runBuyerProspecting(opts?: {
       claimUrl,
       trade,
     });
-    const [row] = await db
+    // The partial unique index (property_id, company_key) makes this the
+    // cross-process dedupe point: a concurrent run's insert conflicts and we
+    // fall back to the existing row — reusing it only while still 'queued'
+    // (which also makes preview-queued rows from the CLI actually sendable).
+    let [row] = await db
       .insert(schema.buyerOutreach)
       .values({
         property_id: lead.id,
@@ -719,7 +748,25 @@ export async function runBuyerProspecting(opts?: {
         message: `SUBJECT[${subjectVariant}]: ${msg.subject}\n\n${msg.body}`,
         status: q.email ? "queued" : "skipped",
       })
+      .onConflictDoNothing()
       .returning();
+    if (!row) {
+      const [existing] = await db
+        .select()
+        .from(schema.buyerOutreach)
+        .where(
+          and(
+            eq(schema.buyerOutreach.property_id, lead.id),
+            eq(schema.buyerOutreach.company_key, q.key)
+          )
+        )
+        .limit(1);
+      if (!existing || existing.status !== "queued") {
+        log.push(`  ⊘ ${q.c.name} — already handled by another run`);
+        continue;
+      }
+      row = existing;
+    }
     // Refresh the company's profile (identity + trade) — the company graph
     // every enrichment event (claim views, signup linkage) lands on.
     await upsertProspectCompany({
@@ -738,6 +785,19 @@ export async function runBuyerProspecting(opts?: {
     queued++;
 
     if (doSend && row) {
+      // ATOMIC CLAIM before the send: only one run can flip queued→sent, so
+      // overlapping runs can never email the same company twice.
+      const claimed = await db
+        .update(schema.buyerOutreach)
+        .set({ status: "sent", sent_at: new Date(), updated_at: new Date() })
+        .where(
+          and(eq(schema.buyerOutreach.id, row.id), eq(schema.buyerOutreach.status, "queued"))
+        )
+        .returning({ id: schema.buyerOutreach.id });
+      if (claimed.length === 0) {
+        log.push(`  ⊘ ${q.c.name} — sent by another run`);
+        continue;
+      }
       const unsubUrl = `${base}/api/unsubscribe?token=${encodeURIComponent(signBuyerUnsub(q.email))}`;
       const res = await sendEmail({
         to: q.email,
@@ -756,8 +816,6 @@ export async function runBuyerProspecting(opts?: {
         await db
           .update(schema.buyerOutreach)
           .set({
-            status: "sent",
-            sent_at: new Date(),
             // The Resend message id keys webhook events (delivered/opened/
             // clicked/bounced) back to this row for the campaign funnel.
             resend_message_id: res.id,
@@ -765,6 +823,11 @@ export async function runBuyerProspecting(opts?: {
           })
           .where(eq(schema.buyerOutreach.id, row.id));
       } else {
+        // Send failed after the claim — release the row so a retry can send.
+        await db
+          .update(schema.buyerOutreach)
+          .set({ status: "queued", sent_at: null, updated_at: new Date() })
+          .where(eq(schema.buyerOutreach.id, row.id));
         log.push(`  ✗ send failed: ${q.c.name} (${res.error})`);
       }
     }

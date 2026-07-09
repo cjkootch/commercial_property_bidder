@@ -172,7 +172,12 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
       lead_reasons: reasons,
       archived: p.archived_at != null,
       modelled: modelledIds.has(p.id),
-      sellable: /\(TABS /.test(p.name) && p.parcel_geojson != null && p.lead_exported_at == null,
+      // Same aperture as the marketplace shelf (lib/leads/market.ts) — every
+      // sourced kind counts as inventory, and RFPs are sellable parcel-less.
+      sellable:
+        /\((TABS|HCAD|STP|H311|TABC|TAX|RFP) /.test(p.name) &&
+        (p.parcel_geojson != null || /\(RFP /.test(p.name)) &&
+        p.lead_exported_at == null,
       teaser_lo: teaser?.annual_lo ?? null,
       teaser_hi: teaser?.annual_hi ?? null,
       spots_sold: sold?.count ?? 0,

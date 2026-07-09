@@ -45,10 +45,16 @@ export async function replyToBuyer(buyerId: string, formData: FormData): Promise
   revalidatePath("/messages");
 }
 
-export async function markThreadRead(buyerId: string): Promise<void> {
+export async function markThreadRead(
+  buyerId: string,
+  opts?: { revalidate?: boolean }
+): Promise<void> {
   await db
     .update(chatMessage)
     .set({ read_at: new Date() })
     .where(and(eq(chatMessage.buyer_id, buyerId), eq(chatMessage.sender, "buyer"), isNull(chatMessage.read_at)));
-  revalidatePath("/messages");
+  // The thread PAGE calls this during render, where revalidatePath is not
+  // allowed (and the page is force-dynamic anyway) — only form actions pass
+  // revalidate: true.
+  if (opts?.revalidate) revalidatePath("/messages");
 }

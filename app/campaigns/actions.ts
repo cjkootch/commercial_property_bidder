@@ -9,6 +9,7 @@ import { leadPriceCents, exclusivePriceCents } from "@/lib/integrations/stripe";
 import { leadMaxBuyers } from "@/lib/leads/availability";
 import { buildRecipients } from "@/lib/campaigns/build";
 import { sendEmail } from "@/lib/integrations/resend";
+import { signBuyerUnsub } from "@/lib/buyer-auth";
 import { getDefaultCompany } from "@/lib/db/queries";
 
 // Operator campaign review workflow. Gates: properties -> recipients ->
@@ -155,11 +156,23 @@ export async function executeCampaign(campaignId: string): Promise<void> {
         .join("") +
       (physical ? `<hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;"><p style="color:#9ca3af;font-size:11px;">${esc(physical)}</p>` : "") +
       `</div>`;
+    // CAN-SPAM parity with every other marketing path: one-click unsubscribe
+    // in both the header and the body (this blast previously had neither).
+    const base = (process.env.NEXT_PUBLIC_APP_URL ?? "https://greenkeep.us").replace(/\/$/, "");
+    const unsubUrl = `${base}/api/unsubscribe?token=${encodeURIComponent(signBuyerUnsub(r.email))}`;
     const res = await sendEmail({
       to: r.email,
       subject: r.subject ?? "A grounds contract near you",
-      html,
+      html:
+        html.replace(
+          "</div>",
+          `<p style="color:#9ca3af;font-size:11px;margin:16px 0 0;"><a href="${unsubUrl}" style="color:#9ca3af;">Unsubscribe</a></p></div>`
+        ),
       tags: { kind: "campaign", campaign: campaignId.slice(0, 8) },
+      headers: {
+        "List-Unsubscribe": `<${unsubUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
     });
     await db
       .update(outreachRecipient)

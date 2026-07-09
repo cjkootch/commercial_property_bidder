@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "buyer_outreach_property_company_uniq" ON "buyer_outreach" USING btree ("property_id","company_key") WHERE property_id is not null;

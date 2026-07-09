@@ -88,9 +88,12 @@ export async function fetchTaxSales(opts?: {
   const counties = opts?.counties ?? currentMarket().taxSaleCounties;
   const out: TaxSaleRow[] = [];
   for (const county of counties) {
+    // Budget PER COUNTY: a shared cap let the first county (Dallas, ~528
+    // parcels) exhaust it before Tarrant fetched a single row.
+    const countyStart = out.length;
     let offset = 0;
-    while (out.length < limit) {
-      const page = Math.min(200, limit - out.length);
+    while (out.length - countyStart < limit) {
+      const page = Math.min(200, limit - (out.length - countyStart));
       const params = new URLSearchParams({
         county,
         state: "TX",

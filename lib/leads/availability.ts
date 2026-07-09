@@ -43,11 +43,16 @@ export type LeadAvailability = {
 };
 
 export async function leadAvailability(
-  prop: Pick<Property, "id" | "lead_exported_at"> & { sale_cycle?: number },
+  prop: Pick<Property, "id" | "lead_exported_at"> & {
+    sale_cycle?: number;
+    archived_at?: Date | null;
+  },
   trade: Trade = DEFAULT_TRADE
 ): Promise<LeadAvailability> {
   const closed: LeadAvailability = { open: false, exclusiveOpen: false, spotsLeft: 0, closed: true };
-  if (prop.lead_exported_at != null) return closed;
+  // Archived = the operator pulled it — closed everywhere (claim tokens and
+  // nudges included), not just off the shelf.
+  if (prop.lead_exported_at != null || prop.archived_at != null) return closed;
   const cycle = prop.sale_cycle ?? 0;
   const all = (
     await db.select().from(leadUnlock).where(eq(leadUnlock.property_id, prop.id))
@@ -56,7 +61,10 @@ export async function leadAvailability(
   if (all.some((u) => u.kind === "exclusive")) return closed;
   const unlocks = all.filter((u) => u.cycle === cycle);
   const spotsLeft = Math.max(0, leadMaxBuyers() - unlocks.length);
-  return { open: spotsLeft > 0, exclusiveOpen: unlocks.length === 0, spotsLeft, closed: spotsLeft === 0 };
+  // The exclusive pitch is "yours alone — nobody else has this sheet". A
+  // renewal cycle reopens SHARED spots, but prior-cycle holders still own the
+  // identical sheet, so the exclusive is only honest when NOBODY ever held it.
+  return { open: spotsLeft > 0, exclusiveOpen: all.length === 0, spotsLeft, closed: spotsLeft === 0 };
 }
 
 /**

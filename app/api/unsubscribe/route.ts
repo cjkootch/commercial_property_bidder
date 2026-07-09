@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, suppression } from "@/lib/db/schema";
+import { buyer, leadUnlock, suppression } from "@/lib/db/schema";
 import { verifyBuyerUnsub } from "@/lib/buyer-auth";
 
 // One-click unsubscribe (linked from alert emails + List-Unsubscribe header).
@@ -24,14 +24,27 @@ export async function GET(req: NextRequest) {
     .set({ notify: false, updated_at: new Date() })
     .where(eq(buyer.email, email))
     .returning({ id: buyer.id });
-  // PROSPECTED companies have no buyer row — for them the only durable opt-out
-  // is the suppression list (which the prospecting engine checks before every
-  // send). Without this, unsubscribe was a silent no-op and they'd be
-  // re-emailed after the 30-day cooldown — a CAN-SPAM violation.
-  if (updated.length === 0) {
+  // The suppression list is what the campaign/alert/nudge engines actually
+  // check — a buyer row alone doesn't stop them (account exclusion keys on
+  // company NAME, which incidental rows from the chat widget or a re-spelled
+  // signup don't match). So: suppress every unsubscriber EXCEPT a real
+  // customer (has unlocks) — suppression also blocks purchases, and a paying
+  // customer opting out of alerts must not lose the ability to buy. Their
+  // marketing stops via notify=false + account exclusion. (CAN-SPAM: every
+  // non-customer gets a durable opt-out.)
+  const isCustomer =
+    updated.length > 0 &&
+    (
+      await db
+        .select({ id: leadUnlock.id })
+        .from(leadUnlock)
+        .where(eq(leadUnlock.buyer_id, updated[0].id))
+        .limit(1)
+    ).length > 0;
+  if (!isCustomer) {
     await db
       .insert(suppression)
-      .values({ email: email.toLowerCase(), reason: "one-click unsubscribe (no account)" })
+      .values({ email: email.toLowerCase(), reason: "one-click unsubscribe" })
       .onConflictDoNothing({ target: suppression.email });
   }
 

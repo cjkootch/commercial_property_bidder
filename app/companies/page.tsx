@@ -19,15 +19,21 @@ export default async function CompaniesPage({
   searchParams: { trade?: string };
 }) {
   const profiles = await db.select().from(prospectCompany).orderBy(desc(prospectCompany.updated_at)).limit(1000);
-  const outreach = await db
-    .select({
-      key: buyerOutreach.company_key,
-      status: buyerOutreach.status,
-      opened_at: buyerOutreach.opened_at,
-      clicked_at: buyerOutreach.clicked_at,
-      sent_at: buyerOutreach.sent_at,
-    })
-    .from(buyerOutreach);
+  // Campaign rows only: operator 1:1 replies (claim_url NULL) carry tracking
+  // too, but a personal reply must not inflate the funnel or the call-list
+  // score (an auto-fired open on a reply is not campaign engagement).
+  const outreach = (
+    await db
+      .select({
+        key: buyerOutreach.company_key,
+        status: buyerOutreach.status,
+        opened_at: buyerOutreach.opened_at,
+        clicked_at: buyerOutreach.clicked_at,
+        sent_at: buyerOutreach.sent_at,
+        claim_url: buyerOutreach.claim_url,
+      })
+      .from(buyerOutreach)
+  ).filter((r) => r.claim_url);
   const buyers = await db.select({ id: buyer.id, company_name: buyer.company_name }).from(buyer);
   const buyerName = new Map(buyers.map((b) => [b.id, b.company_name]));
 

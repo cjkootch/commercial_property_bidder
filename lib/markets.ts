@@ -57,7 +57,7 @@ export const MARKETS: Record<string, Market> = {
     label: "Dallas–Fort Worth metro",
     metroSearch: "Dallas, Texas",
     metroCity: "dallas",
-    bbox: [-97.9, 32.2, -96.0, 33.5],
+    bbox: [-97.9, 32.0, -96.0, 33.8],
     // LGBS carries both core DFW counties (verified live 2026-07-09:
     // 528 Dallas + 384 Tarrant parcels in the pipeline).
     taxSaleCounties: ["DALLAS COUNTY", "TARRANT COUNTY"],
