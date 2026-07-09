@@ -17,7 +17,7 @@
 import { bidWindowMultiplier, leadRank } from "./allocation";
 import type { LeadKind } from "./market";
 
-export type Trade = "landscaping" | "pest";
+export type Trade = "landscaping" | "pest" | "cleaning" | "paving" | "security" | "hvac";
 
 export const DEFAULT_TRADE: Trade = "landscaping";
 
@@ -38,6 +38,9 @@ export type TradeDef = {
   /** "landscaping" — used in buyer-facing copy ("3 landscaping companies"). */
   noun: string;
   label: string;
+  /** Lowercase-safe service noun for prose ("year-round HVAC service
+   *  contract") — label can't be lowercased blindly (HVAC). */
+  service: string;
   /** Which leads this trade's shelf shows at all. */
   relevant: (kind: LeadKind) => boolean;
   /** The trade's OWN ranking model. Higher = better. */
@@ -97,11 +100,161 @@ function pestRank(i: TradeRankInput): number {
   return base * bidWindowMultiplier(i.monthsToCompletion, i.urgent);
 }
 
+/**
+ * Commercial cleaning / janitorial value model:
+ *   - opening: pre-opening deep clean + the recurring janitorial contract,
+ *     signed before day one ............................................. 25k
+ *   - construction/TI: post-construction cleanup then a fresh recurring
+ *     contract for the new space ........................................ 22k
+ *   - transfer: every occupied building carries janitorial and the new
+ *     owner re-bids it .................................................. 15k
+ *   - dumping/debris citations: forced cleanup work ..................... 12k
+ *   - distress: pre-sale cleanouts, vacant-property turns ................ 8k
+ *   - weeds-only citations: not a cleaning product ....................... 4k
+ *   - public grounds bids: not a cleaning product ......................... 0
+ */
+function cleaningRank(i: TradeRankInput): number {
+  const notes = i.notes ?? "";
+  let base: number;
+  switch (i.kind) {
+    case "opening":
+      base = 25_000;
+      break;
+    case "construction":
+      base = 22_000;
+      break;
+    case "transfer":
+      base = 15_000;
+      break;
+    case "violation":
+      base = /dumping|debris|trash/i.test(notes) ? 12_000 : 4_000;
+      break;
+    case "distress":
+      base = 8_000;
+      break;
+    default:
+      return 0; // rfp: grounds bids
+  }
+  return base * bidWindowMultiplier(i.monthsToCompletion, i.urgent);
+}
+
+/**
+ * Paving / parking-lot maintenance value model: the buyer prices by lot, and
+ * we uniquely measure pavement from the air (hardscape class) — the pitch's
+ * moat. Signal weights:
+ *   - construction: new/renovated sites need striping, sealcoat schedules,
+ *     and the first lot-maintenance contract ............................ 20k
+ *   - transfer: lot repair/restripe is the first thing a new owner sees
+ *     on a condition report ............................................. 15k
+ *   - opening: restripe/handicap compliance before doors open ........... 10k
+ *   - distress: lots gone to seed pre-auction ............................ 6k
+ *   - citations: occasionally lot-related dumping ........................ 5k
+ *   - public grounds bids: not a paving product ........................... 0
+ */
+function pavingRank(i: TradeRankInput): number {
+  let base: number;
+  switch (i.kind) {
+    case "construction":
+      base = 20_000;
+      break;
+    case "transfer":
+      base = 15_000;
+      break;
+    case "opening":
+      base = 10_000;
+      break;
+    case "distress":
+      base = 6_000;
+      break;
+    case "violation":
+      base = 5_000;
+      break;
+    default:
+      return 0;
+  }
+  return base * bidWindowMultiplier(i.monthsToCompletion, i.urgent);
+}
+
+/**
+ * Security services value model: guarding/patrol prices by risk exposure.
+ *   - construction: site theft is the industry's chronic loss — patrol and
+ *     camera contracts run the whole build .............................. 22k
+ *   - distress/tax sale: vacant properties need patrol NOW, and lenders
+ *     often require it .................................................. 20k
+ *   - dumping citations: unsecured-property signal — patrol sells ....... 12k
+ *   - opening: new alarm/guard contracts before opening day ............. 12k
+ *   - transfer: re-bid of the standing contract ......................... 10k
+ *   - weeds-only citations ................................................ 3k
+ *   - public grounds bids .................................................. 0
+ */
+function securityRank(i: TradeRankInput): number {
+  const notes = i.notes ?? "";
+  let base: number;
+  switch (i.kind) {
+    case "construction":
+      base = 22_000;
+      break;
+    case "distress":
+      base = 20_000;
+      break;
+    case "violation":
+      base = /dumping|debris|trash/i.test(notes) ? 12_000 : 3_000;
+      break;
+    case "opening":
+      base = 12_000;
+      break;
+    case "transfer":
+      base = 10_000;
+      break;
+    default:
+      return 0;
+  }
+  return base * bidWindowMultiplier(i.monthsToCompletion, i.urgent);
+}
+
+/**
+ * Commercial HVAC service value model: maintenance agreements + service.
+ *   - food-service opening: kitchen ventilation + refrigeration service is
+ *     effectively mandatory ............................................. 26k
+ *   - other openings: the first maintenance agreement being signed ...... 22k
+ *   - construction/TI: brand-new equipment needs a service contract from
+ *     day one (and TI scopes often include mechanical) .................. 18k
+ *   - transfer: service agreements re-bid with the building .............. 14k
+ *   - distress: neglected equipment pre-sale .............................. 5k
+ *   - citations: rarely mechanical ........................................ 3k
+ *   - public grounds bids .................................................. 0
+ */
+function hvacRank(i: TradeRankInput): number {
+  const notes = i.notes ?? "";
+  let base: number;
+  switch (i.kind) {
+    case "opening":
+      base = /TABC|NAICS 72|restaurant|food|\bbar\b/i.test(notes) ? 26_000 : 22_000;
+      break;
+    case "construction":
+      base = 18_000;
+      break;
+    case "transfer":
+      base = 14_000;
+      break;
+    case "distress":
+      base = 5_000;
+      break;
+    case "violation":
+      base = 3_000;
+      break;
+    default:
+      return 0;
+  }
+  return base * bidWindowMultiplier(i.monthsToCompletion, i.urgent);
+}
+
 export const TRADES: Record<Trade, TradeDef> = {
   landscaping: {
     key: "landscaping",
     noun: "landscaping companies",
     label: "Landscaping",
+    service: "landscaping",
     relevant: () => true,
     // The operator measured it and there's no grass: not a landscaping lead,
     // whatever the signal was. (Stays sellable to trades that don't mow.)
@@ -119,6 +272,7 @@ export const TRADES: Record<Trade, TradeDef> = {
     key: "pest",
     noun: "pest control companies",
     label: "Pest control",
+    service: "pest control",
     relevant: (kind) => kind !== "rfp",
     rank: pestRank,
     prospectKeywords: [
@@ -126,6 +280,62 @@ export const TRADES: Record<Trade, TradeDef> = {
       "exterminator",
       "commercial pest control",
       "pest management",
+    ],
+  },
+  cleaning: {
+    key: "cleaning",
+    noun: "commercial cleaning companies",
+    label: "Cleaning",
+    service: "commercial cleaning",
+    relevant: (kind) => kind !== "rfp",
+    rank: cleaningRank,
+    prospectKeywords: [
+      "commercial cleaning",
+      "janitorial services",
+      "office cleaning",
+      "building maintenance services",
+    ],
+  },
+  paving: {
+    key: "paving",
+    noun: "paving contractors",
+    label: "Paving",
+    service: "parking-lot maintenance",
+    relevant: (kind) => kind !== "rfp",
+    rank: pavingRank,
+    prospectKeywords: [
+      "paving contractor",
+      "asphalt paving",
+      "sealcoating",
+      "parking lot striping",
+    ],
+  },
+  security: {
+    key: "security",
+    noun: "security companies",
+    label: "Security",
+    service: "security",
+    relevant: (kind) => kind !== "rfp",
+    rank: securityRank,
+    prospectKeywords: [
+      "security guard services",
+      "commercial security",
+      "patrol services",
+      "security company",
+    ],
+  },
+  hvac: {
+    key: "hvac",
+    noun: "HVAC contractors",
+    label: "HVAC",
+    service: "HVAC service",
+    relevant: (kind) => kind !== "rfp",
+    rank: hvacRank,
+    prospectKeywords: [
+      "commercial HVAC",
+      "mechanical contractor",
+      "HVAC service",
+      "air conditioning contractor",
     ],
   },
 };
