@@ -22,7 +22,11 @@ export type EnrichSummary = {
 /** Walk no-email company profiles that have a website (needed to gate the
  *  match), find a business email via Apollo, and write it back to the graph.
  *  Bounded per run to respect Apollo credits. Never throws. */
-export async function runEmailEnrichment(opts?: { limit?: number; apply?: boolean }): Promise<EnrichSummary> {
+export async function runEmailEnrichment(opts?: {
+  limit?: number;
+  apply?: boolean;
+  debug?: boolean;
+}): Promise<EnrichSummary> {
   const limit = opts?.limit ?? 25;
   const apply = opts?.apply ?? false;
   const log: string[] = [];
@@ -41,7 +45,9 @@ export async function runEmailEnrichment(opts?: { limit?: number; apply?: boolea
   let supp = 0;
   for (const c of targets) {
     const domain = c.website ? siteDomainOf(c.website) : null;
-    const hit = await findCompanyEmail(c.name, { domain });
+    const trace: string[] = [];
+    const hit = await findCompanyEmail(c.name, { domain, ...(opts?.debug ? { trace } : {}) });
+    if (opts?.debug) for (const t of trace) log.push(`    [${c.name}] ${t}`);
     if (!hit) {
       log.push(`  · ${c.name} — no Apollo email`);
       continue;

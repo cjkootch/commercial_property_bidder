@@ -230,11 +230,15 @@ export async function findDecisionContact(
  */
 export async function findCompanyEmail(
   companyName: string | null | undefined,
-  opts?: { domain?: string | null }
+  opts?: { domain?: string | null; trace?: string[] }
 ): Promise<{ email: string; name: string | null; title: string | null } | null> {
   const raw = companyName?.trim();
   const key = getApolloKey();
-  if (!raw || !key) return null;
+  const trace = (s: string) => opts?.trace?.push(s);
+  if (!raw || !key) {
+    trace(!key ? "no APOLLO key" : "no name");
+    return null;
+  }
   const domain = opts?.domain?.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "").toLowerCase() || null;
   try {
     const res = await fetch("https://api.apollo.io/api/v1/mixed_people/search", {
@@ -250,13 +254,23 @@ export async function findCompanyEmail(
         per_page: 10,
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      trace(`search HTTP ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+      return null;
+    }
     const data = (await res.json()) as { people?: ApolloPerson[]; contacts?: ApolloPerson[] };
-    const people = [...(data.people ?? []), ...(data.contacts ?? [])].filter(
+    const all = [...(data.people ?? []), ...(data.contacts ?? [])];
+    const people = all.filter(
       (p) =>
         (p.name?.trim() || p.id) &&
         (orgNameMatches(raw, p.organization?.name) ||
           (domain && p.organization?.primary_domain?.toLowerCase() === domain))
+    );
+    trace(
+      `search domain=${domain} raw=${all.length} gated=${people.length}` +
+        (all.length && !people.length
+          ? ` (sample org: ${all[0]?.organization?.name ?? "?"} / ${all[0]?.organization?.primary_domain ?? "?"})`
+          : "")
     );
     // Rank by decision authority, then take the first with a real, on-domain
     // (or freemail) email — a wrong-company personal address is worse than none.
@@ -281,7 +295,10 @@ export async function findCompanyEmail(
       }
       // Match by the search result's person id — exact, and immune to the
       // last-name masking search responses apply on some plans.
-      if (!cand.id) continue;
+      if (!cand.id) {
+        trace("candidate without id, skipped");
+        continue;
+      }
       const mres = await fetch("https://api.apollo.io/api/v1/people/match", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
@@ -290,8 +307,14 @@ export async function findCompanyEmail(
           reveal_personal_emails: false,
         }),
       });
-      if (!mres.ok) continue;
+      if (!mres.ok) {
+        trace(`match HTTP ${mres.status}: ${(await mres.text().catch(() => "")).slice(0, 200)}`);
+        continue;
+      }
       const m = (await mres.json()) as { person?: ApolloPerson };
+      if (!ok(m.person?.email)) {
+        trace(`match returned email=${m.person?.email ?? "none"} (rejected by gate)`);
+      }
       if (ok(m.person?.email)) {
         return {
           email: m.person!.email!,
@@ -301,7 +324,8 @@ export async function findCompanyEmail(
       }
     }
     return null;
-  } catch {
+  } catch (e) {
+    trace(`threw: ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
 }

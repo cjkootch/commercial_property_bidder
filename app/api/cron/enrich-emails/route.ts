@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
   const summary = await runEmailEnrichment({
     limit: Number.isFinite(limit) && limit > 0 ? Math.min(limit, 200) : undefined,
     apply: sp.get("apply") === "1",
+    debug: sp.get("debug") === "1",
   });
   return Response.json(summary);
 }
