@@ -185,7 +185,10 @@ export async function findDecisionContact(
       opts?.domain?.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "").toLowerCase() || null;
     // People search filters by employer DOMAIN; an org-name param is silently
     // ignored, so without a domain the keyword filter is the real scoping.
-    const res = await fetch("https://api.apollo.io/api/v1/mixed_people/search", {
+    // api_search is the API-caller endpoint (the old mixed_people/search 422s);
+    // it returns no emails and masks last names, so the picked person is
+    // completed via a people/match reveal (1 Apollo credit).
+    const res = await fetch("https://api.apollo.io/api/v1/mixed_people/api_search", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
       body: JSON.stringify({
@@ -198,21 +201,34 @@ export async function findDecisionContact(
     const data = (await res.json()) as { people?: ApolloPerson[]; contacts?: ApolloPerson[] };
     const candidates = [...(data.people ?? []), ...(data.contacts ?? [])].filter(
       (p) =>
-        p.name?.trim() &&
+        (p.name?.trim() || p.id) &&
         (orgNameMatches(raw, p.organization?.name) ||
-          (domain && p.organization?.primary_domain === domain))
+          (domain && p.organization?.primary_domain?.toLowerCase() === domain))
     );
     const person = pickDecisionPerson(candidates);
-    if (!person?.name) return null;
+    if (!person) return null;
+    let full: ApolloPerson = person;
+    if ((!person.name?.trim() || !person.email || /not_unlocked/i.test(person.email)) && person.id) {
+      const mres = await fetch("https://api.apollo.io/api/v1/people/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
+        body: JSON.stringify({ id: person.id, reveal_personal_emails: false }),
+      });
+      if (mres.ok) {
+        const m = (await mres.json()) as { person?: ApolloPerson };
+        if (m.person) full = { ...person, ...m.person };
+      }
+    }
+    if (!full.name?.trim()) return null;
     const email =
-      person.email && !/not_unlocked|@domain\.|@example\./i.test(person.email) ? person.email : null;
+      full.email && !/not_unlocked|@domain\.|@example\./i.test(full.email) ? full.email : null;
     return {
-      name: person.name.trim(),
-      title: person.title?.trim() || null,
+      name: full.name.trim(),
+      title: full.title?.trim() || null,
       email,
-      phone: person.phone_numbers?.[0]?.sanitized_number ?? person.organization?.phone ?? null,
-      linkedin: person.linkedin_url ?? null,
-      org: person.organization?.name?.trim() || raw,
+      phone: full.phone_numbers?.[0]?.sanitized_number ?? full.organization?.phone ?? null,
+      linkedin: full.linkedin_url ?? null,
+      org: full.organization?.name?.trim() || raw,
     };
   } catch {
     return null;
@@ -241,7 +257,9 @@ export async function findCompanyEmail(
   }
   const domain = opts?.domain?.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "").toLowerCase() || null;
   try {
-    const res = await fetch("https://api.apollo.io/api/v1/mixed_people/search", {
+    // api_search is the API-caller endpoint (the old mixed_people/search 422s
+    // with a deprecation error for API keys).
+    const res = await fetch("https://api.apollo.io/api/v1/mixed_people/api_search", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
       // People search filters by employer DOMAIN (q_organization_domains_list);
