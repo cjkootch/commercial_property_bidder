@@ -55,6 +55,34 @@ describe("pipeline/buyer-prospecting", () => {
     expect(m.body).toContain("— Greenkeep");
   });
 
+  it("subject variant B is short, local, and human — A stays value-led", () => {
+    const args = {
+      company: "X",
+      lead: pitch,
+      distanceMi: 5,
+      brand: "Greenkeep",
+      replyEmail: "leads@greenkeep.us",
+      price: 89,
+      cap: 3,
+      claimUrl: "https://x",
+    };
+    const a = buildProspectMessage({ ...args, subjectVariant: "A" as const });
+    const b = buildProspectMessage({ ...args, subjectVariant: "B" as const });
+    expect(a.subject).toContain("est. $");
+    expect(b.subject).toBe("A new owner near you needs grounds care — Spring");
+    expect(b.subject.length).toBeLessThan(a.subject.length);
+    // Body is identical — only the subject is under test.
+    expect(b.body).toBe(a.body);
+    // Trades voice their own service in B.
+    const bp = buildProspectMessage({
+      ...args,
+      trade: "pest" as const,
+      lead: { ...pitch, value: { annualLo: 4000, annualHi: 9000, basis: "x" } },
+      subjectVariant: "B" as const,
+    });
+    expect(bp.subject).toBe("A new owner near you needs pest control — Spring");
+  });
+
   it("hand-verified measurements say so — it sells", () => {
     const m = buildProspectMessage({
       company: "X",

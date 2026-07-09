@@ -261,6 +261,10 @@ export function buildProspectMessage(o: {
   claimUrl: string;
   /** Buyer vertical the pitch speaks to (default landscaping). */
   trade?: Trade;
+  /** Subject A/B (launch analysis: ~40% of openers click — the subject is the
+   *  funnel bottleneck). A = long value-led (the original). B = short, local,
+   *  human. Assigned alternately at queue time; measured via /campaigns. */
+  subjectVariant?: "A" | "B";
 }): { subject: string; body: string } {
   const { lead } = o;
   const trade = o.trade ?? DEFAULT_TRADE;
@@ -306,10 +310,13 @@ export function buildProspectMessage(o: {
   // number — a pest company doesn't care about grass, and quoting a
   // landscaping figure would read as exactly the spam it isn't.
   const est = lead.value;
+  const serviceNoun = trade === "landscaping" ? "grounds care" : TRADES[trade].service;
   const subject =
-    trade === "landscaping"
-      ? `Grounds contract lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""} — est. ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr`
-      : `Commercial ${TRADES[trade].service} lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""}${est ? ` — est. ${usd(est.annualLo)}–${usd(est.annualHi)}/yr` : ""}`;
+    o.subjectVariant === "B"
+      ? `A ${kindShort} near you needs ${serviceNoun}${lead.city ? ` — ${lead.city}` : ""}`
+      : trade === "landscaping"
+        ? `Grounds contract lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""} — est. ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr`
+        : `Commercial ${TRADES[trade].service} lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""}${est ? ` — est. ${usd(est.annualLo)}–${usd(est.annualHi)}/yr` : ""}`;
 
   const valueRows =
     trade === "landscaping"
@@ -344,7 +351,7 @@ ${o.replyEmail}
 }
 
 /** Message text -> simple branded HTML with the compliance footer. */
-function toHtml(body: string, unsubUrl: string, physicalAddress: string | null): string {
+export function toHtml(body: string, unsubUrl: string, physicalAddress: string | null): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const paras = body
     .split(/\n\n+/)
@@ -366,7 +373,7 @@ function toHtml(body: string, unsubUrl: string, physicalAddress: string | null):
   );
 }
 
-function siteBase(): string {
+export function siteBase(): string {
   const b = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
   return b && !/localhost|127\.0\.0\.1/.test(b) ? b : "https://greenkeep.us";
 }
@@ -629,6 +636,7 @@ export async function runBuyerProspecting(opts?: {
   const cap = leadMaxBuyers();
   let queued = 0;
   let sent = 0;
+  let variantIdx = 0; // alternate A/B across the emailable list
   for (const q of [...emailable, ...manual]) {
     if (opts?.dryRun) {
       if (q.email) queued++;
@@ -636,7 +644,9 @@ export async function runBuyerProspecting(opts?: {
       continue;
     }
     const claimUrl = `${base}/buyers/claim/${signBuyerClaim(lead.id, q.c.name)}?trade=${trade}`;
+    const subjectVariant: "A" | "B" = q.email ? (variantIdx++ % 2 === 0 ? "A" : "B") : "A";
     const msg = buildProspectMessage({
+      subjectVariant,
       company: q.c.name,
       lead,
       distanceMi: q.distance,
@@ -667,7 +677,7 @@ export async function runBuyerProspecting(opts?: {
         distance_mi: q.distance,
         commercial_signal: q.commercial,
         claim_url: claimUrl,
-        message: `SUBJECT: ${msg.subject}\n\n${msg.body}`,
+        message: `SUBJECT[${subjectVariant}]: ${msg.subject}\n\n${msg.body}`,
         status: q.email ? "queued" : "skipped",
       })
       .returning();
@@ -696,7 +706,7 @@ export async function runBuyerProspecting(opts?: {
         html: toHtml(msg.body, unsubUrl, co.physical_mailing_address ?? null),
         // Replies are the conversion event — route them to the watched inbox.
         replyTo: replyEmail || undefined,
-        tags: { kind: "buyer_prospecting" },
+        tags: { kind: "buyer_prospecting", variant: subjectVariant },
         headers: {
           "List-Unsubscribe": `<${unsubUrl}>`,
           "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
