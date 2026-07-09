@@ -64,7 +64,7 @@ export default async function WhyPage() {
           The math, side by side
         </h2>
         <p className="mx-auto mt-3 max-w-2xl text-center text-gray-600">
-          A commercial grounds contract runs years, not visits. What matters is what you pay to
+          A commercial service contract runs years, not visits. What matters is what you pay to
           land one.
         </p>
         <div className="mt-10 grid gap-5 md:grid-cols-2">
@@ -85,7 +85,7 @@ export default async function WhyPage() {
               </li>
               <li>
                 • Ads only reach people <em>already searching</em>. Commercial property owners
-                rarely search — grounds contracts change hands through events, not Google.
+                rarely search — service contracts change hands through events, not Google.
               </li>
               <li>
                 • The meter never stops: pause the spend and the pipeline dies the same week.
@@ -175,7 +175,7 @@ export default async function WhyPage() {
             ["A business is opening", "First contracts are being signed in the weeks before the doors open. Whoever shows up gets considered."],
             ["The city issued a citation", "Overgrowth, dumping, nuisance — the owner is required to arrange service, usually within days. The most urgent signal there is."],
             ["Tax-sale pressure", "Distressed properties need cleanup now, and the next owner re-bids everything. Forced action on both sides of the sale."],
-            ["Construction completing", "A brand-new property's first grounds contract hasn't been won by anyone. Get on the bidder list before it opens."],
+            ["Construction completing", "A brand-new property's first service contracts haven't been won by anyone — in any trade. Get on the bidder list before it opens."],
             ["Public contracts out for bid", "Government grounds work with hard deadlines — multi-year money most small companies never hear about in time."],
           ].map(([title, body]) => (
             <div key={title} className="rounded-2xl border border-gray-200 p-6">
@@ -188,7 +188,7 @@ export default async function WhyPage() {
         </div>
         <p className="mx-auto mt-8 max-w-2xl text-center text-sm text-gray-600">
           Then we do the estimator&apos;s homework before you spend a minute: verify it&apos;s a
-          real commercial parcel, measure the grounds from the air, size the contract, find the
+          real commercial parcel, measure the property from the air, size the contract, find the
           owner and the decision window, and write the intro letter. One page, ready to act on.
         </p>
       </section>

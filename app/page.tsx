@@ -5,13 +5,15 @@ import { leadUnlock, property } from "@/lib/db/schema";
 import { resolveTenant } from "@/lib/tenant";
 import { exclusivePriceCents, leadPriceCents } from "@/lib/integrations/stripe";
 import { leadMaxBuyers } from "@/lib/leads/availability";
+import { TRADES } from "@/lib/leads/trades";
 import { Logo } from "@/components/Logo";
 import { ChatWidget } from "@/components/ChatWidget";
 import { startChat } from "./buyers/actions";
 
-// Homepage for the PIVOT: job intelligence for commercial landscaping
-// companies. Sells the WHAT (high-value leads, measured, priced, contacts,
-// tight cap) and never the HOW — sourcing is the trade secret. Stats are
+// Homepage: job intelligence for commercial service companies — every trade
+// in the registry (landscaping, pest, cleaning, paving, security, HVAC, ...).
+// Sells the WHAT (high-value leads, measured, priced, contacts, tight
+// per-trade cap) and never the HOW — sourcing is the trade secret. Stats are
 // computed from real data; the hero shows a REDACTED sample sheet (structure
 // real, specifics blurred) instead of stock art. Nothing fabricated.
 export const dynamic = "force-dynamic";
@@ -152,8 +154,8 @@ export default async function Home() {
   const { openJobs, devValue } = await openJobStats();
 
   const sheetItems = [
-    ["Exact address + aerial", "The site from above with the maintainable grounds measured — before you ever roll a truck."],
-    ["Contract value estimate", "Annual and monthly maintenance value at market rates, from our measurement."],
+    ["Exact address + aerial", "The site from above with the service areas measured — before you ever roll a truck."],
+    ["Contract value estimate", "Annual and monthly contract value at market rates, from our measurement."],
     ["Decision contacts", "The owner (with mailing address), tenant, and architect — who actually awards the work."],
     ["When to act", "The date to be in front of the owner by — so you're not too early and never too late."],
     ["Crew sizing", "Estimated crew-hours per visit so you can price it profitably in minutes."],
@@ -203,18 +205,19 @@ export default async function Home() {
         <div className="relative mx-auto grid max-w-6xl items-center gap-14 lg:grid-cols-[1.05fr_0.95fr]">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.2em]" style={{ color: "#7fc79b" }}>
-              High-intent leads for commercial landscapers
+              High-intent leads for commercial service companies
             </p>
             <h1 className="mt-4 text-4xl font-extrabold leading-[1.08] tracking-tight sm:text-[3.4rem]">
-              Win commercial grounds contracts{" "}
+              Win commercial service contracts{" "}
               <span style={{ color: "#8fd6ab" }}>before the bid window closes.</span>
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-relaxed text-gray-300">
-              {name} finds properties when landscaping vendors are being{" "}
+              {name} finds properties when service vendors are being{" "}
               <strong className="text-white">selected, replaced, or urgently needed</strong> — new
               construction, new owners, business openings, renovations, multifamily sales, and
-              city violations. Each job sheet gives you the trigger, measured grounds, estimated
-              annual value, owner/contact path, and next step — all on one page.
+              city violations. Each job sheet gives you the trigger, the property measured from
+              the air, estimated annual value, owner/contact path, and next step — all on one
+              page, for your trade.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <Link
@@ -232,13 +235,28 @@ export default async function Home() {
               </Link>
             </div>
             <ul className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-300">
-              {["First sheet free — no card", `Max ${cap} companies per job`, "No subscription"].map((t) => (
+              {["First sheet free — no card", `Max ${cap} companies per job, per trade`, "No subscription"].map((t) => (
                 <li key={t} className="flex items-center gap-1.5">
                   <span style={{ color: "#8fd6ab" }}>✓</span>
                   {t}
                 </li>
               ))}
             </ul>
+            {/* Trades come straight from the registry — a new trade shows up
+                here the day it ships. */}
+            <div className="mt-6 flex flex-wrap items-center gap-2">
+              {Object.values(TRADES).map((t) => (
+                <span
+                  key={t.key}
+                  className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-gray-200"
+                >
+                  {t.label}
+                </span>
+              ))}
+              <span className="rounded-full border border-dashed border-white/20 px-3 py-1 text-xs font-medium text-gray-400">
+                Roofing, plumbing, electrical + more coming
+              </span>
+            </div>
           </div>
           <MockSheet accent={accent} />
         </div>
@@ -273,9 +291,9 @@ export default async function Home() {
           <div className="relative mt-12 grid gap-6 md:grid-cols-3">
             <div className="absolute left-[16.6%] right-[16.6%] top-9 hidden border-t-2 border-dashed border-gray-200 md:block" />
             {[
-              ["Tell us where you work", "Create a free profile with your office city. Your dashboard fills with high-intent jobs near you — real properties that will award a grounds contract, value shown up front."],
-              ["Unlock the full sheet", "One page per job: exact address with the grounds measured from the air, estimated annual value, the decision contacts, crew sizing, and when to act."],
-              ["Bid nearly alone", `You're one of at most ${cap} companies that will ever see it. Send the included intro letter and be the first bid on the owner's desk.`],
+              ["Tell us your trade and city", "Create a free profile with your trade and office city. Your dashboard fills with high-intent jobs near you — real properties that will award a contract in your trade, value shown up front."],
+              ["Unlock the full sheet", "One page per job: exact address with the site measured from the air, estimated annual value, the decision contacts, crew sizing, and when to act."],
+              ["Bid nearly alone", `You're one of at most ${cap} companies in your trade that will ever see it. Send the included intro letter and be the first bid on the owner's desk.`],
             ].map(([title, body], i) => (
               <div key={title} className="relative rounded-2xl border border-gray-200 bg-white p-7 shadow-sm">
                 <div
@@ -411,8 +429,9 @@ export default async function Home() {
           <h2 className="text-center text-3xl font-extrabold tracking-tight">Questions</h2>
           <div className="mt-10 space-y-4">
             {[
-              ["Where do these leads come from?", "That's the trade secret — and the reason a sheet is worth paying for. What matters to you: every lead is a real, verified commercial property that is going to need grounds maintenance — measured and priced before it reaches your dashboard. Judge us on the free one."],
-              [`Why cap a job at ${cap} companies?`, "Because a lead shared with fifty companies is worthless. A tight cap keeps every sheet worth bidding on, and the exclusive option exists when you want zero competition."],
+              ["Where do these leads come from?", "That's the trade secret — and the reason a sheet is worth paying for. What matters to you: every lead is a real, verified commercial property that is about to award service contracts — measured and priced before it reaches your dashboard. Judge us on the free one."],
+              [`Why cap a job at ${cap} companies?`, "Because a lead shared with fifty companies is worthless. A tight cap — counted within your trade, so you never compete with a different trade's buyers — keeps every sheet worth bidding on, and the exclusive option exists when you want zero competition."],
+              ["Which trades do you cover?", "Landscaping, pest control, commercial cleaning, paving, security, and HVAC today — with roofing, plumbing, electrical, and more on the way. The same property event (a new owner, an opening, a buildout) puts vendor decisions in motion for every trade at once; you only ever see the jobs ranked for yours."],
               ["What if the free sheet isn't good?", "Then you close the tab and you've lost nothing. We put a real job — measurement, contacts, letter — in your hands first because the sheet is the sales pitch."],
             ].map(([q, a]) => (
               <div key={q} className="rounded-2xl border border-gray-200 bg-white p-6">

@@ -28,8 +28,9 @@ export default async function TermsPage() {
           <h2 className="text-base font-semibold text-gray-900">1. The {cap}-company cap</h2>
           <p className="mt-2">
             Every job opportunity on the marketplace is sold to a maximum of {cap} companies{" "}
-            <strong>within each service trade</strong> (for example, landscaping and pest control
-            are separate trades). Companies in different trades do not compete for the same work,
+            <strong>within each service trade</strong> (landscaping, pest control, commercial
+            cleaning, paving, security, and HVAC are each separate trades, and additional trades
+            may be added over time). Companies in different trades do not compete for the same work,
             so a job may be offered to up to {cap} companies in each trade it is relevant to. The
             cap you see on a job — spots taken, spots left — always refers to companies in{" "}
             <em>your</em> trade.
