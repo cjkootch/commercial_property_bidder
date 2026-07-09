@@ -16,7 +16,13 @@ import {
   type LeadKind,
   type MarketLead,
 } from "@/lib/leads/market";
-import { asTrade } from "@/lib/leads/trades";
+import {
+  asTrade,
+  TRADES,
+  tradeValueInput,
+  type Trade,
+  type TradeValueEstimate,
+} from "@/lib/leads/trades";
 import { haversineMiles } from "@/lib/sourcing/criteria";
 import {
   buyerLogout,
@@ -133,7 +139,8 @@ export default async function BuyerDashboard({
   // timing/city + distance) — never the address. The shelf itself comes from
   // lib/leads/market so the dashboard, the claim actions, and the operator's
   // offer blast all agree on what's open and what may go free.
-  const market = await loadMarketLeads(asTrade(me.trade));
+  const myTrade = asTrade(me.trade);
+  const market = await loadMarketLeads(myTrade);
   const freeCtx = marketFreeContext(market);
   const toItem = (l: MarketLead): LeadItem => {
     const { p, teaser, kind } = l;
@@ -141,6 +148,9 @@ export default async function BuyerDashboard({
     return {
       p,
       teaser,
+      trade: myTrade,
+      // This trade's own contract-value estimate (landscaping = the teaser).
+      value: TRADES[myTrade].estimateValue(tradeValueInput(p, kind)),
       kind,
       cost: note(p.notes, /est\. cost (\$[\d,]+)/),
       workType: note(p.notes, /: ([^,]+), est\. cost/),
@@ -163,7 +173,12 @@ export default async function BuyerDashboard({
       spotsLeft: l.spotsLeft,
       exclusiveOpen: l.exclusiveOpen,
       free: freeVerdict(l, freeCtx),
-      priceTier: leadTierFor(teaser?.annual_hi ?? null, kind),
+      // Sheet price keys off THIS trade's value estimate — a $466k/yr
+      // cleaning lead is premium even where the turf teaser is modest.
+      priceTier: leadTierFor(
+        TRADES[myTrade].estimateValue(tradeValueInput(p, kind))?.annualHi ?? null,
+        kind
+      ),
       rank: l.rank,
       miles:
         me.lat != null && me.lng != null && p.lat != null && p.lng != null
@@ -227,7 +242,7 @@ export default async function BuyerDashboard({
       at: item.p.created_at,
       icon: "🆕",
       text: `New job in your area${item.p.city ? ` — ${item.p.city}` : ""}${
-        item.teaser?.annual_lo ? `, est. ${usd(item.teaser.annual_lo)}–${usd(item.teaser.annual_hi ?? item.teaser.annual_lo)}/yr` : ""
+        item.value ? `, est. ${usd(item.value.annualLo)}–${usd(item.value.annualHi)}/yr` : ""
       }`,
     });
   }
@@ -379,10 +394,19 @@ export default async function BuyerDashboard({
                 </div>
               </div>
             ) : (
-              <p className="mt-1 text-xs text-gray-500">
-                Add your own target addresses — we measure, quote, and mail a branded postcard that
-                drives to your quote page.
-              </p>
+              <>
+                <p className="mt-1 text-xs text-gray-500">
+                  Have targets of your own? Paste in the addresses you want to win — we measure
+                  and price every one <span className="font-semibold text-gray-700">free</span>,
+                  and you can mail a branded postcard that drives to your own quote page.
+                </p>
+                <Link
+                  href="/buyers/prospects"
+                  className="mt-3 block w-full rounded-lg bg-brand px-3 py-2 text-center text-xs font-bold text-white hover:bg-brand-dark"
+                >
+                  Scan my targets — free
+                </Link>
+              </>
             )}
           </div>
 
@@ -649,6 +673,10 @@ export default async function BuyerDashboard({
 type LeadItem = {
   p: typeof property.$inferSelect;
   teaser: { annual_lo?: number; annual_hi?: number; turf_sqft?: number } | null;
+  /** THIS buyer's trade + its own value estimate — the shelf never shows a
+   *  pest company a landscaping dollar figure. */
+  trade: Trade;
+  value: TradeValueEstimate | null;
   kind: LeadKind;
   cost: string | null;
   workType: string | null;
@@ -676,9 +704,13 @@ function LeadCard({
   outside?: boolean;
   pinned?: boolean;
 }) {
-  const { p, teaser, kind, cost, workType, timing, spotsLeft, exclusiveOpen, free, miles, priceTier } = item;
+  const { p, teaser, trade, value, kind, cost, workType, timing, spotsLeft, exclusiveOpen, free, miles, priceTier } = item;
   const price = Math.round(priceTier.price_cents / 100);
   const exclusivePrice = Math.round(priceTier.exclusive_cents / 100);
+  // Trade-voiced copy: a pest/cleaning/paving buyer never reads "grounds".
+  const svc = TRADES[trade].service;
+  const svcCap = svc.charAt(0).toUpperCase() + svc.slice(1);
+  const contractWord = trade === "landscaping" ? "Grounds contract" : `${svcCap} contract`;
   return (
     <div
       className={`overflow-hidden border bg-white shadow-sm transition hover:shadow-md ${
@@ -688,9 +720,9 @@ function LeadCard({
       <div className="flex flex-wrap items-stretch justify-between gap-x-6 gap-y-4 p-6">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            {teaser?.annual_lo ? (
+            {value ? (
               <span className="text-2xl font-extrabold tracking-tight text-gray-900">
-                {usd(teaser.annual_lo)}–{usd(teaser.annual_hi ?? teaser.annual_lo)}
+                {usd(value.annualLo)}–{usd(value.annualHi)}
                 <span className="text-sm font-semibold text-gray-400">/yr</span>
               </span>
             ) : (
@@ -727,16 +759,16 @@ function LeadCard({
           </div>
           <div className="mt-1 text-sm font-medium text-gray-700">
             {kind === "transfer"
-              ? "Grounds contract at a property under new ownership — vendors get re-bid"
+              ? `${contractWord} at a property under new ownership — vendors get re-bid`
               : kind === "opening"
-                ? "Grounds contract where a new business is opening — decisions in motion"
+                ? `${contractWord} where a new business is opening — decisions in motion`
                 : kind === "violation"
                   ? "Property cited by the city for grounds/cleanup conditions — the owner must hire someone now"
                   : kind === "distress"
                     ? "Property in the county tax-sale pipeline — cleanup needed now, every vendor re-bid after the sale"
                     : kind === "rfp"
                       ? "Public grounds/landscaping contract out for bid — multi-year government money"
-                      : `Grounds contract behind a ${cost ?? "major"} ${(workType ?? "commercial").toLowerCase()} project`}
+                      : `${contractWord} behind a ${cost ?? "major"} ${(workType ?? "commercial").toLowerCase()} project`}
             {p.city ? ` — ${p.city} area` : ""}
           </div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-sm text-gray-500">
@@ -746,7 +778,10 @@ function LeadCard({
               </span>
             ) : null}
             <span>{timing}</span>
-            {teaser?.turf_sqft ? <span>{teaser.turf_sqft.toLocaleString()} sf of grounds</span> : null}
+            {trade === "landscaping" && teaser?.turf_sqft ? (
+              <span>{teaser.turf_sqft.toLocaleString()} sf of grounds</span>
+            ) : null}
+            {trade !== "landscaping" && value ? <span>{value.basis}</span> : null}
           </div>
           <div className="mt-2 text-xs text-gray-400">
             {kind === "rfp"
@@ -775,9 +810,9 @@ function LeadCard({
               </button>
             </form>
           ) : null}
-          {teaser?.annual_lo && !freeAvailable ? (
+          {value && !freeAvailable ? (
             <p className="text-center text-[11px] text-gray-400">
-              ${price} for a {usd(teaser.annual_lo)}+/yr contract lead
+              ${price} for a {usd(value.annualLo)}+/yr contract lead
             </p>
           ) : null}
         </div>
