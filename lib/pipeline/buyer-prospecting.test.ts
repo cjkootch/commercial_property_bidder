@@ -198,6 +198,7 @@ describe("selectKnownContacts (area alerts)", () => {
     resend_message_id: "re_1",
     opened_at: daysAgo(9),
     clicked_at: null,
+    claim_url: "https://greenkeep.us/buyers/claim/tok?trade=landscaping",
     ...over,
   });
 
@@ -243,6 +244,27 @@ describe("selectKnownContacts (area alerts)", () => {
       row({ resend_message_id: null, opened_at: null, property_id: "p3" }),
     ];
     expect(selectKnownContacts(untracked, lead, NOW)).toHaveLength(1);
+  });
+
+  it("LEAD INTEGRITY: a company is only 'known' for the trade that emailed it", () => {
+    // A pest company from pest campaigns must never be alerted about a
+    // landscaping lead...
+    const pestRow = row({ claim_url: "https://greenkeep.us/buyers/claim/tok?trade=pest" });
+    expect(selectKnownContacts([pestRow], lead, NOW, "landscaping")).toEqual([]);
+    // ...but IS alertable for a new pest lead.
+    expect(selectKnownContacts([pestRow], lead, NOW, "pest")).toHaveLength(1);
+    // Politeness cap stays global: a fresh CLEANING email inside the window
+    // blocks a pest alert too, even though the qualifying history is pest.
+    const freshCleaning = row({
+      claim_url: "https://greenkeep.us/buyers/claim/tok?trade=cleaning",
+      property_id: "p-clean",
+      sent_at: daysAgo(ALERT_COOLDOWN_DAYS - 1),
+    });
+    expect(selectKnownContacts([pestRow, freshCleaning], lead, NOW, "pest")).toEqual([]);
+    // Trade-less rows (operator direct replies) qualify nobody.
+    expect(
+      selectKnownContacts([row({ claim_url: null })], lead, NOW, "landscaping")
+    ).toEqual([]);
   });
 
   it("radius: offices beyond MAX_DISTANCE_MI or without coords are skipped", () => {

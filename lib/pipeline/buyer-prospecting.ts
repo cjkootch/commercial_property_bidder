@@ -28,6 +28,7 @@ import * as schema from "../db/schema";
 import { marketForCoords } from "../markets";
 import { searchLandscapers, type BuyerCandidate } from "../integrations/apollo";
 import {
+  asTrade,
   DEFAULT_TRADE,
   TRADES,
   tradeValueInput,
@@ -126,7 +127,16 @@ export type KnownContactRow = {
   resend_message_id: string | null;
   opened_at: Date | null;
   clicked_at: Date | null;
+  /** Which campaign trade this row was (parsed from its claim link). */
+  claim_url: string | null;
 };
+
+/** The trade a past outreach row pitched — from its claim link. Rows without
+ *  one (operator direct replies) belong to no campaign trade. */
+export function rowTrade(claimUrl: string | null): Trade | null {
+  const m = claimUrl?.match(/[?&]trade=([a-z]+)/)?.[1];
+  return m ? asTrade(m) : null;
+}
 
 export type KnownContact = {
   key: string;
@@ -152,7 +162,11 @@ export type KnownContact = {
 export function selectKnownContacts(
   rows: KnownContactRow[],
   lead: { id: string; lat: number; lng: number },
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** LEAD INTEGRITY: only companies known from THIS trade's campaigns get the
+   *  alert — a pest company must never be offered a landscaping lead. Omitted
+   *  = legacy behavior (tests); every caller passes the run's trade. */
+  trade?: Trade
 ): KnownContact[] {
   const byKey = new Map<string, KnownContactRow[]>();
   for (const r of rows) {
@@ -163,6 +177,11 @@ export function selectKnownContacts(
 
   const out: KnownContact[] = [];
   for (const [key, group] of byKey) {
+    // A company is "known" for a trade only through that trade's campaigns —
+    // a pest company must never be alerted about a landscaping lead. The
+    // frequency/engagement caps below still span ALL trades (politeness is
+    // global; qualification is per-trade).
+    if (trade && !group.some((r) => rowTrade(r.claim_url) === trade)) continue;
     if (group.some((r) => r.property_id === lead.id)) continue; // already offered this lead
     if (group.some((r) => r.status === "bounced")) continue; // dead address
     const latest = group.find((r) => r.email);
@@ -511,11 +530,12 @@ export async function runBuyerProspecting(opts?: {
         resend_message_id: schema.buyerOutreach.resend_message_id,
         opened_at: schema.buyerOutreach.opened_at,
         clicked_at: schema.buyerOutreach.clicked_at,
+        claim_url: schema.buyerOutreach.claim_url,
       })
       .from(schema.buyerOutreach)
       .orderBy(desc(schema.buyerOutreach.created_at))
       .limit(5000);
-    const known = selectKnownContacts(history, lead).filter(
+    const known = selectKnownContacts(history, lead, new Date(), trade).filter(
       (k) => !accountKeys.has(k.key) && !suppressed.has(k.email.toLowerCase())
     );
     for (const k of known.slice(0, want)) {
