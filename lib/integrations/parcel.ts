@@ -157,6 +157,32 @@ async function queryCountyWithAttrs(
 }
 
 /**
+ * All-counties lookup that also returns the raw layer attributes plus the
+ * normalized parcel — the market-capable feeds (tax sales, TABC) gate on the
+ * NORMALIZED state_class/acres so every county's field mapping applies.
+ */
+export async function fetchParcelAtPointWithAttrs(
+  lng: number,
+  lat: number
+): Promise<{ parcel: ParcelResult; attrs: Record<string, unknown> } | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 7000);
+  try {
+    const results = await Promise.allSettled(
+      COUNTY_SERVICES.map((s) => queryCountyWithAttrs(s, lng, lat, controller.signal))
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value) return r.value;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Harris-county-only lookup that also returns the raw layer attributes —
  * the openings pipeline needs `state_class` (F1 = real commercial) to reject
  * home-business addresses, and that field isn't part of ParcelResult.

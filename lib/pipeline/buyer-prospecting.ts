@@ -25,7 +25,7 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
-import { currentMarket } from "../markets";
+import { marketForCoords } from "../markets";
 import { searchLandscapers, type BuyerCandidate } from "../integrations/apollo";
 import {
   DEFAULT_TRADE,
@@ -546,17 +546,20 @@ export async function runBuyerProspecting(opts?: {
   if (opts?.candidates) {
     candidates = opts.candidates;
   } else if (needDiscovery) {
+    // The LEAD's metro, by its coordinates — a DFW lead pulls DFW companies
+    // even though the deployment default is Houston.
+    const mkt = marketForCoords(lead.lat, lead.lng);
     candidates = await searchLandscapers(
-      lead.city ? `${lead.city}, Texas` : currentMarket().metroSearch,
+      lead.city ? `${lead.city}, Texas` : mkt.metroSearch,
       CANDIDATE_POOL,
       TRADES[trade].prospectKeywords
     );
     // A small town yielding fewer companies than the target list can't fill the
     // blast — merge in the metro pool (deduped) whenever the town runs short.
-    if (candidates.length < want && lead.city && lead.city.toLowerCase() !== currentMarket().metroCity) {
-      log.push(`Only ${candidates.length} candidate(s) in ${lead.city} — widening to the Houston metro.`);
+    if (candidates.length < want && lead.city && lead.city.toLowerCase() !== mkt.metroCity) {
+      log.push(`Only ${candidates.length} candidate(s) in ${lead.city} — widening to the ${mkt.label}.`);
       const seen = new Set(candidates.map((c) => companyKey(c.name)));
-      const metro = await searchLandscapers(currentMarket().metroSearch, CANDIDATE_POOL, TRADES[trade].prospectKeywords);
+      const metro = await searchLandscapers(mkt.metroSearch, CANDIDATE_POOL, TRADES[trade].prospectKeywords);
       candidates = [...candidates, ...metro.filter((c) => !seen.has(companyKey(c.name)))];
     }
   } else {

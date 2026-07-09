@@ -19,8 +19,8 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
-import { currentMarket } from "../markets";
-import { fetchHarrisParcelAtPoint } from "../integrations/parcel";
+import { currentMarket, marketByKey } from "../markets";
+import { fetchParcelAtPointWithAttrs } from "../integrations/parcel";
 import { estimateServiceableArea } from "../integrations/imagery";
 import { getMapboxToken } from "../integrations/geocoding";
 import { sizeLead } from "../leads/sizing";
@@ -79,28 +79,34 @@ export function normalizeTaxSale(r: LgbsRecord): TaxSaleRow | null {
   };
 }
 
-/** Fetch the Harris County tax-sale pipeline (paged). */
-export async function fetchTaxSales(opts?: { limit?: number }): Promise<TaxSaleRow[]> {
+/** Fetch a market's tax-sale pipeline (paged, one pass per county). */
+export async function fetchTaxSales(opts?: {
+  limit?: number;
+  counties?: string[];
+}): Promise<TaxSaleRow[]> {
   const limit = opts?.limit ?? 400;
+  const counties = opts?.counties ?? currentMarket().taxSaleCounties;
   const out: TaxSaleRow[] = [];
-  let offset = 0;
-  while (out.length < limit) {
-    const page = Math.min(200, limit - out.length);
-    const params = new URLSearchParams({
-      county: currentMarket().taxSaleCounty,
-      state: "TX",
-      limit: String(page),
-      offset: String(offset),
-    });
-    const res = await fetch(`${LGBS_URL}?${params.toString()}`, {
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) throw new Error(`LGBS fetch failed: ${res.status}`);
-    const data = (await res.json()) as { results?: LgbsRecord[]; next?: string | null };
-    const rows = (data.results ?? []).map(normalizeTaxSale).filter(Boolean) as TaxSaleRow[];
-    out.push(...rows);
-    if (!data.next || (data.results ?? []).length === 0) break;
-    offset += page;
+  for (const county of counties) {
+    let offset = 0;
+    while (out.length < limit) {
+      const page = Math.min(200, limit - out.length);
+      const params = new URLSearchParams({
+        county,
+        state: "TX",
+        limit: String(page),
+        offset: String(offset),
+      });
+      const res = await fetch(`${LGBS_URL}?${params.toString()}`, {
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) throw new Error(`LGBS fetch failed: ${res.status}`);
+      const data = (await res.json()) as { results?: LgbsRecord[]; next?: string | null };
+      const rows = (data.results ?? []).map(normalizeTaxSale).filter(Boolean) as TaxSaleRow[];
+      out.push(...rows);
+      if (!data.next || (data.results ?? []).length === 0) break;
+      offset += page;
+    }
   }
   return out;
 }
@@ -137,15 +143,18 @@ export async function runTaxSaleSourcing(opts?: {
   want?: number;
   /** Skip parcels the county appraises below this (junk slivers). */
   minValue?: number;
+  /** Market key (cron ?market=dallas); default the deployment market. */
+  market?: string;
 }): Promise<TaxSaleRunSummary> {
   const want = opts?.want ?? 8;
   const minValue = opts?.minValue ?? 100_000;
-  const log: string[] = [];
+  const market = marketByKey(opts?.market);
+  const log: string[] = [`Market: ${market.label}`];
 
   const [co] = await db.select().from(schema.company).limit(1);
   if (!co) throw new Error("No company found. Run `npm run db:seed` first.");
 
-  const rows = await fetchTaxSales();
+  const rows = await fetchTaxSales({ counties: market.taxSaleCounties });
   // Scheduled auctions first (they carry a date — the hottest window), then
   // by appraised value so the attempt budget reaches the biggest parcels.
   const candidates = rows
@@ -182,18 +191,22 @@ export async function runTaxSaleSourcing(opts?: {
     if (rejects.has(rejectKey)) continue; // screened + rejected in a prior run
     attempts--;
 
-    const hit = await fetchHarrisParcelAtPoint(t.lng, t.lat);
+    const hit = await fetchParcelAtPointWithAttrs(t.lng, t.lat);
     if (!hit) {
       log.push(`no parcel: ${t.address}`);
       continue;
     }
-    const stateClass = String(hit.attrs.state_class ?? "").trim();
+    // Gate on NORMALIZED fields so every county's mapping applies (Harris
+    // publishes PTAD classes; counties without one fall back to lot size —
+    // the LGBS minValue filter and the grass gate still stand behind it).
+    const stateClass = (hit.parcel.state_class ?? "").trim();
+    const acres = hit.parcel.acres ?? 0;
     // Same aperture as the transfer feed: commercial, industrial, apartments,
     // and vacant land big enough to be a mowing contract.
-    const acres = Number(hit.attrs.acreage_1) || 0;
-    const classOk =
-      ["F1", "F2", "B1"].includes(stateClass) ||
-      (["C1", "C2"].includes(stateClass) && acres >= 0.5);
+    const classOk = stateClass
+      ? ["F1", "F2", "B1"].includes(stateClass) ||
+        (["C1", "C2"].includes(stateClass) && acres >= 0.5)
+      : acres >= 0.4;
     if (!classOk) {
       skippedClass++;
       await recordReject(rejectKey, `parcel class ${stateClass || "none"}`);
@@ -238,7 +251,7 @@ export async function runTaxSaleSourcing(opts?: {
       company_id: co.id,
       name,
       address: t.address,
-      city: t.city ?? "Houston",
+      city: t.city ?? titleCase(market.metroCity),
       zip: t.zip,
       lat: t.lat,
       lng: t.lng,

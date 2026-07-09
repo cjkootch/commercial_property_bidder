@@ -59,4 +59,16 @@ describe("integrations/contact domain gate + percent-encoding", () => {
     const { email } = extractFromHtml(`<a href="mailto:owner@differentdomain.com">email</a>`, "cordialclean.com");
     expect(email).toBe("owner@differentdomain.com");
   });
+
+  it("repairs footer-glued addresses (found live: phone in front, site URL behind)", () => {
+    // "77484 713-467-7932 sales@craig-heidt.com www.craig-heidt.com" scraped
+    // with the separators collapsed — the glued form is a guaranteed bounce.
+    const glued = `77484713-467-7932sales@craig-heidt.comwww.craig-heidt.com`;
+    expect(extractFromHtml(glued, "craig-heidt.com").email).toBe("sales@craig-heidt.com");
+    // A digits-leading mailbox that is NOT a glued phone stays intact.
+    expect(extractFromHtml(`24-7plumbing@gmail.com`, "x.com").email).toBe("24-7plumbing@gmail.com");
+    // A foreign domain that merely starts with the site's name is not "repaired"
+    // into a fabricated address — it fails the domain gate instead.
+    expect(extractFromHtml(`info@cordialclean.company.com`, "cordialclean.com").email).toBeNull();
+  });
 });
