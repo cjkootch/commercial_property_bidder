@@ -30,7 +30,7 @@ const JUNK_EMAIL = /\.(png|jpg|jpeg|gif|webp|svg|css|js)$/i;
 // poison. Treat as "no email found". sentry/wixpress match anywhere in the
 // domain: builders bury error-reporting addresses under varying subdomains.
 const PLACEHOLDER_EMAIL =
-  /@(domain|email|example|yourdomain|yoursite|mysite|company|test|placeholder)\.|@[a-z0-9.-]*(sentry|wixpress)|^(user|no|test|name|someone|your|info@example)@|@.*\.(test|invalid|local)$/i;
+  /@(domain|email|example|yourdomain|yoursite|mysite|company|test|placeholder)\.|@[a-z0-9.-]*(sentry|wixpress)|^(user|no|test|name|someone|your|info@example)@|@.*\.(test|invalid|local)$|@(atom|hugedomains|dan|sedo|afternic|godaddy|squadhelp|brandbucket)\.(com|co)$/i;
 
 // Numeric character references (&#115; / &#x73;) — the common email-obfuscation
 // trick. Decode before extraction so "&#115;ales@…" reads as a real address

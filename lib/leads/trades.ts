@@ -371,7 +371,10 @@ export const TRADES: Record<Trade, TradeDef> = {
       "commercial pest control",
       "pest management",
     ],
-    vendorSignal: /pest|exterminat|termite|\bbugs?\b|rodent|mosquito|wildlife/i,
+    // Compound phrases — "pest" alone matches garden blogs, pest-industry
+    // software, and M&A advisories that TALK about pest control.
+    vendorSignal:
+      /exterminat|pest (control|management|solutions|services|removal)|termite|bed bugs?|rodent (control|removal)|mosquito (control|treatment)|\bbugs?\b.*(control|removal|treatment)|wildlife (control|removal)/i,
   },
   cleaning: {
     key: "cleaning",
