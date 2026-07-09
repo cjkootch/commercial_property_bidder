@@ -292,11 +292,15 @@ export async function requestBuyerLink(formData: FormData): Promise<void> {
     if (row) {
       const link = `${baseUrl()}/buyers/verify?token=${encodeURIComponent(signBuyerLogin(email))}`;
       const co = await getDefaultCompany();
-      await sendEmail({
+      const res = await sendEmail({
         to: email,
         subject: `Your ${co?.name ?? "Greenkeep"} sign-in link`,
         html: `<p>Sign in to your job-leads dashboard:</p><p><a href="${link}">${link}</a></p><p>Link expires in 30 minutes.</p>`,
       });
+      // The page must stay anti-enumeration (always "check your inbox"), so
+      // the ONLY place a failed magic-link send is visible is the server log.
+      if (!res.ok) console.error(`buyer login link send FAILED for ${email}: ${res.error}`);
+      else console.log(`buyer login link sent to ${email} (resend id ${res.id ?? "?"})`);
     }
   }
   redirect("/buyers/login?sent=1");
