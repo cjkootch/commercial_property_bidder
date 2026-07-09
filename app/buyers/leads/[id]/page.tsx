@@ -194,7 +194,7 @@ export default async function LeadSheet({
                   {activity.map((a) => (
                     <li key={a.id} className="flex gap-3 text-sm">
                       <span className="mt-0.5 text-[11px] text-gray-400">
-                        {a.created_at.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                        {a.created_at.toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                       </span>
                       <span className={a.kind === "status" ? "font-medium text-gray-700" : "text-gray-600"}>
                         {a.kind === "status" ? "" : "📝 "}

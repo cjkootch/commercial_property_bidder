@@ -139,7 +139,7 @@ export default async function BuyerDashboard({
     id: m.id,
     sender: m.sender,
     body: m.body,
-    at: m.created_at.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+    at: m.created_at.toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
   }));
 
   // Open opportunities: every feed's leads with shared spots left (cap
@@ -295,7 +295,7 @@ export default async function BuyerDashboard({
   const seenAt = me.alerts_seen_at?.getTime() ?? 0;
   const unseen = feed.filter((a) => a.at.getTime() > seenAt).length;
   const alertTime = (d: Date) =>
-    d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    d.toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
   const initials = me.company_name
     .split(/\s+/)
@@ -666,7 +666,7 @@ export default async function BuyerDashboard({
             <p className="mt-2 text-xs font-semibold text-brand">
               ⚡ First Look active — you see new jobs {FIRST_LOOK_HOURS}h before everyone else
               {me.plan_expires_at
-                ? ` (renews by ${me.plan_expires_at.toLocaleDateString("en-US", { month: "short", day: "numeric" })})`
+                ? ` (renews by ${me.plan_expires_at.toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" })})`
                 : ""}
               .
             </p>
