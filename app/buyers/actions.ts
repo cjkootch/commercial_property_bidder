@@ -22,7 +22,8 @@ import {
   confirmUnlockWithinCap,
   leadAvailability,
 } from "@/lib/leads/availability";
-import { createLeadCheckout } from "@/lib/integrations/stripe";
+import { createFirstLookCheckout, createLeadCheckout } from "@/lib/integrations/stripe";
+import { firstLookPriceCents } from "@/lib/leads/subscription";
 import { leadTierFor } from "@/lib/leads/pricing-tiers";
 import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
 import { geocodeAddress, geocodeWithZip } from "@/lib/integrations/geocoding";
@@ -361,6 +362,27 @@ export async function toggleNotifications(value: boolean): Promise<void> {
   if (!buyerId) redirect("/buyers/login");
   await db.update(buyer).set({ notify: value, updated_at: new Date() }).where(eq(buyer.id, buyerId));
   redirect("/buyers");
+}
+
+/** First Look subscription checkout: $/mo for the 24h early-access window. */
+export async function startFirstLookCheckout(): Promise<void> {
+  const buyerId = await currentBuyerId();
+  if (!buyerId) redirect("/buyers/login");
+  const [row] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
+  if (!row) redirect("/buyers/login");
+  const fail = (msg: string): never => redirect(`/buyers?err=${encodeURIComponent(msg)}`);
+  const [supp] = await db.select().from(suppression).where(eq(suppression.email, row.email)).limit(1);
+  if (supp) fail("This account can't make purchases — contact us.");
+  const base = baseUrl();
+  const res = await createFirstLookCheckout({
+    amountCents: firstLookPriceCents(),
+    buyerEmail: row.email,
+    buyerId: row.id,
+    successUrl: `${base}/buyers?firstlook=1`,
+    cancelUrl: `${base}/buyers`,
+  });
+  if (!res.ok) fail(res.error);
+  redirect((res as { ok: true; url: string }).url);
 }
 
 /**

@@ -62,6 +62,40 @@ export async function POST(req: NextRequest) {
   } catch {
     return new NextResponse("Bad payload", { status: 400 });
   }
+  // --- First Look subscription lifecycle (renewals + cancellations). The
+  // subscription carries buyer_id in ITS metadata (set at checkout), so both
+  // events resolve the buyer without a customer table.
+  if (event.type === "invoice.paid" || event.type === "invoice.payment_succeeded") {
+    const inv = event.data?.object as unknown as {
+      subscription?: string | null;
+      subscription_details?: { metadata?: { buyer_id?: string; type?: string } };
+    };
+    const meta = inv?.subscription_details?.metadata;
+    if (meta?.type === "first_look" && meta.buyer_id) {
+      await db
+        .update(buyer)
+        .set({
+          plan: "first_look",
+          // 35 days: a full month plus retry slack — a missed renewal webhook
+          // lapses the plan instead of comping it forever.
+          plan_expires_at: new Date(Date.now() + 35 * 86400_000),
+          ...(inv.subscription ? { stripe_subscription_id: inv.subscription } : {}),
+          updated_at: new Date(),
+        })
+        .where(eq(buyer.id, meta.buyer_id));
+    }
+    return NextResponse.json({ received: true });
+  }
+  if (event.type === "customer.subscription.deleted") {
+    const sub = event.data?.object as unknown as { id?: string; metadata?: { buyer_id?: string; type?: string } };
+    if (sub?.metadata?.type === "first_look" && sub.metadata.buyer_id) {
+      await db
+        .update(buyer)
+        .set({ plan: "free", plan_expires_at: null, updated_at: new Date() })
+        .where(eq(buyer.id, sub.metadata.buyer_id));
+    }
+    return NextResponse.json({ received: true });
+  }
   if (event.type !== "checkout.session.completed") {
     return NextResponse.json({ received: true });
   }
@@ -77,6 +111,21 @@ export async function POST(req: NextRequest) {
   // fulfill on settled money (card sessions are always "paid" here).
   if (session.payment_status && session.payment_status !== "paid") {
     return NextResponse.json({ received: true, skipped: `payment_status ${session.payment_status}` });
+  }
+
+  // First Look subscription activated — flip the plan on.
+  if (session.metadata?.type === "first_look") {
+    await db
+      .update(buyer)
+      .set({
+        plan: "first_look",
+        plan_expires_at: new Date(Date.now() + 35 * 86400_000),
+        stripe_subscription_id:
+          ((session as unknown as { subscription?: string }).subscription as string | undefined) ?? null,
+        updated_at: new Date(),
+      })
+      .where(eq(buyer.id, buyerId));
+    return NextResponse.json({ received: true, first_look: "active" });
   }
 
   // Postcard purchase (not a lead unlock) — fulfill via Lob.

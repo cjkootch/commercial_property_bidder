@@ -450,6 +450,13 @@ export const buyer = pgTable("buyer", {
   lat: doublePrecision("lat"),
   lng: doublePrecision("lng"),
   notify: boolean("notify").notNull().default(true),
+  // First Look subscription (MRR): members see brand-new leads during the
+  // early-access window before they hit the public shelf. plan flips via the
+  // Stripe webhook (subscription checkout / invoice.paid / cancellation);
+  // plan_expires_at makes lapses safe even if a webhook is missed.
+  plan: text("plan").notNull().default("free"), // free | first_look
+  plan_expires_at: timestamp("plan_expires_at", { withTimezone: true }),
+  stripe_subscription_id: text("stripe_subscription_id"),
   // Landscaper profile — fills the [NAME]/[PHONE]/[EMAIL]/[YOUR COMPANY]/
   // [LICENSE] placeholders in every job sheet's ready-to-send intro letter, so
   // the outreach is theirs the moment they open it. Substituted at render time
