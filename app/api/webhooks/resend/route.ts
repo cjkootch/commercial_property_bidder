@@ -1,8 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyerOutreach, outreach, suppression } from "@/lib/db/schema";
-import { getResendKey, verifyResendSignature } from "@/lib/integrations/resend";
+import { buyerOutreach, outreach, suppression, usageCounter } from "@/lib/db/schema";
+import {
+  getResendKey,
+  getResendWebhookSecret,
+  verifyResendSignature,
+} from "@/lib/integrations/resend";
 import { alertOperatorOfReply, emailAddressOf } from "@/lib/email/reply-alert";
 
 // Resend webhook sink: records email delivery/open/click/bounce/complaint events
@@ -25,12 +29,39 @@ type ResendEvent = {
 
 export async function POST(req: NextRequest) {
   const raw = await req.text();
+  // FAIL CLOSED: with no secret configured, anyone could forge complaints
+  // (suppressing arbitrary buyers) or fake inbound replies. The secret is a
+  // hard prerequisite in production.
+  if (!getResendWebhookSecret()) {
+    console.error("resend webhook: RESEND_WEBHOOK_SECRET not set — rejecting");
+    return NextResponse.json({ error: "webhook secret not configured" }, { status: 401 });
+  }
   const ok = verifyResendSignature(raw, {
     id: req.headers.get("svix-id"),
     timestamp: req.headers.get("svix-timestamp"),
     signature: req.headers.get("svix-signature"),
   });
   if (!ok) return NextResponse.json({ error: "bad signature" }, { status: 401 });
+
+  // Idempotency: Svix retries deliveries on timeout/5xx; without this, every
+  // retry double-incremented open/click counts (the A/B funnel data) and
+  // duplicated inbound-reply alerts. One marker row per svix-id, ever.
+  const svixId = req.headers.get("svix-id");
+  if (svixId) {
+    // Day-bucketed window: Svix's retry schedule tops out well under a day,
+    // and the counter pruner reclaims past windows — dedupe without growth.
+    const day = new Date();
+    day.setUTCHours(0, 0, 0, 0);
+    const marker = await db
+      .insert(usageCounter)
+      .values({ key: `resend_evt:${svixId}`, window_start: day, count: 1 })
+      .onConflictDoNothing({ target: [usageCounter.key, usageCounter.window_start] })
+      .returning()
+      .catch(() => []);
+    if (Array.isArray(marker) && marker.length === 0) {
+      return NextResponse.json({ ok: true, skipped: "duplicate delivery" });
+    }
+  }
 
   let evt: ResendEvent;
   try {
@@ -97,7 +128,7 @@ export async function POST(req: NextRequest) {
           })
           .where(eq(buyerOutreach.resend_message_id, emailId));
         break;
-      case "email.bounced":
+      case "email.bounced": {
         await db
           .update(outreach)
           .set({ status: "bounced", last_event: type, updated_at: new Date() })
@@ -106,7 +137,19 @@ export async function POST(req: NextRequest) {
           .update(buyerOutreach)
           .set({ status: "bounced", last_event: type, updated_at: new Date() })
           .where(eq(buyerOutreach.resend_message_id, emailId));
+        // Hard-bounced addresses go on the suppression list: flipping the row
+        // to 'bounced' removes it from the discovery cooldown, so without
+        // this the next campaign would rediscover the company, re-scrape the
+        // same dead address, and bounce again — reputation poison.
+        const bounced = Array.isArray(evt.data?.to) ? evt.data?.to[0] : evt.data?.to;
+        if (bounced) {
+          await db
+            .insert(suppression)
+            .values({ email: bounced.toLowerCase(), reason: "resend bounce" })
+            .onConflictDoNothing();
+        }
         break;
+      }
       case "email.complained": {
         await db
           .update(outreach)

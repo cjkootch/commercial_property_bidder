@@ -221,6 +221,12 @@ export default async function LeadSheet({
               {searchParams.perr ? (
                 <p className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{searchParams.perr}</p>
               ) : null}
+              {searchParams.canceled ? (
+                <p className="mt-3 rounded-md border border-gray-200 bg-white p-3 text-sm text-gray-600">
+                  Checkout canceled — nothing was charged. The postcard button is still here when
+                  you&apos;re ready.
+                </p>
+              ) : null}
 
               {mailed ? (
                 <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-800">

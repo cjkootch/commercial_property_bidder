@@ -184,7 +184,11 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
   if (!rl.ok) fail("Too many attempts — try again in a bit.");
 
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
-  if (!prop || !prop.parcel_geojson) fail("This lead isn't ready for sale yet — check back soon.");
+  // Sellable = measured (parcel) OR a public-bid lead (RFPs never have a
+  // parcel — the solicitation itself is the deliverable). Must match the
+  // shelf rule in lib/leads/market.ts or listed leads become dead ends.
+  if (!prop || (!prop.parcel_geojson && leadKind(prop.name) !== "rfp"))
+    fail("This lead isn't ready for sale yet — check back soon.");
   const myTrade = asTrade(meCheck?.trade);
   const avail = await leadAvailability(prop!, myTrade);
   if (!avail.open) fail("This one just sold out.");
@@ -237,8 +241,18 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
  */
 async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string | null): Promise<boolean> {
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
-  if (!prop || !prop.parcel_geojson) return false;
+  if (!prop || (!prop.parcel_geojson && leadKind(prop.name) !== "rfp")) return false;
   const [buyerRow] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
+  // Suppressed companies can't consume inventory through a claim token —
+  // same gate as the marketplace free-claim and paid checkout.
+  if (buyerRow) {
+    const [sup] = await db
+      .select()
+      .from(suppression)
+      .where(eq(suppression.email, buyerRow.email))
+      .limit(1);
+    if (sup) return false;
+  }
   const buyerLoc: [number, number] | null =
     buyerRow?.lng != null && buyerRow?.lat != null ? [buyerRow.lng, buyerRow.lat] : null;
 
@@ -427,7 +441,8 @@ export async function startCheckout(propertyId: string, kind: "paid" | "exclusiv
 
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
   if (!prop) fail("Lead not found.");
-  if (!prop!.parcel_geojson) fail("This lead isn't ready for sale yet — check back soon.");
+  if (!prop!.parcel_geojson && leadKind(prop!.name) !== "rfp")
+    fail("This lead isn't ready for sale yet — check back soon.");
 
   const avail = await leadAvailability(prop!, asTrade(row.trade));
   if (avail.closed) fail("This one just sold out.");

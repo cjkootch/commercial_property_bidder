@@ -58,7 +58,10 @@ export default async function CompanyProfilePage({
     .where(eq(buyerOutreach.company_key, p.key))
     .orderBy(desc(buyerOutreach.sent_at), desc(buyerOutreach.created_at));
 
-  const sends = outreach.filter((r) => r.o.status === "sent" || r.o.status === "bounced");
+  // Stats count CAMPAIGN sends only — operator direct replies (no claim
+  // link) still show in the history below but don't inflate the funnel.
+  const campaignRows = outreach.filter((r) => r.o.claim_url);
+  const sends = campaignRows.filter((r) => r.o.status === "sent" || r.o.status === "bounced");
   const opens = sends.filter((r) => r.o.opened_at).length;
   const clicks = sends.filter((r) => r.o.clicked_at).length;
   const bounced = sends.some((r) => r.o.status === "bounced");
@@ -87,8 +90,12 @@ export default async function CompanyProfilePage({
     : [];
 
   const usd = (c: number) => `$${(c / 100).toLocaleString()}`;
-  const rowTrade = (claimUrl: string | null) =>
-    asTrade(claimUrl?.match(/[?&]trade=([a-z]+)/)?.[1]);
+  // null = not a campaign row (operator direct reply) — badge it as a reply,
+  // never as a phantom "Landscaping" campaign.
+  const rowTrade = (claimUrl: string | null) => {
+    const m = claimUrl?.match(/[?&]trade=([a-z]+)/)?.[1];
+    return m ? asTrade(m) : null;
+  };
 
   return (
     <div>
@@ -288,7 +295,7 @@ export default async function CompanyProfilePage({
               return (
                 <tr key={o.id} className={o.status === "bounced" ? "bg-red-50/50" : "hover:bg-gray-50"}>
                   <td className="px-4 py-3">
-                    {o.property_id ? (
+                    {o.property_id && t ? (
                       <Link
                         href={`/campaigns/prospecting/${o.property_id}?trade=${t}`}
                         className="font-medium text-gray-900 hover:text-brand hover:underline"
@@ -313,9 +320,15 @@ export default async function CompanyProfilePage({
                     ) : null}
                   </td>
                   <td className="px-3 py-3">
-                    <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-bold text-brand">
-                      {TRADES[t].label}
-                    </span>
+                    {t ? (
+                      <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-bold text-brand">
+                        {TRADES[t].label}
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-bold text-gray-500">
+                        Reply
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-3 text-gray-500">
                     {o.status === "skipped" ? (

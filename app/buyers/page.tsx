@@ -77,7 +77,7 @@ const STATUS_STYLE: Record<string, string> = {
 export default async function BuyerDashboard({
   searchParams,
 }: {
-  searchParams: { unlocked?: string; canceled?: string; err?: string; offer?: string };
+  searchParams: { unlocked?: string; canceled?: string; err?: string; offer?: string; firstlook?: string };
 }) {
   const buyerId = await currentBuyerId();
   if (!buyerId) redirect("/buyers/login");
@@ -199,10 +199,17 @@ export default async function BuyerDashboard({
   // claims, waterfall offers) keep working for everyone.
   const hasFirstLook = firstLookActive(me);
   const allEligible = market.filter((l) => !l.holders.has(me.id)).map(toItem);
+  // Locked count = only jobs the member would actually SEE (inside their
+  // reach) — advertising "3 new jobs" that are all out of range sells a
+  // subscription that unlocks nothing.
+  const flReach = me.service_radius_mi + Math.max(15, Math.round(me.service_radius_mi * 0.4));
   const lockedFresh = hasFirstLook
     ? []
     : allEligible.filter(
-        (x) => inFirstLookWindow(x.p.created_at) && x.p.id !== searchParams.offer
+        (x) =>
+          inFirstLookWindow(x.p.created_at) &&
+          x.p.id !== searchParams.offer &&
+          (x.miles == null || x.miles <= flReach)
       );
   const lockedIds = new Set(lockedFresh.map((x) => x.p.id));
   const eligible = allEligible.filter((x) => !lockedIds.has(x.p.id));
@@ -237,6 +244,7 @@ export default async function BuyerDashboard({
   // bid-window openness, no buyer-specific factors. Distance is displayed on
   // the card so the buyer weighs the drive themselves.
   const radius = me.service_radius_mi;
+  const hasOffice = me.lat != null && me.lng != null;
   const cushion = Math.max(15, Math.round(radius * 0.4));
   const inRange = eligible
     .filter((x) => x.miles == null || x.miles <= radius)
@@ -455,8 +463,16 @@ export default async function BuyerDashboard({
 
           {searchParams.unlocked ? (
             <p className="mt-4 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-              Payment received — your lead unlocks the moment the payment confirms (usually seconds).
-              Refresh if it isn&apos;t below yet.
+              Done — your lead appears under &quot;Your leads&quot; the moment the unlock confirms
+              (usually seconds; refresh if needed). If the last spot went to another company while
+              you were paying, the charge becomes account credit automatically and we email you —
+              it never disappears.
+            </p>
+          ) : null}
+          {searchParams.firstlook ? (
+            <p className="mt-4 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+              First Look is activating — brand-new jobs unlock for you the moment the subscription
+              confirms (usually under a minute; refresh to see them).
             </p>
           ) : null}
           {searchParams.canceled ? (
@@ -620,11 +636,20 @@ export default async function BuyerDashboard({
         {/* ---- Open opportunities (within radius) ------------------------ */}
         <section className="mt-10">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-            Open in your area
+            {hasOffice ? "Open in your area" : "Open jobs"}
             <span className="ml-2 font-normal normal-case tracking-normal text-gray-400">
-              within {radius} mi of {me.city ?? "your office"}
+              {hasOffice ? `within ${radius} mi of ${me.city ?? "your office"}` : "statewide"}
             </span>
           </h2>
+          {!hasOffice ? (
+            <p className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Showing every open job because your office location isn&apos;t set —{" "}
+              <Link href="/buyers/profile" className="font-semibold underline">
+                add your city or address
+              </Link>{" "}
+              to filter to your service area.
+            </p>
+          ) : null}
           <p className="mt-1 text-xs text-gray-400">
             Every job is capped at {cap} companies* — ever. Or lock one down as an exclusive and
             nobody else gets it. If a job sells out before your payment settles, your payment

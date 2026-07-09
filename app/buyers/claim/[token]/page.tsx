@@ -59,7 +59,11 @@ export default async function ClaimPage({
   await recordClaimView(claim.company);
   // Pre-signup, the trade comes from the outreach link (?trade=).
   const trade = asTrade(searchParams.trade);
-  const avail = prop && prop.parcel_geojson ? await leadAvailability(prop, trade) : null;
+  // Sellable = measured OR public-bid (RFPs carry no parcel) — the same rule
+  // as the unlock actions. Gating on parcel alone made an RFP claim link
+  // falsely claim "all spots went to other companies".
+  const sellable = !!prop && (prop.parcel_geojson != null || leadKind(prop.name) === "rfp");
+  const avail = prop && sellable ? await leadAvailability(prop, trade) : null;
   // "Claimable FREE" needs both an open spot AND the per-lead free budget —
   // promising "reserved for you" and then quoting a price is the one flow
   // that must never happen.

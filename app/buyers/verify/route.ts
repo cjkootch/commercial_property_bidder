@@ -19,7 +19,10 @@ export async function GET(req: NextRequest) {
     ? await db.select().from(buyer).where(eq(buyer.email, email)).limit(1)
     : [undefined];
   if (!row) {
-    return NextResponse.redirect(new URL("/buyers/login?expired=1", req.url));
+    // Distinguish a dead token from a valid token whose account is gone —
+    // "expired" would send them into a loop of fresh links that keep failing.
+    const q = email ? "error=1" : "expired=1";
+    return NextResponse.redirect(new URL(`/buyers/login?${q}`, req.url));
   }
   const res = NextResponse.redirect(new URL("/buyers", req.url));
   res.cookies.set(BUYER_COOKIE, signBuyerSession(row.id), {

@@ -154,7 +154,11 @@ export function orgNameMatches(expected: string, got: string | null | undefined)
   if (!got) return false;
   const want = new Set(orgTokens(expected));
   if (!want.size) return false;
-  return orgTokens(got).some((t) => want.has(t));
+  // Multi-token names must overlap on TWO significant tokens: one shared
+  // word ("Lone Star X" vs "Lone Star Y") matched half of Texas. Single-token
+  // names ("Weathermatic") still match on their one token.
+  const overlap = orgTokens(got).filter((t) => want.has(t)).length;
+  return overlap >= Math.min(2, want.size);
 }
 
 type ApolloPerson = {

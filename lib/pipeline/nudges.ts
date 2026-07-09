@@ -15,6 +15,9 @@ import { siteBase, toHtml } from "./buyer-prospecting";
 
 /** How long an engaged offer sits before the (single) follow-up. */
 export const NUDGE_AFTER_HOURS = 48;
+/** Claim tokens expire at 30 days — never nudge a link that's about to be
+ *  (or already is) dead. 25d leaves margin for send + read time. */
+export const NUDGE_MAX_AGE_DAYS = 25;
 /** Safety cap per run. */
 export const NUDGE_MAX_PER_RUN = 50;
 
@@ -39,6 +42,7 @@ export function selectNudgeTargets(
   opts: { now: Date; convertedKeys: Set<string>; suppressed: Set<string> }
 ): NudgeCandidateRow[] {
   const cutoff = opts.now.getTime() - NUDGE_AFTER_HOURS * 3600_000;
+  const oldest = opts.now.getTime() - NUDGE_MAX_AGE_DAYS * 86400_000;
   const eligible = rows.filter(
     (r) =>
       r.email &&
@@ -48,6 +52,7 @@ export function selectNudgeTargets(
       (r.opened_at || r.clicked_at) &&
       r.sent_at &&
       r.sent_at.getTime() <= cutoff &&
+      r.sent_at.getTime() >= oldest && // claim token still has life in it
       !opts.convertedKeys.has(r.company_key) &&
       !opts.suppressed.has(r.email.toLowerCase())
   );
@@ -174,6 +179,18 @@ export async function runNudges(opts?: { limit?: number; apply?: boolean }): Pro
       log.push(`  DRY ${t.company_name} <${t.email}> — "${msg.subject}"`);
       continue;
     }
+    // ATOMIC CLAIM before the send: a concurrent run (daily cron + manual
+    // ?apply=1) selecting the same row must not both email — the conditional
+    // UPDATE is the lock ("one reminder, ever" is promised in the email body).
+    const claimed = await db
+      .update(buyerOutreach)
+      .set({ nudged_at: new Date(), updated_at: new Date() })
+      .where(and(eq(buyerOutreach.id, t.id), isNull(buyerOutreach.nudged_at)))
+      .returning({ id: buyerOutreach.id });
+    if (claimed.length === 0) {
+      skipped++;
+      continue; // another run got there first
+    }
     const unsubUrl = `${base}/api/unsubscribe?token=${encodeURIComponent(signBuyerUnsub(t.email!))}`;
     const res = await sendEmail({
       to: t.email!,
@@ -188,12 +205,13 @@ export async function runNudges(opts?: { limit?: number; apply?: boolean }): Pro
     });
     if (res.ok) {
       sent++;
-      await db
-        .update(buyerOutreach)
-        .set({ nudged_at: new Date(), updated_at: new Date() })
-        .where(eq(buyerOutreach.id, t.id));
       log.push(`  ✓ ${t.company_name} <${t.email}> — nudged`);
     } else {
+      // Send failed after the claim — release it so a later run retries.
+      await db
+        .update(buyerOutreach)
+        .set({ nudged_at: null, updated_at: new Date() })
+        .where(eq(buyerOutreach.id, t.id));
       skipped++;
       log.push(`  ✗ ${t.company_name} — send failed (${res.error})`);
     }

@@ -11,6 +11,9 @@ import { OPERATOR_COOKIE, isValidOperatorCookie } from "./lib/auth";
 const CUSTOMER_COOKIE = "gk_customer";
 const BUYER_COOKIE = "gk_buyer";
 const PUBLIC_PREFIXES = [
+  "/brand", // static logo assets — emails, claim pages, and login screens embed them
+  "/hero.webp",
+  "/api/area-map", // buyer profile coverage map (staticmap proxy, no private data)
   "/login",
   "/terms",
   "/privacy",

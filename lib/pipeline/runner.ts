@@ -14,7 +14,7 @@
 // GUARDRAIL: this runner NEVER sends email. Sends happen only from the queue
 // via the operator's explicit approval (sendProposalEmail), per build spec §9.
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   contact,
@@ -289,7 +289,11 @@ export async function runPipeline(caps: PipelineCaps = CRON_CAPS): Promise<Pipel
           out.blocked_no_contact++;
           continue;
         }
-        const [supp] = await db.select().from(suppression).where(eq(suppression.email, email)).limit(1);
+        const [supp] = await db
+          .select()
+          .from(suppression)
+          .where(sql`lower(${suppression.email}) = ${email.toLowerCase()}`)
+          .limit(1);
         if (supp) continue;
         await db.update(property).set({ status: "outreach_drafted", updated_at: new Date() }).where(eq(property.id, prop.id));
         out.queued.push(prop.name);

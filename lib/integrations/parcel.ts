@@ -149,6 +149,13 @@ const COUNTY_SERVICES: CountyService[] = [
       building_sqft: numOrNull(p.LIVING_ARE) || null,
       improvement_value: numOrNull(p.IMPR_VALUE) || null,
       land_sqft: numOrNull(p.LAND_SQFT) || null,
+      // TAD publishes no PTAD class/land-use, but BEDROOMS/LIVING_ARE are
+      // residential-appraisal concepts (commercial rows carry 0 for both) —
+      // derive the Res/Com flag the class gates read. Without this, EVERY
+      // Tarrant venue failed the commercial gate and poisoned the reject
+      // cache, and Tarrant houses passed the tax-sale fallback as commercial.
+      land_use:
+        (numOrNull(p.BEDROOMS) ?? 0) > 0 || (numOrNull(p.LIVING_ARE) ?? 0) > 0 ? "Res" : "Com",
     }),
   },
   {

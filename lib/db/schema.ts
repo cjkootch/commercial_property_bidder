@@ -11,6 +11,7 @@ import {
   numeric,
   primaryKey,
   unique,
+  uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -410,7 +411,15 @@ export const buyerOutreach = pgTable("buyer_outreach", {
   // One follow-up max: set when the 48h engaged-but-unclaimed nudge goes out.
   nudged_at: timestamp("nudged_at", { withTimezone: true }),
   ...timestamps,
-});
+},
+(t) => [
+  // At most ONE offer row per company per lead — the DB-level guard against
+  // concurrent runs (cron + manual) emailing the same company twice. Partial:
+  // operator direct replies (property_id NULL) are unlimited.
+  uniqueIndex("buyer_outreach_property_company_uniq")
+    .on(t.property_id, t.company_key)
+    .where(sql`property_id is not null`),
+]);
 
 // --- prospect_company ------------------------------------------------------
 // One profile per company we've ever pitched (keyed by normalized name),

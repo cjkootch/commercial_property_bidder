@@ -40,7 +40,9 @@ async function loadBlasts(): Promise<Blast[]> {
     })
     .from(buyerOutreach)
     .orderBy(desc(buyerOutreach.created_at))
-    .limit(2000);
+    // Window must comfortably exceed total send history — a short window
+    // makes old blasts show partial sends against full claim counts.
+    .limit(10000);
 
   const byProp = new Map<string, Blast>();
   for (const r of rows) {
