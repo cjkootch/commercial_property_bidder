@@ -10,7 +10,7 @@ import { setBidRequestStatus } from "../bids/actions";
 export const dynamic = "force-dynamic";
 
 const fmt = (d: Date) =>
-  d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  d.toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 export default async function RequestsPage() {
   const rows = await db.select().from(bidRequest).orderBy(desc(bidRequest.created_at)).limit(200);

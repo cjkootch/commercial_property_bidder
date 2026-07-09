@@ -59,7 +59,7 @@ export default async function MessagesInbox() {
                     </span>
                   ) : null}
                   <span className="text-xs text-gray-400">
-                    {t.last.created_at.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    {t.last.created_at.toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" })}
                   </span>
                 </div>
               </Link>

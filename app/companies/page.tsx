@@ -11,7 +11,7 @@ import { blockCompany, unblockCompany } from "./actions";
 export const dynamic = "force-dynamic";
 
 const fmt = (d: Date | null) =>
-  d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+  d ? d.toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" }) : "—";
 
 export default async function CompaniesPage({
   searchParams,

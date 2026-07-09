@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 const fmt = (d: Date | null) =>
   d
     ? d.toLocaleString("en-US", {
-        month: "short",
+        timeZone: "America/Chicago", month: "short",
         day: "numeric",
         hour: "numeric",
         minute: "2-digit",

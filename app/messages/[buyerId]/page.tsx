@@ -48,7 +48,7 @@ export default async function MessageThread({ params }: { params: { buyerId: str
           >
             <div className="whitespace-pre-wrap">{m.body}</div>
             <div className={`mt-1 text-[10px] ${m.sender === "operator" ? "text-white/70" : "text-gray-400"}`}>
-              {m.created_at.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              {m.created_at.toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
             </div>
           </div>
         ))}

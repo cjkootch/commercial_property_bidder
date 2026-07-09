@@ -234,7 +234,7 @@ export default async function PropertyWorkspace({
             {prop.offer_sent_at ? (
               <span className="text-xs text-gray-400">
                 Last offered to {prop.offer_sent_count ?? 0} buyer{(prop.offer_sent_count ?? 0) === 1 ? "" : "s"} on{" "}
-                {prop.offer_sent_at.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                {prop.offer_sent_at.toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" })}
               </span>
             ) : null}
             {prospected.length > 0 ? (

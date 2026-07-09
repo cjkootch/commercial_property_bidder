@@ -231,7 +231,7 @@ export default async function CampaignsPage({
                       <div className="text-xs text-gray-400">
                         {b.city ?? ""}
                         {b.lastSent
-                          ? `${b.city ? " · " : ""}${b.lastSent.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+                          ? `${b.city ? " · " : ""}${b.lastSent.toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" })}`
                           : ""}
                       </div>
                     </td>
