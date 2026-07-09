@@ -1,7 +1,10 @@
 // Dossier snapshot for a permit lead, computed ONCE at unlock time (free claim
 // or Stripe payment) and stored on the lead_unlock row — so viewing a bought
 // lead never re-spends imagery/API quota, and the buyer keeps exactly what they
-// purchased. Contacts are public-record / self-published ONLY (never Apollo).
+// purchased. Contacts are public-record / self-published, PLUS a person-level
+// decision contact via Apollo (deliberate policy change, Jul 2026): buyer-
+// discovery data still never ships, but naming the human who awards the
+// contract is part of what the sheet sells.
 
 import { and, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import area from "@turf/area";
@@ -14,6 +17,7 @@ import { estimateServiceableArea, fetchParcelTile } from "../integrations/imager
 import { findTabsByNumber, fetchTabsDetails } from "../integrations/tabs";
 import { fetchDriveTime } from "../integrations/geocoding";
 import { findContact } from "../integrations/contact";
+import { findDecisionContact } from "../integrations/apollo";
 import { haversineMiles } from "../sourcing/criteria";
 import type { ParcelResult } from "../geo/types";
 
@@ -198,6 +202,24 @@ export async function buildDossier(
     });
   if (pub?.email) contacts.push({ role: "Published email", value: pub.email });
   if (pub?.website) contacts.push({ role: "Website", value: pub.website });
+
+  // Person-level decision contact (Apollo): the county names the LLC; this
+  // names the human who awards the contract. Only shown when Apollo's org
+  // match passes the name gate — a wrong person is worse than none.
+  const person = await findDecisionContact(owner ?? det?.tenant ?? facilityName, {
+    domain: pub?.website ?? null,
+  }).catch(() => null);
+  if (person) {
+    contacts.push({
+      role: "Decision contact",
+      value: `${person.name}${person.title ? ` — ${person.title}` : ""} (${person.org})`,
+    });
+    if (person.email) contacts.push({ role: "Direct email", value: person.email });
+    if (person.phone && person.phone !== pub?.phone)
+      contacts.push({ role: "Direct phone", value: person.phone });
+    if (!person.email && person.linkedin)
+      contacts.push({ role: "LinkedIn", value: person.linkedin });
+  }
 
   // Route intelligence from our measured book of business.
   let route_intel = "First measured property in this pocket — route-anchor opportunity.";
