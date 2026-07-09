@@ -105,6 +105,11 @@ export type TradeDef = {
   sellable?: (teaser: { turf_sqft?: number; verified?: boolean } | null) => boolean;
   /** Apollo/scrape keywords for buyer prospecting. */
   prospectKeywords: string[];
+  /** Is this company actually IN the trade? Tested against the candidate's
+   *  name, then its homepage — Apollo keyword search pulls in adjacent
+   *  verticals (software vendors, suppliers, the odd vet clinic) and a
+   *  wrong-vertical pitch is spam. */
+  vendorSignal: RegExp;
 };
 
 /** A hand-measured property below this has no landscaping job on it. */
@@ -330,6 +335,7 @@ export const TRADES: Record<Trade, TradeDef> = {
       "lawn care",
       "grounds maintenance",
     ],
+    vendorSignal: /landscap|lawn|grounds|mow|irrigat|tree|turf|garden|outdoor/i,
   },
   pest: {
     key: "pest",
@@ -365,6 +371,7 @@ export const TRADES: Record<Trade, TradeDef> = {
       "commercial pest control",
       "pest management",
     ],
+    vendorSignal: /pest|exterminat|termite|\bbugs?\b|rodent|mosquito|wildlife/i,
   },
   cleaning: {
     key: "cleaning",
@@ -388,6 +395,7 @@ export const TRADES: Record<Trade, TradeDef> = {
       "office cleaning",
       "building maintenance services",
     ],
+    vendorSignal: /clean|janitorial|custodial|maid|porter|housekeep/i,
   },
   paving: {
     key: "paving",
@@ -412,6 +420,7 @@ export const TRADES: Record<Trade, TradeDef> = {
       "sealcoating",
       "parking lot striping",
     ],
+    vendorSignal: /pav|asphalt|sealcoat|strip(e|ing)|concrete|parking/i,
   },
   security: {
     key: "security",
@@ -441,6 +450,7 @@ export const TRADES: Record<Trade, TradeDef> = {
       "patrol services",
       "security company",
     ],
+    vendorSignal: /security|guard|patrol|surveillance|alarm|protect/i,
   },
   hvac: {
     key: "hvac",
@@ -464,6 +474,7 @@ export const TRADES: Record<Trade, TradeDef> = {
       "HVAC service",
       "air conditioning contractor",
     ],
+    vendorSignal: /hvac|air condition|heating|cooling|mechanical|refrigerat|\ba\/?c\b/i,
   },
 };
 

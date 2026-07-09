@@ -88,6 +88,23 @@ export async function looksCommercial(website: string | null): Promise<boolean |
   }
 }
 
+
+/** Does the site's homepage read like a company IN this trade? */
+async function siteMatchesVendor(website: string, re: RegExp): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(website, {
+      signal: controller.signal,
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; GreenkeepBot/1.0)" },
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) return false;
+    return re.test((await res.text()).slice(0, 200_000));
+  } catch {
+    return false;
+  }
+}
+
 // --- area alerts: re-offer NEW leads to known contacts ----------------------
 
 /** The buyer_outreach columns the selector reads (newest row first). */
@@ -547,6 +564,17 @@ export async function runBuyerProspecting(opts?: {
     const key = companyKey(c.name);
     if (accountKeys.has(key) || cooled.has(key) || offeredThis.has(key)) continue;
     attempts--;
+
+    // Vertical gate: Apollo keyword search pulls in adjacent verticals
+    // (software vendors, suppliers, the odd vet clinic) — a wrong-trade
+    // pitch is spam. Name check is free; the homepage settles the rest.
+    const vendorRe = TRADES[trade].vendorSignal;
+    let vendor = vendorRe.test(c.name);
+    if (!vendor && c.website) vendor = await siteMatchesVendor(c.website, vendorRe);
+    if (!vendor) {
+      log.push(`  \u00d7 ${c.name} \u2014 skipped, no ${trade} signal (wrong vertical)`);
+      continue;
+    }
 
     // Geographic coverage: office (often city-level) within range of the lead.
     const officeArea = c.city ? `${c.city}${c.state ? `, ${c.state}` : ", TX"}` : null;
