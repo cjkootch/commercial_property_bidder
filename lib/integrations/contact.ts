@@ -72,15 +72,39 @@ async function fetchText(url: string, ms = 8000): Promise<string | null> {
   }
 }
 
-/** Pull the first plausible email + phone from a page's HTML. */
-export function extractFromHtml(raw: string): { email: string | null; phone: string | null } {
+// Consumer mail providers — a legit small shop's inline email may live here.
+const FREEMAIL =
+  /@(gmail|googlemail|yahoo|outlook|hotmail|aol|icloud|msn|live|att|sbcglobal|comcast|verizon|proton|protonmail)\./i;
+
+/** Pull the first plausible email + phone from a page's HTML. When
+ *  `siteDomain` is known, INLINE (non-mailto) matches must belong to the
+ *  business's own domain or a consumer mail provider — page source is full
+ *  of vendor credits (font foundries, site builders, widget services) whose
+ *  addresses otherwise leak into the send queue. mailto: links are the
+ *  business's deliberate choice and stay trusted (percent-decoded first:
+ *  "%20office@…" was found live). */
+export function extractFromHtml(
+  raw: string,
+  siteDomain?: string | null
+): { email: string | null; phone: string | null } {
   const html = decodeEntities(raw);
-  // Prefer mailto: links (most reliable), then any inline email. Each mailto
-  // capture is re-matched against EMAIL_RE so leftover markup never ships.
   const mailto = [...html.matchAll(/mailto:([^"'>?\s]+)/gi)]
-    .map((m) => m[1].toLowerCase().match(EMAIL_RE)?.[0])
+    .map((m) => {
+      let v = m[1];
+      try {
+        v = decodeURIComponent(v);
+      } catch {
+        /* keep raw */
+      }
+      return v.toLowerCase().match(EMAIL_RE)?.[0];
+    })
     .filter(Boolean) as string[];
-  const inline = (html.match(EMAIL_RE) ?? []).map((e) => e.toLowerCase());
+  const ownDomain = (e: string) => {
+    if (!siteDomain) return true; // no domain context — legacy behavior
+    const d = e.split("@")[1] ?? "";
+    return d === siteDomain || d.endsWith(`.${siteDomain}`) || FREEMAIL.test(e);
+  };
+  const inline = (html.match(EMAIL_RE) ?? []).map((e) => e.toLowerCase()).filter(ownDomain);
   const email =
     [...mailto, ...inline].find(
       (e) => !JUNK_EMAIL.test(e) && !PLACEHOLDER_EMAIL.test(e) && !e.includes("example.")
@@ -89,17 +113,27 @@ export function extractFromHtml(raw: string): { email: string | null; phone: str
   return { email, phone };
 }
 
+/** Hostname of a site URL without the www prefix — the email-domain gate. */
+export function siteDomainOf(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 /** Scrape a site's home + common contact paths for an email/phone. */
 async function scrapeSite(website: string): Promise<{ email: string | null; phone: string | null }> {
   const base = normalizeUrl(website);
   if (!base) return { email: null, phone: null };
   const origin = new URL(base).origin;
+  const domain = siteDomainOf(origin);
   const urls = [base, `${origin}/contact`, `${origin}/contact-us`, `${origin}/about`];
   let phone: string | null = null;
   for (const u of urls) {
     const html = await fetchText(u);
     if (!html) continue;
-    const got = extractFromHtml(html);
+    const got = extractFromHtml(html, domain);
     phone = phone ?? got.phone;
     if (got.email) return { email: got.email, phone: phone ?? got.phone };
   }
@@ -122,6 +156,7 @@ export async function scrapeBusinessContact(website: string): Promise<BusinessCo
   const base = normalizeUrl(website);
   if (!base) return { email: null, phone: null, contact_form_url: null };
   const origin = new URL(base).origin;
+  const domain = siteDomainOf(origin);
 
   let email: string | null = null;
   let phone: string | null = null;
@@ -129,7 +164,7 @@ export async function scrapeBusinessContact(website: string): Promise<BusinessCo
 
   const home = await fetchText(base);
   if (home) {
-    const got = extractFromHtml(home);
+    const got = extractFromHtml(home, domain);
     email = got.email;
     phone = got.phone;
     // First homepage link that smells like a contact/quote page.
@@ -151,7 +186,7 @@ export async function scrapeBusinessContact(website: string): Promise<BusinessCo
     const html = await fetchText(u);
     if (!html) continue;
     if (!contactUrl) contactUrl = u;
-    const got = extractFromHtml(html);
+    const got = extractFromHtml(html, domain);
     email = email ?? got.email;
     phone = phone ?? got.phone;
   }

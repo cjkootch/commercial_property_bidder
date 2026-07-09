@@ -37,3 +37,26 @@ describe("integrations/contact extractFromHtml", () => {
     expect(extractFromHtml(`<img src="logo@2x.png">`).email).toBeNull();
   });
 });
+
+describe("integrations/contact domain gate + percent-encoding", () => {
+  it("decodes percent-encoded mailto addresses (found live: %20office@...)", () => {
+    const { email } = extractFromHtml(`<a href="mailto:%20office@kindredpest.com">us</a>`, "kindredpest.com");
+    expect(email).toBe("office@kindredpest.com");
+  });
+
+  it("rejects inline vendor-credit emails from foreign domains (found live)", () => {
+    // A cleaning company's page sourcing a font foundry's license email.
+    const html = `<style>/* font by info@indiantypefoundry.com */</style><p>Call us!</p>`;
+    expect(extractFromHtml(html, "cordialclean.com").email).toBeNull();
+    // Same-domain inline and freemail inline stay accepted.
+    expect(extractFromHtml(`office@cordialclean.com`, "cordialclean.com").email).toBe("office@cordialclean.com");
+    expect(extractFromHtml(`bugs@gmail.com`, "cordialclean.com").email).toBe("bugs@gmail.com");
+    // Subdomains of the business count as its own.
+    expect(extractFromHtml(`sales@mail.cordialclean.com`, "cordialclean.com").email).toBe("sales@mail.cordialclean.com");
+  });
+
+  it("mailto links stay trusted regardless of domain — the business chose them", () => {
+    const { email } = extractFromHtml(`<a href="mailto:owner@differentdomain.com">email</a>`, "cordialclean.com");
+    expect(email).toBe("owner@differentdomain.com");
+  });
+});
