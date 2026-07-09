@@ -20,10 +20,10 @@
 import { and, isNull, like, sql } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
-import { currentMarket } from "../markets";
+import { currentMarket, marketByKey } from "../markets";
 
-/** The market's Bonfire portals (lib/markets registry — verified to serve
- *  the public JSON for Houston; verify per metro when adding one). */
+/** The default market's Bonfire portals (lib/markets registry — verified to
+ *  serve the public JSON; verify slugs live when adding a metro). */
 export const BONFIRE_PORTALS: { slug: string; agency: string; city: string }[] =
   currentMarket().bonfirePortals;
 
@@ -104,16 +104,21 @@ export type RfpRunSummary = {
   log: string[];
 };
 
-export async function runRfpSourcing(opts?: { want?: number }): Promise<RfpRunSummary> {
+export async function runRfpSourcing(opts?: {
+  want?: number;
+  /** Market key (cron ?market=dallas); default the deployment market. */
+  market?: string;
+}): Promise<RfpRunSummary> {
   const want = opts?.want ?? 10;
-  const log: string[] = [];
+  const market = marketByKey(opts?.market);
+  const log: string[] = [`Market: ${market.label}`];
 
   const [co] = await db.select().from(schema.company).limit(1);
   if (!co) throw new Error("No company found. Run `npm run db:seed` first.");
 
   let scanned = 0;
   const candidates: RfpRow[] = [];
-  for (const portal of BONFIRE_PORTALS) {
+  for (const portal of market.bonfirePortals) {
     try {
       const rows = await fetchPortalRfps(portal);
       scanned++;

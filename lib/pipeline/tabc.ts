@@ -17,8 +17,8 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
-import { currentMarket } from "../markets";
-import { fetchHarrisParcelAtPoint } from "../integrations/parcel";
+import { currentMarket, marketByKey } from "../markets";
+import { fetchParcelAtPointWithAttrs } from "../integrations/parcel";
 import { estimateServiceableArea } from "../integrations/imagery";
 import { geocodeWithZip, getMapboxToken } from "../integrations/geocoding";
 import { sizeLead } from "../leads/sizing";
@@ -73,14 +73,15 @@ export function normalizeTabc(r: SodaRecord): TabcRow | null {
   };
 }
 
-/** Fetch pending original applications for a county (default Harris). */
+/** Fetch pending original applications for a market's counties. */
 export async function fetchPendingTabc(opts?: {
-  county?: string;
+  counties?: string[];
   limit?: number;
 }): Promise<TabcRow[]> {
-  const county = opts?.county ?? currentMarket().tabcCounty;
+  const counties = opts?.counties ?? currentMarket().tabcCounties;
+  const inList = counties.map((c) => `'${c.toUpperCase()}'`).join(",");
   const params = new URLSearchParams({
-    $where: `upper(county)='${county.toUpperCase()}'`,
+    $where: `upper(county) in(${inList})`,
     $order: "submission_date DESC",
     $limit: String(opts?.limit ?? 500),
   });
@@ -119,18 +120,21 @@ export type TabcRunSummary = {
 export async function runTabcSourcing(opts?: {
   want?: number;
   sinceDays?: number;
+  /** Market key (cron ?market=dallas); default the deployment market. */
+  market?: string;
 }): Promise<TabcRunSummary> {
   const want = opts?.want ?? 8;
   const sinceDays = opts?.sinceDays ?? 120;
-  const log: string[] = [];
+  const market = marketByKey(opts?.market);
+  const log: string[] = [`Market: ${market.label}`];
 
   const [co] = await db.select().from(schema.company).limit(1);
   if (!co) throw new Error("No company found. Run `npm run db:seed` first.");
 
-  const rows = await fetchPendingTabc();
+  const rows = await fetchPendingTabc({ counties: market.tabcCounties });
   const since = new Date(Date.now() - sinceDays * 86400_000).toISOString().slice(0, 10);
   const candidates = rows.filter((t) => !t.submittedIso || t.submittedIso >= since);
-  log.push(`${rows.length} pending Harris applications -> ${candidates.length} submitted in the last ${sinceDays}d`);
+  log.push(`${rows.length} pending applications -> ${candidates.length} submitted in the last ${sinceDays}d`);
 
   const existing = await db
     .select({
@@ -165,15 +169,19 @@ export async function runTabcSourcing(opts?: {
       continue;
     }
 
-    const hit = await fetchHarrisParcelAtPoint(geo.lng, geo.lat);
+    const hit = await fetchParcelAtPointWithAttrs(geo.lng, geo.lat);
     if (!hit) {
       log.push(`no parcel: ${business}`);
       continue;
     }
-    const stateClass = String(hit.attrs.state_class ?? "").trim();
+    // Gate on the NORMALIZED class so each county's field mapping applies.
     // Bars and restaurants live on F1/F2 — a home address on the application
-    // (paperwork mailing address, not the venue) fails this gate.
-    if (!["F1", "F2"].includes(stateClass)) {
+    // (paperwork mailing address, not the venue) fails this gate. Counties
+    // without PTAD classes (Dallas) pass on an explicit commercial land-use
+    // flag instead; no signal at all fails (conservative: never add a house).
+    const stateClass = (hit.parcel.state_class ?? "").trim();
+    const commercialFlag = /^com/i.test(hit.parcel.land_use ?? "");
+    if (!["F1", "F2"].includes(stateClass) && !(!stateClass && commercialFlag)) {
       skippedClass++;
       await recordReject(rejectKey, `parcel class ${stateClass || "none"}`);
       continue;

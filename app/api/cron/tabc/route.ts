@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
   const summary = await runTabcSourcing({
     want: num("want", 10),
     sinceDays: num("sinceDays", 120),
+    market: sp.get("market") ?? undefined,
   });
   return Response.json(summary);
 }

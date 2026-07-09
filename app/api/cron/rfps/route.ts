@@ -19,6 +19,9 @@ export async function GET(req: NextRequest) {
     const v = Number(sp.get(k));
     return Number.isFinite(v) && v > 0 ? v : d;
   };
-  const summary = await runRfpSourcing({ want: num("want", 10) });
+  const summary = await runRfpSourcing({
+    want: num("want", 10),
+    market: sp.get("market") ?? undefined,
+  });
   return Response.json(summary);
 }

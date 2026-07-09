@@ -47,6 +47,18 @@
     {
       "path": "/api/cron/nudges?apply=1",
       "schedule": "7 15 * * *"
+    },
+    {
+      "path": "/api/cron/taxsales?want=15&market=dallas",
+      "schedule": "27 10 * * 1"
+    },
+    {
+      "path": "/api/cron/tabc?want=15&market=dallas",
+      "schedule": "47 10 * * 1"
+    },
+    {
+      "path": "/api/cron/rfps?market=dallas",
+      "schedule": "57 10 * * 1"
     }
   ]
 }

@@ -99,14 +99,31 @@ export function extractFromHtml(
       return v.toLowerCase().match(EMAIL_RE)?.[0];
     })
     .filter(Boolean) as string[];
+  // Scraped footers glue text onto addresses (found live: a phone number in
+  // front, the site URL behind — "…7932sales@x.comwww.x.com"). Sending to the
+  // glued form is a guaranteed bounce, so repair the two known signatures:
+  // strip a phone-like digit run before the mailbox, and collapse a domain
+  // that both starts AND ends with the site's own domain back to the domain.
+  const repair = (e: string): string => {
+    const at = e.lastIndexOf("@");
+    let local = e.slice(0, at);
+    let d = e.slice(at + 1);
+    local = local.replace(/^[0-9][0-9().\s+-]{5,}(?=[a-z])/i, "");
+    if (siteDomain && d !== siteDomain && d.startsWith(siteDomain) && d.endsWith(`.${siteDomain}`)) {
+      d = siteDomain;
+    }
+    return `${local}@${d}`;
+  };
   const ownDomain = (e: string) => {
     if (!siteDomain) return true; // no domain context — legacy behavior
     const d = e.split("@")[1] ?? "";
     return d === siteDomain || d.endsWith(`.${siteDomain}`) || FREEMAIL.test(e);
   };
-  const inline = (html.match(EMAIL_RE) ?? []).map((e) => e.toLowerCase()).filter(ownDomain);
+  const inline = (html.match(EMAIL_RE) ?? [])
+    .map((e) => repair(e.toLowerCase()))
+    .filter(ownDomain);
   const email =
-    [...mailto, ...inline].find(
+    [...mailto.map(repair), ...inline].find(
       (e) => !JUNK_EMAIL.test(e) && !PLACEHOLDER_EMAIL.test(e) && !e.includes("example.")
     ) ?? null;
   const phone = html.replace(/<[^>]+>/g, " ").match(PHONE_RE)?.[0]?.trim() ?? null;

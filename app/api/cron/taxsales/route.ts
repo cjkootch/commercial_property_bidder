@@ -21,6 +21,7 @@ export async function GET(req: NextRequest) {
   const summary = await runTaxSaleSourcing({
     want: num("want", 10),
     minValue: num("minValue", 100_000),
+    market: sp.get("market") ?? undefined,
   });
   return Response.json(summary);
 }

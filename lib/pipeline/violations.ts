@@ -25,7 +25,8 @@ import { icpGuess } from "./permits";
 import { loadRejects, recordReject } from "./rejects";
 import type { ParcelResult } from "../geo/types";
 
-const EXTRACT_URL = currentMarket().violations311Url;
+// Houston-format 311 extract only — a market without one skips this feed.
+const EXTRACT_URL = currentMarket().violations311Url ?? null;
 
 /** 311 case types that mean "the grounds are the problem". Values verified
  *  against the live extract (2026-07): dumping (~154/mo) and heavy-trash
@@ -140,6 +141,7 @@ export async function runViolationSourcing(opts?: {
   const [co] = await db.select().from(schema.company).limit(1);
   if (!co) throw new Error("No company found. Run `npm run db:seed` first.");
 
+  if (!EXTRACT_URL) throw new Error("No 311 extract URL for this market");
   const res = await fetch(EXTRACT_URL);
   if (!res.ok) throw new Error(`311 extract fetch failed: ${res.status}`);
   const rows = parseExtract(await res.text());
