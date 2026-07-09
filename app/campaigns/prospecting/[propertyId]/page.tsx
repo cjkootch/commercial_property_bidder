@@ -23,8 +23,10 @@ const fmt = (d: Date | null) =>
 
 export default async function ProspectingBlastPage({
   params,
+  searchParams,
 }: {
   params: { propertyId: string };
+  searchParams: { trade?: string };
 }) {
   const [prop] = await db
     .select()
@@ -38,11 +40,18 @@ export default async function ProspectingBlastPage({
     .where(eq(buyerOutreach.property_id, params.propertyId))
     .orderBy(desc(buyerOutreach.sent_at), desc(buyerOutreach.created_at));
 
-  const emailed = rows.filter((r) => r.status === "sent" || r.status === "bounced");
-  const manual = rows.filter((r) => r.status === "skipped");
+  // The campaign's trade: from the list link (?trade=), else the claim links.
+  const trade = asTrade(
+    searchParams.trade ??
+      rows.find((r) => r.claim_url)?.claim_url?.match(/[?&]trade=([a-z]+)/)?.[1]
+  );
+  // A property can be campaigned to several trades — scope rows to this one.
+  const tradeRows = rows.filter(
+    (r) => asTrade(r.claim_url?.match(/[?&]trade=([a-z]+)/)?.[1]) === trade
+  );
 
-  // The campaign's trade rides in the claim links (?trade=...).
-  const trade = asTrade(rows.find((r) => r.claim_url)?.claim_url?.match(/[?&]trade=([a-z]+)/)?.[1]);
+  const emailed = tradeRows.filter((r) => r.status === "sent" || r.status === "bounced");
+  const manual = tradeRows.filter((r) => r.status === "skipped");
   const kind = prop ? leadKind(prop.name) : null;
   const est = prop && kind ? TRADES[trade].estimateValue(tradeValueInput(prop, kind)) : null;
   const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;

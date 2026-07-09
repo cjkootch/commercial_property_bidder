@@ -3,12 +3,15 @@ import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, leadUnlock, outreachCampaign, outreachRecipient, property } from "@/lib/db/schema";
 import { displayName } from "@/lib/leads/market";
+import { asTrade, TRADES, type Trade } from "@/lib/leads/trades";
 import { createCampaign } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 type Blast = {
   propertyId: string;
+  /** The campaign's buyer vertical (from the claim links). */
+  trade: Trade;
   name: string;
   city: string | null;
   lastSent: Date | null;
@@ -21,12 +24,14 @@ type Blast = {
   claims: number;
 };
 
-// Automated lead-offer blasts (buyer prospecting), grouped per lead. Funnel
-// counts come from Resend webhook events; claims from lead_unlock.
+// Automated lead-offer blasts (buyer prospecting), grouped per lead + trade
+// (the same property can be campaigned to several trades). Funnel counts come
+// from Resend webhook events; claims from lead_unlock.
 async function loadBlasts(): Promise<Blast[]> {
   const rows = await db
     .select({
       property_id: buyerOutreach.property_id,
+      claim_url: buyerOutreach.claim_url,
       status: buyerOutreach.status,
       sent_at: buyerOutreach.sent_at,
       delivered_at: buyerOutreach.delivered_at,
@@ -40,10 +45,13 @@ async function loadBlasts(): Promise<Blast[]> {
   const byProp = new Map<string, Blast>();
   for (const r of rows) {
     if (!r.property_id) continue;
-    let b = byProp.get(r.property_id);
+    const trade = asTrade(r.claim_url?.match(/[?&]trade=([a-z]+)/)?.[1]);
+    const key = `${r.property_id}:${trade}`;
+    let b = byProp.get(key);
     if (!b) {
       b = {
         propertyId: r.property_id,
+        trade,
         name: "",
         city: null,
         lastSent: null,
@@ -55,7 +63,7 @@ async function loadBlasts(): Promise<Blast[]> {
         clicked: 0,
         claims: 0,
       };
-      byProp.set(r.property_id, b);
+      byProp.set(key, b);
     }
     if (r.status === "sent" || r.status === "bounced") b.sent++;
     if (r.status === "skipped") b.skipped++;
@@ -65,7 +73,7 @@ async function loadBlasts(): Promise<Blast[]> {
     if (r.clicked_at) b.clicked++;
     if (r.sent_at && (!b.lastSent || r.sent_at > b.lastSent)) b.lastSent = r.sent_at;
   }
-  const ids = [...byProp.keys()];
+  const ids = [...new Set([...byProp.values()].map((b) => b.propertyId))];
   if (!ids.length) return [];
 
   const props = await db
@@ -73,18 +81,20 @@ async function loadBlasts(): Promise<Blast[]> {
     .from(property)
     .where(inArray(property.id, ids));
   for (const p of props) {
-    const b = byProp.get(p.id);
-    if (b) {
-      b.name = displayName(p.name);
-      b.city = p.city;
+    for (const b of byProp.values()) {
+      if (b.propertyId === p.id) {
+        b.name = displayName(p.name);
+        b.city = p.city;
+      }
     }
   }
+  // Claims are counted per trade — each blast row shows ITS vertical's claims.
   const unlocks = await db
-    .select({ property_id: leadUnlock.property_id })
+    .select({ property_id: leadUnlock.property_id, trade: leadUnlock.trade })
     .from(leadUnlock)
     .where(inArray(leadUnlock.property_id, ids));
   for (const u of unlocks) {
-    const b = byProp.get(u.property_id);
+    const b = byProp.get(`${u.property_id}:${asTrade(u.trade)}`);
     if (b) b.claims++;
   }
   return [...byProp.values()].sort(
@@ -101,8 +111,23 @@ const STAGE_LABEL: Record<string, string> = {
   canceled: "Canceled",
 };
 
-export default async function CampaignsPage() {
-  const blasts = await loadBlasts();
+export default async function CampaignsPage({
+  searchParams,
+}: {
+  searchParams: { trade?: string; sort?: string };
+}) {
+  const all = await loadBlasts();
+  // ?trade= filters to one vertical; ?sort=trade groups by industry.
+  const tradeFilter = searchParams.trade && searchParams.trade !== "all" ? asTrade(searchParams.trade) : null;
+  const blasts = (tradeFilter ? all.filter((b) => b.trade === tradeFilter) : all).slice();
+  if (searchParams.sort === "trade") {
+    blasts.sort(
+      (a, b) =>
+        a.trade.localeCompare(b.trade) || (b.lastSent?.getTime() ?? 0) - (a.lastSent?.getTime() ?? 0)
+    );
+  }
+  const tradeCounts = new Map<Trade, number>();
+  for (const b of all) tradeCounts.set(b.trade, (tradeCounts.get(b.trade) ?? 0) + 1);
   const campaigns = await db.select().from(outreachCampaign).orderBy(desc(outreachCampaign.created_at)).limit(100);
   const counts = new Map<string, { total: number; sent: number }>();
   for (const c of campaigns) {
@@ -137,11 +162,38 @@ export default async function CampaignsPage() {
             Automated offers to landscaping companies. Delivered / opened / clicked come from
             Resend events; claims are profiles created off the email.
           </p>
+          {/* Industry filter chips + counts. */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <Link
+              href="/campaigns"
+              className={`rounded-full px-2.5 py-1 font-semibold ${!tradeFilter ? "bg-brand text-white" : "border border-gray-300 text-gray-600 hover:bg-gray-50"}`}
+            >
+              All ({all.length})
+            </Link>
+            {[...tradeCounts.entries()].map(([t, n]) => (
+              <Link
+                key={t}
+                href={`/campaigns?trade=${t}`}
+                className={`rounded-full px-2.5 py-1 font-semibold ${tradeFilter === t ? "bg-brand text-white" : "border border-gray-300 text-gray-600 hover:bg-gray-50"}`}
+              >
+                {TRADES[t].label} ({n})
+              </Link>
+            ))}
+          </div>
           <div className="mt-3 overflow-x-auto rounded-xl border border-gray-200 bg-white">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 text-left text-xs uppercase tracking-wide text-gray-400">
                   <th className="px-4 py-2.5 font-medium">Lead</th>
+                  <th className="px-3 py-2.5 font-medium">
+                    <Link
+                      href={searchParams.sort === "trade" ? `/campaigns${tradeFilter ? `?trade=${tradeFilter}` : ""}` : `/campaigns?${tradeFilter ? `trade=${tradeFilter}&` : ""}sort=trade`}
+                      className="hover:text-gray-600"
+                      title="Sort by industry"
+                    >
+                      Industry {searchParams.sort === "trade" ? "\u2193" : "\u2195"}
+                    </Link>
+                  </th>
                   <th className="px-3 py-2.5 text-right font-medium">Sent</th>
                   <th className="px-3 py-2.5 text-right font-medium">Delivered</th>
                   <th className="px-3 py-2.5 text-right font-medium">Opened</th>
@@ -153,10 +205,10 @@ export default async function CampaignsPage() {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {blasts.map((b) => (
-                  <tr key={b.propertyId} className="hover:bg-gray-50">
+                  <tr key={`${b.propertyId}:${b.trade}`} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <Link
-                        href={`/campaigns/prospecting/${b.propertyId}`}
+                        href={`/campaigns/prospecting/${b.propertyId}?trade=${b.trade}`}
                         className="font-medium text-gray-900 hover:text-brand"
                       >
                         {b.name || "(deleted lead)"}
@@ -167,6 +219,11 @@ export default async function CampaignsPage() {
                           ? `${b.city ? " · " : ""}${b.lastSent.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
                           : ""}
                       </div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-bold text-brand">
+                        {TRADES[b.trade].label}
+                      </span>
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums">{b.sent}</td>
                     <td className="px-3 py-3 text-right tabular-nums">{b.delivered}</td>
