@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { buyer, buyerOutreach, leadUnlock, property, prospectCompany } from "@/lib/db/schema";
 import { displayName } from "@/lib/leads/market";
 import { TRADES, asTrade } from "@/lib/leads/trades";
-import { blockCompany, unblockCompany } from "../actions";
+import { blockCompany, replyToCompany, unblockCompany } from "../actions";
 
 // Company profile drill-down: identity, the full cross-campaign email journey
 // (every send with its funnel state and the exact copy), claim-page reads, and
@@ -21,7 +21,13 @@ const fmt = (d: Date | null) =>
       })
     : null;
 
-export default async function CompanyProfilePage({ params }: { params: { id: string } }) {
+export default async function CompanyProfilePage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams: { reply?: string };
+}) {
   const [p] = await db
     .select()
     .from(prospectCompany)
@@ -222,6 +228,44 @@ export default async function CompanyProfilePage({ params }: { params: { id: str
         </div>
       ) : null}
 
+      {p.email ? (
+        <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-bold text-gray-900">
+            Reply to {p.email} <span className="font-normal text-gray-400">— sends from leads@, logged below, opens tracked</span>
+          </h2>
+          {searchParams.reply === "sent" ? (
+            <p className="mt-2 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Sent.</p>
+          ) : searchParams.reply ? (
+            <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              Not sent ({searchParams.reply === "noemail" ? "no email on file" : searchParams.reply === "missing" ? "subject and message are required" : "send failed — check RESEND config"}).
+            </p>
+          ) : null}
+          <form action={replyToCompany} className="mt-3 space-y-2">
+            <input type="hidden" name="id" value={p.id} />
+            <input
+              name="subject"
+              defaultValue={(() => {
+                const s = outreach[0]?.o.message?.match(/^SUBJECT(?:\[[AB]\])?: (.*)$/m)?.[1];
+                return s ? (s.startsWith("Re:") ? s : `Re: ${s}`) : "";
+              })()}
+              placeholder="Subject"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              required
+            />
+            <textarea
+              name="body"
+              rows={7}
+              placeholder="Write the reply — plain text; blank lines become paragraphs, links become clickable."
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              required
+            />
+            <button className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:opacity-90">
+              Send from leads@
+            </button>
+          </form>
+        </div>
+      ) : null}
+
       <h2 className="mt-8 text-lg font-semibold">Outreach history</h2>
       <p className="mt-1 text-sm text-gray-500">
         Every campaign email this company received, newest first.
@@ -253,7 +297,7 @@ export default async function CompanyProfilePage({ params }: { params: { id: str
                       </Link>
                     ) : (
                       <span className="font-medium text-gray-900">
-                        {prop_address ?? "deleted lead"}
+                        {prop_address ?? "Direct reply (no lead attached)"}
                       </span>
                     )}
                     <div className="text-xs text-gray-400">{prop_city ?? ""}</div>
