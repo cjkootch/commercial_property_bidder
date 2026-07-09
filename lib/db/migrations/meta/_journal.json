@@ -281,6 +281,13 @@
       "when": 1783615609816,
       "tag": "0039_high_arachne",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1783620283973,
+      "tag": "0040_same_wrecker",
+      "breakpoints": true
     }
   ]
 }

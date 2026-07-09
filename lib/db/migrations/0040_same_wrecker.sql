@@ -1,0 +1,1 @@
+ALTER TABLE "buyer_outreach" ADD COLUMN "nudged_at" timestamp with time zone;

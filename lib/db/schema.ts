@@ -407,6 +407,8 @@ export const buyerOutreach = pgTable("buyer_outreach", {
   open_count: integer("open_count").notNull().default(0),
   click_count: integer("click_count").notNull().default(0),
   last_event: text("last_event"),
+  // One follow-up max: set when the 48h engaged-but-unclaimed nudge goes out.
+  nudged_at: timestamp("nudged_at", { withTimezone: true }),
   ...timestamps,
 });
 
