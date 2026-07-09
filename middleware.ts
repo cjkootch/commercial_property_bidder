@@ -17,6 +17,7 @@ const PUBLIC_PREFIXES = [
   "/why",
   "/residential",
   "/commercial",
+  "/bids", // owner-side bid requests (public form)
   "/quote",
   "/proposals",
   "/customer/login",

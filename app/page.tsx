@@ -472,7 +472,14 @@ export default async function Home() {
                 call.
               </p>
             </div>
-            <div className="flex shrink-0 gap-3">
+            <div className="flex shrink-0 flex-wrap gap-3">
+              <Link
+                href="/bids"
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+                style={{ backgroundColor: accent }}
+              >
+                Get competing bids
+              </Link>
               <Link
                 href="/commercial"
                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
