@@ -2,6 +2,7 @@ import { desc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyer, buyerOutreach, prospectCompany } from "@/lib/db/schema";
 import { TRADES, asTrade } from "@/lib/leads/trades";
+import { blockCompany, unblockCompany } from "./actions";
 
 // The company graph: every company we've pitched, with identity + the full
 // cross-campaign journey (sends/opens/clicks rolled up from buyer_outreach,
@@ -48,8 +49,8 @@ export default async function CompaniesPage({
       const f = funnel.get(p.key) ?? { sends: 0, opens: 0, clicks: 0, bounced: false, lastSent: null };
       // Call-list score: reading the offer (claim view) is worth the most,
       // clicks next, opens least; converted accounts drop to the bottom
-      // (they're customers now, not calls).
-      const score = p.buyer_id ? -1 : p.claim_views * 5 + f.clicks * 3 + f.opens;
+      // (they're customers now, not calls) and blocked junk below them.
+      const score = p.blocked_at ? -2 : p.buyer_id ? -1 : p.claim_views * 5 + f.clicks * 3 + f.opens;
       return { p, f, score };
     })
     .sort((a, b) => b.score - a.score || (b.f.lastSent?.getTime() ?? 0) - (a.f.lastSent?.getTime() ?? 0));
@@ -87,6 +88,7 @@ export default async function CompaniesPage({
               <th className="px-3 py-2.5 text-right font-medium">Clicks</th>
               <th className="px-3 py-2.5 text-right font-medium">Offer views</th>
               <th className="px-3 py-2.5 font-medium">Status</th>
+              <th className="px-3 py-2.5"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -118,7 +120,9 @@ export default async function CompaniesPage({
                   {p.last_claim_view_at ? <span className="ml-1 text-[10px] font-normal text-gray-400">{fmt(p.last_claim_view_at)}</span> : null}
                 </td>
                 <td className="px-3 py-3 text-xs">
-                  {p.buyer_id ? (
+                  {p.blocked_at ? (
+                    <span className="rounded-full bg-gray-200 px-2 py-0.5 font-semibold text-gray-600">BLOCKED</span>
+                  ) : p.buyer_id ? (
                     <span className="rounded-full bg-green-100 px-2 py-0.5 font-semibold text-green-800">
                       ACCOUNT{buyerName.get(p.buyer_id) ? ` · ${buyerName.get(p.buyer_id)}` : ""}
                     </span>
@@ -130,11 +134,29 @@ export default async function CompaniesPage({
                     <span className="text-gray-400">prospect</span>
                   )}
                 </td>
+                <td className="px-3 py-3 text-right">
+                  {p.buyer_id ? null : p.blocked_at ? (
+                    <form action={unblockCompany}>
+                      <input type="hidden" name="id" value={p.id} />
+                      <button className="text-xs text-gray-400 hover:text-gray-600 hover:underline">unblock</button>
+                    </form>
+                  ) : (
+                    <form action={blockCompany}>
+                      <input type="hidden" name="id" value={p.id} />
+                      <button
+                        className="text-xs text-red-400 hover:text-red-600 hover:underline"
+                        title="Never email this company again (wrong vertical / junk record)"
+                      >
+                        block
+                      </button>
+                    </form>
+                  )}
+                </td>
               </tr>
             ))}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">
                   Profiles appear as campaigns send (and backfill from past sends).
                 </td>
               </tr>

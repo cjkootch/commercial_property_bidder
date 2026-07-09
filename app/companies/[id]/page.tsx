@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { buyer, buyerOutreach, leadUnlock, property, prospectCompany } from "@/lib/db/schema";
 import { displayName } from "@/lib/leads/market";
 import { TRADES, asTrade } from "@/lib/leads/trades";
+import { blockCompany, unblockCompany } from "../actions";
 
 // Company profile drill-down: identity, the full cross-campaign email journey
 // (every send with its funnel state and the exact copy), claim-page reads, and
@@ -93,7 +94,11 @@ export default async function CompanyProfilePage({ params }: { params: { id: str
         <span className="rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-bold text-brand">
           {TRADES[asTrade(p.trade)].label}
         </span>
-        {account ? (
+        {p.blocked_at ? (
+          <span className="rounded-full bg-gray-200 px-2.5 py-0.5 text-xs font-semibold text-gray-600">
+            BLOCKED
+          </span>
+        ) : account ? (
           <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-800">
             ACCOUNT
           </span>
@@ -106,7 +111,31 @@ export default async function CompanyProfilePage({ params }: { params: { id: str
             📞 CALL
           </span>
         ) : null}
+        {account ? null : p.blocked_at ? (
+          <form action={unblockCompany}>
+            <input type="hidden" name="id" value={p.id} />
+            <button className="text-xs font-normal text-gray-400 hover:text-gray-600 hover:underline">
+              unblock
+            </button>
+          </form>
+        ) : (
+          <form action={blockCompany}>
+            <input type="hidden" name="id" value={p.id} />
+            <button
+              className="text-xs font-normal text-red-400 hover:text-red-600 hover:underline"
+              title="Never email this company again (wrong vertical / junk record)"
+            >
+              block
+            </button>
+          </form>
+        )}
       </h1>
+      {p.blocked_at ? (
+        <p className="mt-1 text-xs text-gray-500">
+          Blocked {p.blocked_reason ? `— ${p.blocked_reason}` : ""} · no campaign will ever email
+          this company while blocked.
+        </p>
+      ) : null}
       <p className="mt-1 text-sm text-gray-500">
         {p.office_city ?? ""}
         {p.email ? ` · ${p.email}` : ""}

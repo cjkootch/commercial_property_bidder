@@ -437,6 +437,10 @@ export const prospectCompany = pgTable("prospect_company", {
   last_claim_view_at: timestamp("last_claim_view_at", { withTimezone: true }),
   // Set when a signup arrives via a claim token carrying this company name.
   buyer_id: uuid("buyer_id").references(() => buyer.id, { onDelete: "set null" }),
+  // Operator verdict: wrong vertical / junk record — the qualifier skips it
+  // in EVERY future campaign (per-run ?exclude= was groundhog-day pruning).
+  blocked_at: timestamp("blocked_at", { withTimezone: true }),
+  blocked_reason: text("blocked_reason"),
   ...timestamps,
 });
 
