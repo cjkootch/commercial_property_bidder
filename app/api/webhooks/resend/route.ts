@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, outreach, suppression } from "@/lib/db/schema";
-import { verifyResendSignature } from "@/lib/integrations/resend";
+import { getResendKey, verifyResendSignature } from "@/lib/integrations/resend";
+import { alertOperatorOfReply, emailAddressOf } from "@/lib/email/reply-alert";
 
 // Resend webhook sink: records email delivery/open/click/bounce/complaint events
 // against the matching outreach row (by Resend message id), powering email open
@@ -14,7 +15,12 @@ export const dynamic = "force-dynamic";
 type ResendEvent = {
   type?: string;
   created_at?: string;
-  data?: { email_id?: string; to?: string[] | string };
+  data?: {
+    email_id?: string;
+    to?: string[] | string;
+    from?: string;
+    subject?: string;
+  };
 };
 
 export async function POST(req: NextRequest) {
@@ -118,6 +124,30 @@ export async function POST(req: NextRequest) {
             .values({ email: to, reason: "resend complaint" })
             .onConflictDoNothing();
         }
+        break;
+      }
+      case "email.received": {
+        // An inbound reply to leads@ (Resend receiving handles the domain's
+        // MX). The event carries metadata only — fetch the parsed body, then
+        // alert the operator with a company-profile match.
+        const key = getResendKey();
+        let text = "";
+        let from = evt.data?.from ?? null;
+        let subject = evt.data?.subject ?? null;
+        if (key) {
+          const r = await fetch(`https://api.resend.com/emails/receiving/${emailId}`, {
+            headers: { Authorization: `Bearer ${key}` },
+          });
+          if (r.ok) {
+            const d = (await r.json()) as { from?: string; subject?: string; text?: string | null; html?: string | null };
+            from = d.from ?? from;
+            subject = d.subject ?? subject;
+            text = d.text ?? d.html?.replace(/<[^>]+>/g, " ") ?? "";
+          } else {
+            console.error(`email.received: content fetch failed (${r.status})`);
+          }
+        }
+        await alertOperatorOfReply({ from, fromEmail: emailAddressOf(from), subject, text });
         break;
       }
       default:
