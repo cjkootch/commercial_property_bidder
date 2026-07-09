@@ -17,6 +17,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
+import { currentMarket } from "../markets";
 import { fetchHarrisParcelAtPoint } from "../integrations/parcel";
 import { estimateServiceableArea } from "../integrations/imagery";
 import { geocodeWithZip, getMapboxToken } from "../integrations/geocoding";
@@ -77,7 +78,7 @@ export async function fetchPendingTabc(opts?: {
   county?: string;
   limit?: number;
 }): Promise<TabcRow[]> {
-  const county = opts?.county ?? "Harris";
+  const county = opts?.county ?? currentMarket().tabcCounty;
   const params = new URLSearchParams({
     $where: `upper(county)='${county.toUpperCase()}'`,
     $order: "submission_date DESC",
