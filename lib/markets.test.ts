@@ -22,9 +22,24 @@ describe("markets registry", () => {
     for (const m of Object.values(MARKETS)) {
       expect(m.taxSaleCounties.length).toBeGreaterThan(0);
       expect(m.tabcCounties.length).toBeGreaterThan(0);
-      expect(m.bonfirePortals.length).toBeGreaterThan(0);
+      // Portals may legitimately be EMPTY (Waco: no area agency runs Bonfire
+      // — verified live 2026-07-10; the RFP cron no-ops). The field must
+      // still exist so the feed can iterate it.
+      expect(Array.isArray(m.bonfirePortals)).toBe(true);
       expect(m.bbox[0]).toBeLessThan(m.bbox[2]); // west < east
       expect(m.bbox[1]).toBeLessThan(m.bbox[3]); // south < north
+    }
+  });
+
+  it("market bboxes never overlap (a lead belongs to exactly one metro)", () => {
+    const all = Object.values(MARKETS);
+    for (let i = 0; i < all.length; i++) {
+      for (let j = i + 1; j < all.length; j++) {
+        const [aw, as, ae, an] = all[i].bbox;
+        const [bw, bs, be, bn] = all[j].bbox;
+        const overlaps = aw < be && bw < ae && as < bn && bs < an;
+        expect(overlaps, `${all[i].key} overlaps ${all[j].key}`).toBe(false);
+      }
     }
   });
 });
