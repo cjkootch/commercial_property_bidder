@@ -133,6 +133,21 @@ export const MARKETS: Record<string, Market> = {
       { slug: "horizoncity", agency: "Town of Horizon City", city: "Horizon City" },
     ],
   },
+  corpus: {
+    key: "corpus",
+    label: "Corpus Christi metro",
+    metroSearch: "Corpus Christi, Texas",
+    metroCity: "corpus christi",
+    bbox: [-97.9, 27.4, -96.9, 28.2],
+    // Probe kit 2026-07-10: 44 in the LGBS pipeline, 10 TABC pending.
+    taxSaleCounties: ["NUECES COUNTY"],
+    tabcCounties: ["Nueces"],
+    bonfirePortals: [
+      // Verified serving public JSON 2026-07-10 (portal titles checked).
+      { slug: "ccisd", agency: "Corpus Christi ISD", city: "Corpus Christi" },
+      { slug: "delmar", agency: "Del Mar College", city: "Corpus Christi" },
+    ],
+  },
 };
 
 /** The deployment's default market (feeds without ?market=, UI defaults). */

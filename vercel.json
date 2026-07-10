@@ -99,6 +99,18 @@
     {
       "path": "/api/cron/rfps?market=elpaso",
       "schedule": "47 8 * * 1"
+    },
+    {
+      "path": "/api/cron/taxsales?want=15&market=corpus",
+      "schedule": "57 7 * * 1"
+    },
+    {
+      "path": "/api/cron/tabc?want=15&market=corpus",
+      "schedule": "7 8 * * 1"
+    },
+    {
+      "path": "/api/cron/rfps?market=corpus",
+      "schedule": "17 8 * * 1"
     }
   ]
 }
