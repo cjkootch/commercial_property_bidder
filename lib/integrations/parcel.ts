@@ -347,9 +347,37 @@ const COUNTY_SERVICES: CountyService[] = [
   {
     // Nueces County (Corpus Christi) — same bisconsulting CAD schema as
     // Hays/El Paso (probe kit 2026-07-10: 157,032 parcels on AGOL infra).
-    // No PTAD class; gates fall back to acreage + explicit-residential.
+    // No PTAD class; the city zoning layer supplies the Res/Com flag
+    // (verified live: CG-2/GC at a Staples St Chick-fil-A). Third-party
+    // AGOL mirror — best-effort; failure leaves the gates conservative.
     county: "Nueces",
     url: "https://services6.arcgis.com/j94FvPaik4etwHFk/arcgis/rest/services/NuecesCADWebService/FeatureServer/0",
+    enrich: async (lng, lat, signal) => {
+      const sp = new URLSearchParams({
+        geometry: `${lng},${lat}`,
+        geometryType: "esriGeometryPoint",
+        inSR: "4326",
+        spatialRel: "esriSpatialRelIntersects",
+        outFields: "TAG,TAG2023",
+        returnGeometry: "false",
+        f: "json",
+      });
+      const res = await fetch(
+        `https://services1.arcgis.com/BSnEnFfEn54YLVeq/arcgis/rest/services/Corpus_Christi_Zoning/FeatureServer/46/query?${sp.toString()}`,
+        { signal }
+      );
+      if (!res.ok) return {};
+      const data = (await res.json()) as {
+        features?: { attributes?: { TAG?: string; TAG2023?: string } }[];
+      };
+      const a = data.features?.[0]?.attributes;
+      const zone = String(a?.TAG2023 ?? a?.TAG ?? "").trim();
+      // 2023 codes: GC/NC/RC = commercial, IN/IL/IH = industrial, ON = office,
+      // CG/CN/B legacy commercial; RS/RM/R = residential, FR farm.
+      if (/^(G?C|N?C|RC|I|B|O)/i.test(zone) && !/^R/i.test(zone)) return { land_use: "Com" };
+      if (/^(R|F)/i.test(zone)) return { land_use: "Res" };
+      return {};
+    },
     normalize: (p) => ({
       owner: str(p.file_as_name),
       parcel_id: str(p.geo_id) ?? str(p.prop_id_text) ?? str(p.prop_id),
