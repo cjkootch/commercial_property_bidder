@@ -133,6 +133,9 @@ export async function createPackageCheckout(opts: {
     "metadata[type]": "residential_package",
     "metadata[residential_package_id]": opts.packageId,
     "metadata[buyer_id]": opts.buyerId,
+    // 3h expiry (Stripe default is 24h) so the checkout.session.expired
+    // webhook can send the "still available" recovery nudge the same day.
+    expires_at: String(Math.floor(Date.now() / 1000) + 3 * 3600),
   });
   try {
     const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -176,6 +179,9 @@ export async function createLeadCheckout(opts: {
     "metadata[buyer_id]": opts.buyerId,
     "metadata[property_id]": opts.propertyId,
     "metadata[kind]": opts.kind,
+    // 3h expiry (Stripe default is 24h) so the checkout.session.expired
+    // webhook can send the "still available" recovery nudge the same day.
+    expires_at: String(Math.floor(Date.now() / 1000) + 3 * 3600),
   });
   try {
     const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {

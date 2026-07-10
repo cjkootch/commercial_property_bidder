@@ -20,6 +20,12 @@ export async function setPackageStatus(formData: FormData): Promise<void> {
     .update(residentialPackage)
     .set({ status: status as Status, updated_at: new Date() })
     .where(eq(residentialPackage.id, id));
+  // Publish IS the send gate: alert opted-in buyers in reach, once per buyer
+  // per package (the alert lib dedupes, so re-publishing never re-emails).
+  if (status === "published") {
+    const { notifyBuyersOfPackagePublish } = await import("@/lib/residential/alerts");
+    await notifyBuyersOfPackagePublish(id).catch(() => null);
+  }
   revalidatePath("/packages");
 }
 
