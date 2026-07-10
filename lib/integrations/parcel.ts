@@ -310,9 +310,40 @@ const COUNTY_SERVICES: CountyService[] = [
     // Hays County (Kyle / Buda / San Marcos — the Austin market's only LGBS
     // tax-sale county). HaysCAD's AGOL-hosted layer (verified live
     // 2026-07-10): owner, values, acreage, situs — no PTAD class, so gates
-    // fall back to acreage + explicit-residential like Williamson.
+    // fall back to acreage + explicit-residential like Williamson. Same
+    // vendor/schema as the El Paso entry below (bis consulting CAD services).
     county: "Hays",
     url: "https://services6.arcgis.com/j94FvPaik4etwHFk/arcgis/rest/services/HaysCADWebService1/FeatureServer/0",
+    normalize: (p) => ({
+      owner: str(p.file_as_name),
+      parcel_id: str(p.geo_id) ?? str(p.prop_id_text) ?? str(p.prop_id),
+      address: str(
+        [str(p.situs_num), str(p.situs_street_prefx), str(p.situs_street), str(p.situs_street_sufix)]
+          .filter(Boolean)
+          .join(" ")
+      ),
+      acres: numOrNull(p.legal_acreage) || null,
+      last_sale_date: dateOrNull(p.Deed_Date),
+      market_value: numOrNull(p.market) || null,
+      owner_mailing_address: str(
+        [
+          [str(p.addr_line1), str(p.addr_line2), str(p.addr_line3)].filter(Boolean).join(" "),
+          str(p.addr_city),
+          [str(p.addr_state), str(p.zip)].filter(Boolean).join(" "),
+        ]
+          .filter(Boolean)
+          .join(", ")
+      ),
+      improvement_value: numOrNull(p.imprv_val) || null,
+    }),
+  },
+  {
+    // El Paso County — EPCAD publishes through the SAME vendor/schema as
+    // HaysCAD (verified live 2026-07-10: 401,228 parcels on AGOL infra).
+    // Deed_Date arrives as an MM/DD/YYYY string; no PTAD class, so gates
+    // fall back to acreage + explicit-residential.
+    county: "El Paso",
+    url: "https://services2.arcgis.com/fKvlzLJczghwPYHS/arcgis/rest/services/ElPasoCADWebService/FeatureServer/0",
     normalize: (p) => ({
       owner: str(p.file_as_name),
       parcel_id: str(p.geo_id) ?? str(p.prop_id_text) ?? str(p.prop_id),

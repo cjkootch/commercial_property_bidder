@@ -87,6 +87,18 @@
     {
       "path": "/api/cron/rfps?market=austin",
       "schedule": "37 9 * * 1"
+    },
+    {
+      "path": "/api/cron/taxsales?want=15&market=elpaso",
+      "schedule": "27 8 * * 1"
+    },
+    {
+      "path": "/api/cron/tabc?want=15&market=elpaso",
+      "schedule": "37 8 * * 1"
+    },
+    {
+      "path": "/api/cron/rfps?market=elpaso",
+      "schedule": "47 8 * * 1"
     }
   ]
 }
