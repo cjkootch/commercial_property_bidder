@@ -162,6 +162,25 @@ export const MARKETS: Record<string, Market> = {
     // RFP cron no-ops for this market.
     bonfirePortals: [],
   },
+  brownsville: {
+    key: "brownsville",
+    label: "Brownsville–Harlingen metro",
+    metroSearch: "Brownsville, Texas",
+    metroCity: "brownsville",
+    // Cameron County (Brownsville/Harlingen/San Benito). Nearest market is
+    // Corpus (south edge 27.4) — clear of this north edge by ~0.9°.
+    bbox: [-97.87, 25.83, -97.15, 26.53],
+    // Probe kit + OpenClaw sweep 2026-07-10: 85 in the LGBS pipeline,
+    // 12 TABC pending.
+    taxSaleCounties: ["CAMERON COUNTY"],
+    tabcCounties: ["Cameron"],
+    bonfirePortals: [
+      // Verified serving public JSON 2026-07-10 (9 open at probe time). No
+      // other Cameron-area agency (Harlingen, San Benito, county, ISDs)
+      // answered any probed slug.
+      { slug: "brownsvilletx", agency: "City of Brownsville", city: "Brownsville" },
+    ],
+  },
 };
 
 /** The deployment's default market (feeds without ?market=, UI defaults). */

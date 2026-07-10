@@ -513,6 +513,49 @@ const COUNTY_SERVICES: CountyService[] = [
       improvement_value: numOrNull(p.imprv_val) || null,
     }),
   },
+  {
+    // Cameron County (Brownsville–Harlingen) — CCAD's own AGOL view (verified
+    // live 2026-07-10: 185,233 parcels, 2025 appraisal roll, real PTAD stateCd
+    // — 8,915 F1 + 162 F2 — so the commercial class gates work natively).
+    // Snapshot vintage 2025-05-14 (layer name/exportDt): fine for enrichment
+    // (owner/class/value), but deedDt is NOT a freshness signal — and ~20 rows
+    // carry garbage future deed years (2029–2088), hence the sentinel guard.
+    county: "Cameron",
+    url: "https://services2.arcgis.com/6oaLMZEZlktbQpyi/arcgis/rest/services/CCAD_Parcels_View/FeatureServer/0",
+    normalize: (p) => {
+      // Blank-string sentinels (' ') throughout — str() trims them to null.
+      const owner = str(p.owner);
+      const deed = dateOrNull(p.deedDt);
+      const impr = (numOrNull(p.impHS) ?? 0) + (numOrNull(p.impNHS) ?? 0);
+      return {
+        // Placeholder rows awaiting CAD research carry a literal
+        // "PENDING RESEARCH" owner — that's "unknown", not a name.
+        owner: owner && /pending research/i.test(owner) ? null : owner,
+        parcel_id: str(p.geoID) ?? str(p.GEO_ID) ?? str(p.pID),
+        address: str(
+          [str(p.situsNo), str(p.sitPfx), str(p.sitStr), str(p.sitSfx)]
+            .filter(Boolean)
+            .join(" ")
+        ),
+        acres: numOrNull(p.acres) || null, // 0 means "not stated"
+        last_sale_date:
+          deed && Number(deed.slice(0, 4)) > new Date().getFullYear() + 1 ? null : deed,
+        market_value: numOrNull(p.market) || null,
+        owner_mailing_address: str(
+          [
+            [str(p.addr1), str(p.addr2), str(p.addr3)].filter(Boolean).join(" "),
+            str(p.addrCity),
+            [str(p.addrState), str(p.addrZip)].filter(Boolean).join(" "),
+          ]
+            .filter(Boolean)
+            .join(", ")
+        ),
+        building_sqft: numOrNull(p.lvgArea) || null,
+        improvement_value: impr || null,
+        state_class: str(p.stateCd),
+      };
+    },
+  },
 ];
 
 async function queryCountyWithAttrs(
