@@ -11,7 +11,6 @@ const ICP_OPTIONS: [string, string][] = [
   ["daycare", "Daycare / school"],
   ["retail_strip", "Retail strip"],
   ["industrial", "Industrial"],
-  ["residential", "Residential"],
   ["other", "Other"],
 ];
 

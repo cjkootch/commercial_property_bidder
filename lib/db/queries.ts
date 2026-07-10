@@ -80,32 +80,17 @@ export type DashboardRow = {
 
 /** All properties with their most recent pricing result, for the dashboard. */
 export async function listDashboard(companyId: string): Promise<DashboardRow[]> {
-  // Fetch properties and their latest pricing result in one go (lateral join equivalent).
-  const data = await db
-    .select({
-      property: property,
-      pricing: pricingResult,
-    })
+  const props = await db
+    .select()
     .from(property)
-    .leftJoin(
-      pricingResult,
-      eq(
-        pricingResult.id,
-        sql`(SELECT id FROM ${pricingResult} WHERE property_id = ${property.id} ORDER BY computed_at DESC LIMIT 1)`
-      )
-    )
     .where(eq(property.company_id, companyId))
     .orderBy(desc(property.created_at));
 
   // Coordinates of every property, for route-density scoring.
-  const coords = data
-    .filter((r) => r.property.lng != null && r.property.lat != null)
-    .map((r) => ({
-      id: r.property.id,
-      pt: [r.property.lng as number, r.property.lat as number] as [number, number],
-    }));
-
-  const neighborsNearby = (p: (typeof data)[number]["property"]): number => {
+  const coords = props
+    .filter((p) => p.lng != null && p.lat != null)
+    .map((p) => ({ id: p.id, pt: [p.lng as number, p.lat as number] as [number, number] }));
+  const neighborsNearby = (p: (typeof props)[number]): number => {
     if (p.lng == null || p.lat == null) return 0;
     const here: [number, number] = [p.lng, p.lat];
     return coords.filter(
@@ -113,11 +98,16 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
     ).length;
   };
 
-  return data.map((r) => {
-    const p = r.property;
-    const pr = r.pricing;
-    const lastSale = (p.parcel_geojson as ParcelResult | null)?.last_sale_date ?? null;
+  const rows: DashboardRow[] = [];
+  for (const p of props) {
+    const [pr] = await db
+      .select()
+      .from(pricingResult)
+      .where(eq(pricingResult.property_id, p.id))
+      .orderBy(desc(pricingResult.computed_at))
+      .limit(1);
 
+    const lastSale = (p.parcel_geojson as ParcelResult | null)?.last_sale_date ?? null;
     const { score, reasons } = computeLeadScore({
       grassFraction: p.grass_fraction,
       recentOwnerChange: isRecentOwnerChange(lastSale),
@@ -126,7 +116,7 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
       neighborsNearby: neighborsNearby(p),
     });
 
-    return {
+    rows.push({
       id: p.id,
       name: p.name,
       city: p.city,
@@ -141,8 +131,9 @@ export async function listDashboard(companyId: string): Promise<DashboardRow[]> 
       needs_review: pr?.needs_review ?? false,
       lead_score: score,
       lead_reasons: reasons,
-    };
-  });
+    });
+  }
+  return rows;
 }
 
 /** Everything the hosted proposal page needs, by slug. Null if not found. */
