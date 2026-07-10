@@ -219,6 +219,47 @@ const COUNTY_SERVICES: CountyService[] = [
       };
     },
   },
+  {
+    // Bexar FALLBACK: the City of San Antonio's open-data copy of BCAD
+    // parcels on ArcGIS Online infrastructure. The SARA host above answers
+    // from dev machines but not from Vercel (first live SA feed run: every
+    // point returned null in prod while resolving locally) — AGOL hosts are
+    // proven reachable from prod (Dallas runs on one). Poorer fields (no
+    // market value, no deed date) but carries the PTAD state_cd + acreage
+    // the class gates need. The lookup races all services and takes the
+    // first hit, so SARA's richer answer still wins wherever it's reachable.
+    county: "Bexar",
+    url: "https://services.arcgis.com/g1fRTDLeMgspWrYp/arcgis/rest/services/BCAD_Parcels/FeatureServer/0",
+    normalize: (p) => {
+      const legalAcres = numOrNull(p.legal_acre);
+      const areaSqft = numOrNull(p.ParcelArea);
+      const acres =
+        legalAcres && legalAcres > 0
+          ? legalAcres
+          : areaSqft && areaSqft > 0
+            ? areaSqft / 43_560
+            : null;
+      return {
+        owner: str(p.Owner_Name),
+        parcel_id: str(p.Geo_id) ?? str(p.PropID),
+        address: str(p.Situs),
+        acres,
+        owner_mailing_address: str(
+          [
+            [str(p.addr_line1), str(p.addr_line2), str(p.addr_line3)].filter(Boolean).join(" "),
+            str(p.addr_city),
+            [str(p.addr_state), str(p.zip)].filter(Boolean).join(" "),
+          ]
+            .filter(Boolean)
+            .join(", ")
+        ),
+        building_sqft: numOrNull(p.GBA_Living) || null, // string on this layer
+        land_sqft: numOrNull(p.LandSqft) || (areaSqft ? Math.round(areaSqft) : null),
+        state_class: str(p.state_cd),
+        land_use: null,
+      };
+    },
+  },
 ];
 
 async function queryCountyWithAttrs(
