@@ -340,14 +340,16 @@ export function buildProspectMessage(o: {
       ? `A ${kindShort} near you needs ${serviceNoun}${lead.city ? ` — ${lead.city}` : ""}`
       : trade === "landscaping"
         ? `Grounds contract lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""} — est. ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr`
-        : `Commercial ${TRADES[trade].service} lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""}${est ? ` — est. ${usd(est.annualLo)}–${usd(est.annualHi)}/yr` : ""}`;
+        : `Commercial ${TRADES[trade].service} lead — ${kindShort}${lead.city ? `, ${lead.city} area` : ""}${est ? ` — est. ${usd(est.annualLo)}–${usd(est.annualHi)}${est.per === "project" ? " project" : "/yr"}` : ""}`;
 
   const valueRows =
     trade === "landscaping"
       ? `${lead.turf ? `GROUNDS — ~${Math.round(lead.turf).toLocaleString()} sq ft of maintainable turf, ${lead.verified ? "hand-verified measurement" : "measured from the air"}\n` : ""}EST. VALUE — ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr at market rates, recurring`
       : est
-        ? `SCOPE — ${est.basis}\nEST. VALUE — ${usd(est.annualLo)}–${usd(est.annualHi)}/yr at market rates, recurring`
-        : `CONTRACT — year-round ${TRADES[trade].service} contract, vendor decision in motion`;
+        ? `SCOPE — ${est.basis}\nEST. VALUE — ${usd(est.annualLo)}–${usd(est.annualHi)}${est.per === "project" ? " project, at market rates" : "/yr at market rates, recurring"}`
+        : TRADES[trade].sells === "project"
+          ? `PROJECT — ${TRADES[trade].service} work, vendor decision in motion`
+          : `CONTRACT — year-round ${TRADES[trade].service} contract, vendor decision in motion`;
 
   const body = `${o.company} team —
 

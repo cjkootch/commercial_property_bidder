@@ -17,7 +17,16 @@
 import { bidWindowMultiplier, leadRank } from "./allocation";
 import type { LeadKind } from "./market";
 
-export type Trade = "landscaping" | "pest" | "cleaning" | "paving" | "security" | "hvac";
+export type Trade =
+  | "landscaping"
+  | "pest"
+  | "cleaning"
+  | "paving"
+  | "security"
+  | "hvac"
+  | "fire"
+  | "signage"
+  | "roofing";
 
 export const DEFAULT_TRADE: Trade = "landscaping";
 
@@ -57,6 +66,11 @@ export type TradeValueEstimate = {
   annualHi: number;
   /** One buyer-facing line saying what the number is based on. */
   basis: string;
+  /** How the band reads: recurring ("/yr", the default) or a one-time
+   *  project (signage, roofing). Copy that appends "/yr recurring" MUST
+   *  check this — calling a sign package "recurring contract value" is the
+   *  kind of overstatement the honesty policy exists to prevent. */
+  per?: "year" | "project";
 };
 
 const round100 = (n: number) => Math.max(100, Math.round(n / 100) * 100);
@@ -89,6 +103,10 @@ export type TradeDef = {
   /** "landscaping" — used in buyer-facing copy ("3 landscaping companies"). */
   noun: string;
   label: string;
+  /** What the trade sells: recurring contracts (default) or one-time
+   *  projects (signage, roofing). Fallback copy with no estimate reads
+   *  "contract" vs "project" off this. */
+  sells?: "project";
   /** Lowercase-safe service noun for prose ("year-round HVAC service
    *  contract") — label can't be lowercased blindly (HVAC). */
   service: string;
@@ -308,6 +326,116 @@ function hvacRank(i: TradeRankInput): number {
   return base * bidWindowMultiplier(i.monthsToCompletion, i.urgent);
 }
 
+/**
+ * Fire protection / life safety value model: inspection + service contracts
+ * are CODE-MANDATED, which makes this the strongest signal-to-trade match
+ * the marketplace has:
+ *   - food-service opening (TABC / NAICS 72): kitchen hood suppression,
+ *     semi-annual inspections, and extinguishers are required by fire code
+ *     BEFORE the doors open — the buyer knows the owner must sign ........ 30k
+ *   - other openings: alarm/sprinkler/extinguisher inspection contracts
+ *     start with occupancy .............................................. 18k
+ *   - construction: new systems get commissioned + first inspection
+ *     contract .......................................................... 16k
+ *   - fire-code citations: forced remediation ........................... 15k
+ *   - transfer: inspection contracts re-bid with the building ........... 12k
+ *   - distress / other citations .......................................... 4k
+ *   - public grounds bids .................................................. 0
+ */
+function fireRank(i: TradeRankInput): number {
+  const notes = i.notes ?? "";
+  let base: number;
+  switch (i.kind) {
+    case "opening":
+      base = /TABC|NAICS 72|restaurant|food|\bbar\b/i.test(notes) ? 30_000 : 18_000;
+      break;
+    case "construction":
+      base = 16_000;
+      break;
+    case "violation":
+      base = /fire/i.test(notes) ? 15_000 : 4_000;
+      break;
+    case "transfer":
+      base = 12_000;
+      break;
+    case "distress":
+      base = 4_000;
+      break;
+    default:
+      return 0;
+  }
+  return base * bidWindowMultiplier(i.monthsToCompletion, i.urgent);
+}
+
+/**
+ * Signage value model: PROJECT work, not recurring — every new business
+ * needs signs before opening day, and new owners rebrand.
+ *   - opening: storefront/channel-letter package on a deadline ........... 28k
+ *   - construction: monument + building sign package for the new site .... 18k
+ *   - transfer: rebrand/refacing after the ownership change .............. 14k
+ *   - citations / distress: occasionally sign-related ................... 2-3k
+ *   - public grounds bids .................................................. 0
+ */
+function signageRank(i: TradeRankInput): number {
+  let base: number;
+  switch (i.kind) {
+    case "opening":
+      base = 28_000;
+      break;
+    case "construction":
+      base = 18_000;
+      break;
+    case "transfer":
+      base = 14_000;
+      break;
+    case "violation":
+      base = 3_000;
+      break;
+    case "distress":
+      base = 2_000;
+      break;
+    default:
+      return 0;
+  }
+  return base * bidWindowMultiplier(i.monthsToCompletion, i.urgent);
+}
+
+/**
+ * Commercial roofing value model: PROJECT work (repair → replacement).
+ *   - transfer: the condition report is where new owners meet their roof,
+ *     and Texas insurance timing makes them act .......................... 22k
+ *   - roof citations: forced repair ...................................... 15k
+ *   - distress: deferred maintenance pre/post auction .................... 12k
+ *   - opening: TI occasionally reaches the roof ........................... 6k
+ *   - construction: the roof was just built — service is years out ........ 5k
+ *   - other citations ...................................................... 3k
+ *   - public grounds bids .................................................. 0
+ */
+function roofingRank(i: TradeRankInput): number {
+  const notes = i.notes ?? "";
+  let base: number;
+  switch (i.kind) {
+    case "transfer":
+      base = 22_000;
+      break;
+    case "violation":
+      base = /roof/i.test(notes) ? 15_000 : 3_000;
+      break;
+    case "distress":
+      base = 12_000;
+      break;
+    case "opening":
+      base = 6_000;
+      break;
+    case "construction":
+      base = 5_000;
+      break;
+    default:
+      return 0;
+  }
+  return base * bidWindowMultiplier(i.monthsToCompletion, i.urgent);
+}
+
 export const TRADES: Record<Trade, TradeDef> = {
   landscaping: {
     key: "landscaping",
@@ -478,6 +606,116 @@ export const TRADES: Record<Trade, TradeDef> = {
       "air conditioning contractor",
     ],
     vendorSignal: /hvac|air condition|heating|cooling|mechanical|refrigerat|\ba\/?c\b/i,
+  },
+  fire: {
+    key: "fire",
+    noun: "fire protection companies",
+    label: "Fire protection",
+    service: "fire protection",
+    relevant: (kind) => kind !== "rfp",
+    rank: fireRank,
+    // Inspection programs price by occupancy type + building size. Food
+    // service is the flat-rate anchor (hood cleaning quarterly + suppression
+    // semi-annual + extinguishers — all code-mandated); everything else
+    // scales with interior sqft (alarm/sprinkler device counts do).
+    estimateValue: (i) => {
+      if (/TABC|NAICS 72|restaurant|food|\bbar\b/i.test(i.notes ?? "")) {
+        return {
+          annualLo: 1_800,
+          annualHi: 4_800,
+          basis: "kitchen hood + suppression inspection program (required by fire code)",
+        };
+      }
+      const sqft = interiorSqft(i);
+      if (!sqft) return null;
+      const [lo, hi] =
+        sqft < 10_000 ? [800, 2_000] : sqft < 50_000 ? [2_000, 6_000] : sqft < 200_000 ? [5_000, 14_000] : [12_000, 32_000];
+      return { annualLo: lo, annualHi: hi, basis: `~${sqft.toLocaleString()} sq ft est. interior (county records)` };
+    },
+    prospectKeywords: [
+      "fire protection services",
+      "fire and life safety",
+      "fire sprinkler inspection",
+      "kitchen hood cleaning",
+    ],
+    // Compound phrases — "fire" alone matches firewood, fireplace shops, and
+    // "Fire" in restaurant names.
+    vendorSignal:
+      /fire (protection|safety|sprinkler|alarm|suppression|extinguisher|systems?)|life safety|hood clean|fire.?stop/i,
+  },
+  signage: {
+    key: "signage",
+    noun: "sign companies",
+    label: "Signage",
+    service: "signage",
+    sells: "project",
+    relevant: (kind) => kind !== "rfp",
+    rank: signageRank,
+    // Project bands, not recurring (per: "project" — the "/yr" copy paths
+    // must not fire). Openings and rebrands are date-driven flat packages;
+    // new construction scales with the building.
+    estimateValue: (i) => {
+      if (i.kind === "opening") {
+        return { annualLo: 3_000, annualHi: 15_000, basis: "storefront sign package before opening day", per: "project" };
+      }
+      if (i.kind === "transfer") {
+        return { annualLo: 2_500, annualHi: 12_000, basis: "rebrand/refacing after an ownership change", per: "project" };
+      }
+      if (i.kind === "construction") {
+        const big = (i.improvementValue ?? 0) > 2_000_000;
+        return {
+          annualLo: big ? 10_000 : 5_000,
+          annualHi: big ? 50_000 : 25_000,
+          basis: "new-construction sign package (county records)",
+          per: "project",
+        };
+      }
+      return null; // citations/distress: no honest number — trigger-only copy
+    },
+    prospectKeywords: [
+      "sign company",
+      "commercial signage",
+      "sign installation",
+      "custom business signs",
+    ],
+    // "sign" alone matches sign-language services and e-signature software.
+    vendorSignal:
+      /signage|sign (co\b|company|shop|studio|works|source|solutions|systems|design|install|manufactur)|channel letters?|monument signs?|wayfinding|vehicle wraps?|\bsigns\b/i,
+  },
+  roofing: {
+    key: "roofing",
+    noun: "roofing contractors",
+    label: "Roofing",
+    service: "roofing",
+    sells: "project",
+    relevant: (kind) => kind !== "rfp",
+    rank: roofingRank,
+    // Roof area ≈ building footprint: interior sqft capped by lot coverage
+    // (multi-story towers would otherwise read as mega-roofs). Band is the
+    // commercial repair-to-replacement range, as a one-time project.
+    estimateValue: (i) => {
+      const interior = interiorSqft(i);
+      if (!interior) return null;
+      const footprint = Math.min(
+        interior,
+        i.landSqft ? Math.round(i.landSqft * 0.6) : interior,
+        300_000
+      );
+      if (footprint < 2_000) return null;
+      return {
+        annualLo: round100(footprint * 3),
+        annualHi: round100(footprint * 8),
+        basis: `~${footprint.toLocaleString()} sq ft est. roof area (county records)`,
+        per: "project",
+      };
+    },
+    prospectKeywords: [
+      "commercial roofing",
+      "roofing contractor",
+      "roof repair",
+      "flat roof repair",
+    ],
+    vendorSignal: /roof|tpo\b|epdm|shingle|waterproofing/i,
   },
 };
 

@@ -269,7 +269,7 @@ export default async function BuyerDashboard({
       at: item.p.created_at,
       icon: "🆕",
       text: `New job in your area${item.p.city ? ` — ${item.p.city}` : ""}${
-        item.value ? `, est. ${usd(item.value.annualLo)}–${usd(item.value.annualHi)}/yr` : ""
+        item.value ? `, est. ${usd(item.value.annualLo)}–${usd(item.value.annualHi)}${item.value.per === "project" ? " project" : "/yr"}` : ""
       }`,
     });
   }
@@ -810,7 +810,9 @@ function LeadCard({
             {value ? (
               <span className="text-2xl font-extrabold tracking-tight text-gray-900">
                 {usd(value.annualLo)}–{usd(value.annualHi)}
-                <span className="text-sm font-semibold text-gray-400">/yr</span>
+                <span className="text-sm font-semibold text-gray-400">
+                  {value.per === "project" ? " project" : "/yr"}
+                </span>
               </span>
             ) : (
               <span className="text-2xl font-extrabold tracking-tight text-gray-900">
@@ -899,7 +901,7 @@ function LeadCard({
           ) : null}
           {value && !freeAvailable ? (
             <p className="text-center text-[11px] text-gray-400">
-              ${price} for a {usd(value.annualLo)}+/yr contract lead
+              ${price} for a {usd(value.annualLo)}+{value.per === "project" ? " project" : "/yr contract"} lead
             </p>
           ) : null}
         </div>

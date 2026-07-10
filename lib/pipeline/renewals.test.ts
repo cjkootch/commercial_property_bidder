@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dueForRenewal, RENEW_AFTER_DAYS, RENEW_COOLDOWN_DAYS } from "./renewals";
+import { TRADES } from "../leads/trades";
 
 const NOW = new Date("2027-06-15T12:00:00Z");
 const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86400_000);
@@ -43,9 +44,10 @@ describe("pipeline/renewals dueForRenewal", () => {
     // Landscaping exclusive: pest/cleaning/etc can still reopen.
     expect(dueForRenewal(prop(), [sold(400, { kind: "exclusive" })], NOW)).toBe(true);
     // Every registered trade closed by an exclusive -> nothing to reopen.
-    const allExclusive = ["landscaping", "pest", "cleaning", "paving", "security", "hvac"].map(
-      (t) => sold(400, { kind: "exclusive", trade: t })
-    );
+    // Derived from the registry so adding a trade keeps this test honest.
+    const allExclusive = Object.keys(TRADES).map((t) => sold(400, { kind: "exclusive", trade: t }));
     expect(dueForRenewal(prop(), allExclusive, NOW)).toBe(false);
+    // ...and one missing trade means the lead still renews for that trade.
+    expect(dueForRenewal(prop(), allExclusive.slice(1), NOW)).toBe(true);
   });
 });

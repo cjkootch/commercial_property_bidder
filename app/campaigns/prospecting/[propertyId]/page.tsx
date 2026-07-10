@@ -97,7 +97,7 @@ export default async function ProspectingBlastPage({
       <p className="mt-1 text-sm text-gray-500">
         {prop?.address ? `${prop.address}, ` : ""}
         {prop?.city ?? ""}
-        {est ? ` · est. ${usd(est.annualLo)}–${usd(est.annualHi)}/yr (${est.basis})` : ""}
+        {est ? ` · est. ${usd(est.annualLo)}–${usd(est.annualHi)}${est.per === "project" ? " project" : "/yr"} (${est.basis})` : ""}
         {" · "}
         {emailed.length} emailed · {manual.length} without an email
         {prop ? (
