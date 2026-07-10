@@ -212,12 +212,14 @@ export default async function Home() {
               <span style={{ color: "#8fd6ab" }}>before the bid window closes.</span>
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-relaxed text-gray-300">
-              {name} finds properties when service vendors are being{" "}
-              <strong className="text-white">selected, replaced, or urgently needed</strong> — new
-              construction, new owners, business openings, renovations, multifamily sales, and
-              city violations. Each job sheet gives you the trigger, the property measured from
-              the air, estimated annual value, owner/contact path, and next step — all on one
-              page, for your trade.
+              {name} monitors independent signal sources across county, state, and municipal
+              systems — continuously, and the list keeps growing — to catch properties at the
+              moment vendors are being{" "}
+              <strong className="text-white">selected, replaced, or urgently needed</strong>: new
+              construction, new owners, business openings, renovations, multifamily sales, city
+              violations. Every job sheet is a verified county parcel with a dated signal —
+              measured from the air, priced, with the contact path and next step on one page,
+              for your trade.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <Link
@@ -274,7 +276,7 @@ export default async function Home() {
                 in verified commercial projects
               </span>
             ) : null}
-            <span>Houston metro</span>
+            <span>Houston &amp; Dallas–Fort Worth · expanding nationwide</span>
           </div>
         ) : null}
       </section>
@@ -429,9 +431,10 @@ export default async function Home() {
           <h2 className="text-center text-3xl font-extrabold tracking-tight">Questions</h2>
           <div className="mt-10 space-y-4">
             {[
-              ["Where do these leads come from?", "That's the trade secret — and the reason a sheet is worth paying for. What matters to you: every lead is a real, verified commercial property that is about to award service contracts — measured and priced before it reaches your dashboard. Judge us on the free one."],
+              ["Where do these leads come from?", "That's the trade secret — and the reason a sheet is worth paying for. What we can say: we continuously monitor independent signal sources across county, state, and municipal systems — signals scattered across systems in formats nobody reads — and consolidate them into one dashboard. Every lead is verified against county records before it reaches you: a real commercial property, measured and priced, that is about to award service contracts. Judge us on the free one."],
               [`Why cap a job at ${cap} companies?`, "Because a lead shared with fifty companies is worthless. A tight cap — counted within your trade, so you never compete with a different trade's buyers — keeps every sheet worth bidding on, and the exclusive option exists when you want zero competition."],
               ["Which trades do you cover?", "Landscaping, pest control, commercial cleaning, paving, security, and HVAC today — with roofing, plumbing, electrical, and more on the way. The same property event (a new owner, an opening, a buildout) puts vendor decisions in motion for every trade at once; you only ever see the jobs ranked for yours."],
+              ["Which cities are you in?", "Houston and Dallas–Fort Worth today, and we're expanding nationwide metro by metro. In every city we cover, the goal is the same: the most complete picture of who's about to buy — every signal source consolidated, every lead verified."],
               ["What if the free sheet isn't good?", "Then you close the tab and you've lost nothing. We put a real job — measurement, contacts, letter — in your hands first because the sheet is the sales pitch."],
             ].map(([q, a]) => (
               <div key={q} className="rounded-2xl border border-gray-200 bg-white p-6">
