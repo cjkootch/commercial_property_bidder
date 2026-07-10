@@ -75,6 +75,18 @@
     {
       "path": "/api/cron/rfps?market=sanantonio",
       "schedule": "7 10 * * 1"
+    },
+    {
+      "path": "/api/cron/taxsales?want=15&market=austin",
+      "schedule": "17 9 * * 1"
+    },
+    {
+      "path": "/api/cron/tabc?want=15&market=austin",
+      "schedule": "27 9 * * 1"
+    },
+    {
+      "path": "/api/cron/rfps?market=austin",
+      "schedule": "37 9 * * 1"
     }
   ]
 }
