@@ -63,6 +63,18 @@
     {
       "path": "/api/cron/residential?want=200",
       "schedule": "17 13 * * 1"
+    },
+    {
+      "path": "/api/cron/taxsales?want=15&market=sanantonio",
+      "schedule": "47 9 * * 1"
+    },
+    {
+      "path": "/api/cron/tabc?want=15&market=sanantonio",
+      "schedule": "57 9 * * 1"
+    },
+    {
+      "path": "/api/cron/rfps?market=sanantonio",
+      "schedule": "7 10 * * 1"
     }
   ]
 }

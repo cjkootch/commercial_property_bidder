@@ -73,6 +73,27 @@ export const MARKETS: Record<string, Market> = {
       { slug: "arlingtontx", agency: "City of Arlington", city: "Arlington" },
     ],
   },
+  sanantonio: {
+    key: "sanantonio",
+    label: "San Antonio metro",
+    metroSearch: "San Antonio, Texas",
+    metroCity: "san antonio",
+    bbox: [-99.1, 28.8, -97.9, 29.95],
+    // LGBS is headquartered in San Antonio — Bexar is core territory
+    // (verified live 2026-07-10: 66 properties in the pipeline).
+    taxSaleCounties: ["BEXAR COUNTY"],
+    tabcCounties: ["Bexar"],
+    // No violations311Url: San Antonio 311 is a Socrata dataset — needs its
+    // own adapter, same situation as Dallas.
+    bonfirePortals: [
+      // Verified serving public JSON 2026-07-10. The City of San Antonio and
+      // Bexar County ALSO run Bonfire portals (sanantonio/bexar subdomains)
+      // but both gate opportunity data behind login — re-probe occasionally.
+      { slug: "nisd", agency: "Northside ISD", city: "San Antonio" },
+      { slug: "saisd", agency: "San Antonio ISD", city: "San Antonio" },
+      { slug: "schertz", agency: "City of Schertz", city: "Schertz" },
+    ],
+  },
 };
 
 /** The deployment's default market (feeds without ?market=, UI defaults). */

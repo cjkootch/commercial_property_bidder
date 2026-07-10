@@ -179,6 +179,46 @@ const COUNTY_SERVICES: CountyService[] = [
       ),
     }),
   },
+  {
+    // BCAD parcels hosted by the San Antonio River Authority (verified live
+    // 2026-07-10: 705,976 parcels, 2025 appraisal roll, real PTAD State_cd so
+    // the commercial class gates work natively). Third-party host — if it
+    // goes stale, point queries fail soft (null) like any other county.
+    county: "Bexar",
+    url: "https://gis.sara-tx.org/ags1/rest/services/FW_Bexar/BCAD_Parcels_PROD/FeatureServer/0",
+    normalize: (p) => {
+      const impr =
+        (numOrNull(p.Imprv_hstd_val) ?? 0) + (numOrNull(p.Imprv_non_hstd_val) ?? 0);
+      const acres = numOrNull(p.Land_acres);
+      return {
+        owner: str(p.Owner_name),
+        parcel_id: str(p.Geo_id) ?? str(p.Prop_id),
+        address: str(
+          [str(p.Situs_num), str(p.Situs_street_prefix), str(p.Situs_street), str(p.Situs_street_sufix)]
+            .filter(Boolean)
+            .join(" ")
+        ),
+        acres,
+        // Last_Deed_Date is a "MM/DD/YYYY" STRING on this layer.
+        last_sale_date: dateOrNull(p.Last_Deed_Date),
+        market_value: numOrNull(p.Market_val) || null,
+        owner_mailing_address: str(
+          [
+            [str(p.Addr_line1), str(p.Addr_line2), str(p.Addr_line3)].filter(Boolean).join(" "),
+            str(p.Addr_city),
+            [str(p.Addr_state), str(p.Zip)].filter(Boolean).join(" "),
+          ]
+            .filter(Boolean)
+            .join(", ")
+        ),
+        building_sqft: numOrNull(p.Sq_ft) || null,
+        improvement_value: impr > 0 ? impr : null,
+        land_sqft: acres && acres > 0 ? Math.round(acres * 43_560) : null,
+        state_class: str(p.State_cd),
+        land_use: null,
+      };
+    },
+  },
 ];
 
 async function queryCountyWithAttrs(
