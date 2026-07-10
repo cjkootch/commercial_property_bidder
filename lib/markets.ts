@@ -181,6 +181,23 @@ export const MARKETS: Record<string, Market> = {
       { slug: "brownsvilletx", agency: "City of Brownsville", city: "Brownsville" },
     ],
   },
+  beaumont: {
+    key: "beaumont",
+    label: "Beaumont–Port Arthur metro",
+    metroSearch: "Beaumont, Texas",
+    metroCity: "beaumont",
+    // Jefferson County. West edge abuts Houston's east edge exactly (-94.4);
+    // the overlap test allows shared edges, and the county sliver west of
+    // -94.4 is empty marshland. East reaches the Orange county line.
+    bbox: [-94.4, 29.5, -93.7, 30.2],
+    // Probe kit + OpenClaw sweep 2026-07-10: 215 in the LGBS pipeline — the
+    // biggest count outside Houston — and 11 TABC pending.
+    taxSaleCounties: ["JEFFERSON COUNTY"],
+    tabcCounties: ["Jefferson"],
+    // No Bonfire portals found under any probed slug (city/county/ISDs/port)
+    // — same situation as Waco. Empty list = the RFP cron no-ops.
+    bonfirePortals: [],
+  },
 };
 
 /** The deployment's default market (feeds without ?market=, UI defaults). */
