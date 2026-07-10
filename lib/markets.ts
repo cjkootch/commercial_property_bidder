@@ -117,6 +117,22 @@ export const MARKETS: Record<string, Market> = {
       { slug: "roundrocktexas", agency: "City of Round Rock", city: "Round Rock" },
     ],
   },
+  elpaso: {
+    key: "elpaso",
+    label: "El Paso metro",
+    metroSearch: "El Paso, Texas",
+    metroCity: "el paso",
+    bbox: [-106.7, 31.4, -105.9, 32.1],
+    // Verified live 2026-07-10: 55 parcels in the LGBS pipeline, 28 TABC
+    // pending applications.
+    taxSaleCounties: ["EL PASO COUNTY"],
+    tabcCounties: ["El Paso"],
+    bonfirePortals: [
+      // The only El Paso-area Bonfire portal found (city/county/ISDs/Sun
+      // Metro/EP Water all absent under every probed slug). Thin but real.
+      { slug: "horizoncity", agency: "Town of Horizon City", city: "Horizon City" },
+    ],
+  },
 };
 
 /** The deployment's default market (feeds without ?market=, UI defaults). */
