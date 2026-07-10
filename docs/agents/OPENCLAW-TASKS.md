@@ -31,59 +31,7 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
-### 1. Ionwave RFP portals — deep probe (prep for a one-parser feed)
-
-Your sweep found SAWS (15 live), City of El Paso (7), and El Paso County (6)
-all on Ionwave (`*.ionwave.net/SourcingEvents.aspx?SourceType=1`, server-
-rendered HTML tables: Bid Number | Title | Type | Organization | Issue Date |
-Close Date). Before we build the parser:
-
-- For each of the three portals: capture the exact table HTML structure
-  (tag/class/id skeleton, one sanitized sample row per portal), pagination
-  behavior, and whether closed/awarded events leak into `SourceType=1`.
-- Confirm the columns are identical across portals or document every
-  divergence — the whole point is ONE parser.
-- Sweep for more Texas Ionwave tenants in or near our nine metros (Houston,
-  DFW, San Antonio, Austin, El Paso, Corpus, Waco, Brownsville, Beaumont) by
-  probing `<agency>.ionwave.net` slugs. List hits with live event counts.
-- Grounds relevance check: of the ~28 live events across the three known
-  portals, how many are landscaping/grounds/mowing/irrigation/tree/janitorial
-  adjacent? We need the hit rate to size the feed's value.
-
-Deliverable: `docs/market-research/ionwave-portals-<date>.md`.
-
-### 2. McAllen–Hidalgo — full market workup (candidate metro #10)
-
-Honorable mention in your sweep (LGBS 53). Open questions:
-
-- Hidalgo CAD parcels: is there an AGOL-hosted county-scale layer (the sweep
-  found only `gismap.mcallen.net`, a non-AGOL host we may not be able to reach
-  from Vercel)? Search the AGOL catalog hard — vendor orgs, city orgs, Maplink/
-  GenCode-style mirrors. We need: owner, PTAD state class (or a zoning layer
-  fallback), market value, acreage. Note vintage (tax year) — current roll
-  beats stale snapshot.
-- TABC pending count for Hidalgo County; note the top cities (McAllen,
-  Edinburg, Mission, Pharr).
-- Bonfire/other procurement portals for McAllen, Edinburg, Mission, Pharr,
-  Hidalgo County, the ISDs, and South Texas College.
-- MSA sanity: proposed bbox must not overlap Brownsville–Harlingen
-  (`[-97.87, 25.83, -97.15, 26.53]`) — Hidalgo sits west of Cameron; propose
-  an east edge that cleanly cedes Harlingen to Brownsville.
-
-Deliverable: `docs/market-research/mcallen-hidalgo-<date>.md`.
-
-### 3. Fresh-deed hunt — Tarrant & Dallas county clerks
-
-Same playbook as your Bexar/El Paso hunt (that report's format was exactly
-right). For each county: does the county CLERK expose a public, no-login
-official-records search with a recorded-date-range filter and deed doc-type
-filtering? Check for GovOS/Kofile "PublicSearch" instances
-(`<county>.tx.publicsearch.us`) first, then whatever the clerk actually runs.
-Measure certified-through freshness and recent recording volume (last 10
-days). Flag anything gated. This decides whether DFW residential sourcing can
-upgrade from CAD-lag (weeks) to days-fresh.
-
-Deliverable: `docs/market-research/fresh-deed-sources-tarrant-dallas-<date>.md`.
+_None open — all three cleared 2026-07-10 (see Done). Awaiting Claude's next round._
 
 ## Done
 
@@ -94,3 +42,22 @@ Deliverable: `docs/market-research/fresh-deed-sources-tarrant-dallas-<date>.md`.
   `docs/market-research/fresh-deed-sources-bexar-elpaso.md` (Bexar: usable
   now, pending human export-limit check; El Paso: blocked on Turnstile,
   human decision pending).
+- 2026-07-10 — Ionwave RFP portals deep probe →
+  `docs/market-research/ionwave-portals-2026-07-10.md` (ONE parser confirmed
+  safe — byte-identical Telerik RadGrid across SAWS/El Paso city/El Paso
+  county; +7 in-metro tenants, mostly ISDs; grounds hit rate ~0% so it's an
+  RFP-coverage play, not a landscaping-lead play; FLAGS: Cloudflare on
+  sisd/saisd, platform-wide per-IP 429 rate limit — feed must throttle).
+- 2026-07-10 — McAllen–Hidalgo market workup (metro #10) →
+  `docs/market-research/mcallen-hidalgo-2026-07-10.md` (TABC 23 / LGBS 53 =
+  GO; NO clean county-scale AGOL parcel roll — old gismap.mcallen.net is dead,
+  RGV911 layer is owner+geometry only with null value/class/acres/deed, full
+  schema only as city clips → CAD data request FLAGGED; best portal = Hidalgo
+  County CivicEngage bid board; proposed bbox `[-98.6, 25.95, -97.87, 26.78]`
+  cleanly cedes Harlingen to Brownsville).
+- 2026-07-10 — Tarrant & Dallas fresh-deed hunt →
+  `docs/market-research/fresh-deed-sources-tarrant-dallas-2026-07-10.md`
+  (BOTH usable now via GovOS PublicSearch, same query shape as Bexar —
+  Tarrant certified through 07/06, Dallas through 07/08; days-fresh, no
+  CAPTCHA; FLAG: bulk "Export all Results" rate/volume untested before a
+  scaled recurring pull).
