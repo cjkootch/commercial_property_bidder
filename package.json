@@ -28,6 +28,8 @@
     "source:rfps": "tsx scripts/source-rfps.ts",
     "residential:import": "tsx scripts/import-residential-leads.ts",
     "residential:package": "tsx scripts/build-residential-packages.ts",
+    "residential:lob:draft": "tsx scripts/build-lob-mail-draft.ts",
+    "residential:lob:export-test-payload": "tsx scripts/export-lob-test-payload.ts",
     "prospect:buyers": "tsx scripts/prospect-buyers.ts",
     "screen": "tsx scripts/screen-properties.ts",
     "export:training": "tsx scripts/export-training-data.ts",
