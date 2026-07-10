@@ -59,6 +59,10 @@
     {
       "path": "/api/cron/rfps?market=dallas",
       "schedule": "57 10 * * 1"
+    },
+    {
+      "path": "/api/cron/residential?want=200",
+      "schedule": "17 13 * * 1"
     }
   ]
 }

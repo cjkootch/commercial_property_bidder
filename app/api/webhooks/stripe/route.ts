@@ -1,7 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, leadUnlock, property, usageCounter } from "@/lib/db/schema";
+import {
+  buyer,
+  leadUnlock,
+  property,
+  residentialPackage,
+  residentialUnlock,
+  usageCounter,
+} from "@/lib/db/schema";
 import { refundPayment, verifyStripeSignature } from "@/lib/integrations/stripe";
 import { buildDossier } from "@/lib/leads/dossier";
 import { asTrade } from "@/lib/leads/trades";
@@ -40,6 +47,7 @@ type CheckoutSession = {
     type?: string;
     unlock_id?: string;
     prospect_id?: string;
+    residential_package_id?: string;
   };
 };
 
@@ -183,6 +191,68 @@ export async function POST(req: NextRequest) {
       }).catch(() => null);
     }
     return NextResponse.json({ received: true, prospect_postcard: r.postcardId });
+  }
+
+  // Residential package purchase — snapshot the address dossier and unlock.
+  if (session.metadata?.type === "residential_package") {
+    const packageId = session.metadata?.residential_package_id;
+    if (!packageId) return NextResponse.json({ received: true, skipped: "no package" });
+    const [b] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
+    if (!b) {
+      const refunded = await refundPayment(session.payment_intent);
+      if (!refunded)
+        console.error(`[stripe] UNMATCHED PAYMENT, refund failed — session ${session.id}: refund manually.`);
+      return NextResponse.json({ received: true, refunded, reason: "unknown buyer" });
+    }
+    // Idempotency: this exact session already delivered.
+    const [done] = await db
+      .select()
+      .from(residentialUnlock)
+      .where(eq(residentialUnlock.stripe_session_id, session.id))
+      .limit(1);
+    if (done) return NextResponse.json({ received: true, skipped: "duplicate delivery" });
+
+    const [pkg] = await db
+      .select()
+      .from(residentialPackage)
+      .where(eq(residentialPackage.id, packageId))
+      .limit(1);
+    if (!pkg || pkg.status === "archived") {
+      return creditAndNotify(session, b, "the report you paid for is no longer listed");
+    }
+
+    const { buildResidentialDossier } = await import("@/lib/residential/dossier");
+    const dossier = await buildResidentialDossier(packageId).catch(() => null);
+    const [unlock] = await db
+      .insert(residentialUnlock)
+      .values({
+        buyer_id: b.id,
+        residential_package_id: packageId,
+        kind: "paid",
+        price_cents: session.amount_total ?? 0,
+        stripe_session_id: session.id,
+        dossier,
+      })
+      .onConflictDoNothing({
+        target: [residentialUnlock.buyer_id, residentialUnlock.residential_package_id],
+      })
+      .returning();
+    if (!unlock) {
+      // Buyer already owns this report (double-pay) — duplicate becomes credit.
+      return creditAndNotify(session, b, "you already had this report, so we converted the duplicate charge");
+    }
+
+    const link = `${appUrl()}/buyers/residential/${packageId}`;
+    await sendEmail({
+      to: b.email,
+      subject: `Your residential report is ready — ${pkg.name}`,
+      html:
+        `<p>Payment received — the full address list is unlocked for ${b.company_name}.</p>` +
+        `<p><a href="${link}">Open your report</a></p>` +
+        `<p style="color:#888;font-size:12px">Every address with its signal, date, estimated home value, and lot size — plus a CSV download for your route planner.</p>`,
+      tags: { kind: "residential_unlock" },
+    }).catch(() => null);
+    return NextResponse.json({ received: true, residential_unlock: unlock.id });
   }
 
   if (!propertyId) return NextResponse.json({ received: true, skipped: "no property" });
