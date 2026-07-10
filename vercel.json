@@ -119,6 +119,18 @@
     {
       "path": "/api/cron/tabc?want=15&market=waco",
       "schedule": "37 7 * * 1"
+    },
+    {
+      "path": "/api/cron/taxsales?want=15&market=brownsville",
+      "schedule": "57 6 * * 1"
+    },
+    {
+      "path": "/api/cron/tabc?want=15&market=brownsville",
+      "schedule": "7 7 * * 1"
+    },
+    {
+      "path": "/api/cron/rfps?market=brownsville",
+      "schedule": "17 7 * * 1"
     }
   ]
 }
