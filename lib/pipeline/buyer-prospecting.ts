@@ -92,7 +92,7 @@ export async function looksCommercial(website: string | null): Promise<boolean |
 
 
 /** Does the site's homepage read like a company IN this trade? */
-async function siteMatchesVendor(website: string, re: RegExp): Promise<boolean> {
+export async function siteMatchesVendor(website: string, re: RegExp): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
