@@ -31,21 +31,35 @@ export async function runResidentialPackaging(): Promise<ResidentialPackagingSum
     return { leads: 0, packages: 0, held: 0, log };
   }
 
-  // Group by zip+subdivision; thin subdivision groups fall into their ZIP
-  // bundle (the R0 lesson: a 1-lead "report" is not a product).
+  // Group by geography+subdivision; thin subdivision groups fall into their
+  // geography bundle (the R0 lesson: a 1-lead "report" is not a product).
+  // Geography = ZIP, else city — Tarrant's bulk layer ships blank ZIPs on
+  // many rows, and without the city fallback every no-ZIP lead county-wide
+  // pooled into ONE bundle mislabeled with the first lead's subdivision.
+  // Leads with neither ZIP nor city can't be honestly labeled — held.
+  const geoOf = (l: schema.ResidentialLead) =>
+    l.zip || (l.city ? `c:${l.city.toLowerCase()}` : null);
+  const BUNDLE = "|GEOBUNDLE";
   const bySub = new Map<string, schema.ResidentialLead[]>();
+  let unplaceable = 0;
   for (const lead of leads) {
-    const key = `${lead.zip || "nozip"}-${lead.subdivision_name || "nosub"}`;
+    const geo = geoOf(lead);
+    if (!geo) {
+      unplaceable++;
+      continue;
+    }
+    const key = `${geo}|${lead.subdivision_name || "nosub"}`;
     const list = bySub.get(key) ?? [];
     list.push(lead);
     bySub.set(key, list);
   }
   const groups = new Map<string, schema.ResidentialLead[]>();
   for (const [key, list] of bySub.entries()) {
-    const finalKey = list.length >= MIN_PACKAGE_LEADS ? key : `${list[0].zip || "nozip"}-ZIPBUNDLE`;
+    const finalKey = list.length >= MIN_PACKAGE_LEADS ? key : `${geoOf(list[0])}${BUNDLE}`;
     groups.set(finalKey, [...(groups.get(finalKey) ?? []), ...list]);
   }
   log.push(`${leads.length} lead(s) across ${groups.size} candidate bundle(s)`);
+  if (unplaceable) log.push(`${unplaceable} lead(s) held — no ZIP or city to label a report with`);
 
   let packages = 0;
   let held = 0;
@@ -65,8 +79,12 @@ export async function runResidentialPackaging(): Promise<ResidentialPackagingSum
       continue;
     }
     const zip = groupLeads[0].zip;
-    const sub = groupLeads[0].subdivision_name;
     const city = groupLeads[0].city;
+    // A GEOBUNDLE spans many subdivisions — naming it after the first lead's
+    // subdivision would mislabel the product. Only subdivision-keyed groups
+    // carry the subdivision name.
+    const isBundle = key.endsWith(BUNDLE);
+    const sub = isBundle ? null : groupLeads[0].subdivision_name;
     const name = sub
       ? `${sub} Residential Opportunity Report`
       : `${city || zip} Residential New Mover Report`;
@@ -99,6 +117,7 @@ export async function runResidentialPackaging(): Promise<ResidentialPackagingSum
       `  ✓ ${name} — ${groupLeads.length} addresses, $${Math.round(pricing.price_cents / 100)}`
     );
   }
+  held += unplaceable;
   if (held) log.push(`${held} lead(s) held for next cycle (thin bundles).`);
   return { leads: leads.length, packages, held, log };
 }
