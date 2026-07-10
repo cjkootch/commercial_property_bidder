@@ -148,6 +148,20 @@ export const MARKETS: Record<string, Market> = {
       { slug: "delmar", agency: "Del Mar College", city: "Corpus Christi" },
     ],
   },
+  waco: {
+    key: "waco",
+    label: "Waco metro",
+    metroSearch: "Waco, Texas",
+    metroCity: "waco",
+    bbox: [-97.6, 31.3, -96.8, 31.8],
+    // Probe kit 2026-07-10: 31 in the LGBS pipeline, 9 TABC pending.
+    taxSaleCounties: ["MCLENNAN COUNTY"],
+    tabcCounties: ["McLennan"],
+    // No Bonfire portals found under any probed slug (city/ISD/county/MCC) —
+    // Waco-area agencies use other procurement platforms. Empty list = the
+    // RFP cron no-ops for this market.
+    bonfirePortals: [],
+  },
 };
 
 /** The deployment's default market (feeds without ?market=, UI defaults). */
