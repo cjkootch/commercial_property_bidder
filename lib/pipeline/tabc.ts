@@ -197,13 +197,19 @@ export async function runTabcSourcing(opts?: {
       log.push(`imagery failed: ${business}`);
       continue;
     }
+    // TRADE-AWARE grass screen (operator decision 2026-07-10): a licensed
+    // premise is food/beverage service by definition — a prime pest lead
+    // (the health permit requires a pest contract) and a real cleaning/HVAC
+    // lead — even on a bare lot. Arid markets (El Paso) have almost no turf
+    // at all, and the old hard gate zeroed their TABC shelf. Low grass now
+    // shapes the teaser instead of killing the lead: the honest near-zero
+    // turf estimate buries it in the landscaping ranking while the non-turf
+    // trades see it at full value.
     if (!isGrassQualified(est.vegetation_fraction, SIGNAL_MIN_GRASS_FRACTION)) {
-      skippedGrass++;
-      await recordReject(rejectKey, `grass ${Math.round(est.vegetation_fraction * 100)}%`);
+      skippedGrass++; // renamed in spirit: counted, not rejected
       log.push(
-        `skipped (${Math.round(est.vegetation_fraction * 100)}% grass < ${Math.round(SIGNAL_MIN_GRASS_FRACTION * 100)}%): ${business}`
+        `low grass (${Math.round(est.vegetation_fraction * 100)}%) — kept for non-turf trades: ${business}`
       );
-      continue;
     }
 
     let teaser: Record<string, unknown> | null = null;
