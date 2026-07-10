@@ -151,13 +151,16 @@ export async function runResidentialSourcing(opts?: {
   if (!co) throw new Error("No company found. Run `npm run db:seed` first.");
 
   // Newest-first with progressive widening: the county layer's deed dates lag
-  // by months, so a fixed short window can be legitimately empty.
+  // by months, so a fixed short window can be legitimately thin. Keep widening
+  // until the window yields enough volume to actually form packages (first
+  // live run: 180d had 9 sales — every bundle fell under the 15-address
+  // floor), settling for the widest window's haul if none reaches `want`.
   let features: GeoJsonFeature[] = [];
   let windowUsed = sinceDays;
   for (const days of [sinceDays, ...FALLBACK_WINDOWS_DAYS.filter((d) => d > sinceDays)]) {
     features = await fetchRecentResidentialSales({ sinceDays: days, minValue, limit: want * 2 });
     windowUsed = days;
-    if (features.length > 0) break;
+    if (features.length >= want) break;
   }
   const candidates = features
     .map(normalizeResidentialSale)
