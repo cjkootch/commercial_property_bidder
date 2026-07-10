@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   buyer,
@@ -7,8 +7,10 @@ import {
   property,
   residentialPackage,
   residentialUnlock,
+  suppression,
   usageCounter,
 } from "@/lib/db/schema";
+import { signBuyerUnsub } from "@/lib/buyer-auth";
 import { refundPayment, verifyStripeSignature } from "@/lib/integrations/stripe";
 import { buildDossier } from "@/lib/leads/dossier";
 import { asTrade } from "@/lib/leads/trades";
@@ -104,6 +106,13 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ received: true });
   }
+  // Abandoned checkout: the session expired unpaid (we set a 3h expiry).
+  // One honest recovery nudge per buyer per item, ever — only if the item is
+  // still genuinely available and the buyer is opted in.
+  if (event.type === "checkout.session.expired") {
+    return handleExpiredCheckout(event.data?.object);
+  }
+
   if (event.type !== "checkout.session.completed") {
     return NextResponse.json({ received: true });
   }
@@ -330,6 +339,101 @@ export async function POST(req: NextRequest) {
 // Far-future sentinel window so the counter pruner (which drops PAST windows)
 // never erases these one-shot idempotency markers.
 const CREDIT_MARKER_WINDOW = new Date("2099-01-01T00:00:00Z");
+
+/**
+ * Abandoned-checkout recovery. Fires when a Checkout Session expires unpaid.
+ * Sends at most ONE nudge per buyer per item ever (far-future marker), only
+ * when the item is still truly available — the scarcity in the copy must be
+ * live-true, and a nudge for a sold-out lead would be a lie.
+ */
+async function handleExpiredCheckout(session: CheckoutSession | undefined) {
+  const buyerId = session?.metadata?.buyer_id;
+  const propertyId = session?.metadata?.property_id;
+  const packageId = session?.metadata?.residential_package_id;
+  if (!session || !buyerId || (!propertyId && !packageId)) {
+    return NextResponse.json({ received: true });
+  }
+  // Only purchase flows: lead unlocks carry no metadata.type; packages do.
+  // Postcards / First Look expiries aren't worth a nudge.
+  const mtype = session.metadata?.type;
+  if (mtype && mtype !== "residential_package") return NextResponse.json({ received: true });
+
+  const [b] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
+  if (!b || !b.notify) return NextResponse.json({ received: true, skipped: "no buyer or opted out" });
+  const [supp] = await db.select().from(suppression).where(eq(suppression.email, b.email)).limit(1);
+  if (supp) return NextResponse.json({ received: true, skipped: "suppressed" });
+
+  let itemLabel: string;
+  let link: string;
+  if (propertyId) {
+    // They may have completed a second session, or paid with credit.
+    const [mine] = await db
+      .select()
+      .from(leadUnlock)
+      .where(and(eq(leadUnlock.property_id, propertyId), eq(leadUnlock.buyer_id, b.id)))
+      .limit(1);
+    if (mine) return NextResponse.json({ received: true, skipped: "already unlocked" });
+    const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+    if (!prop) return NextResponse.json({ received: true, skipped: "lead gone" });
+    const avail = await leadAvailability(prop, asTrade(b.trade));
+    if (avail.closed) return NextResponse.json({ received: true, skipped: "sold out" });
+    // Teaser-safe: for transfer/violation leads the property name IS the paid
+    // address — never put it in an email about an unpaid item.
+    itemLabel = `the ${prop.city ?? "area"} job you were unlocking`;
+    link = `${appUrl()}/buyers`;
+  } else {
+    const [mine] = await db
+      .select()
+      .from(residentialUnlock)
+      .where(
+        and(
+          eq(residentialUnlock.residential_package_id, packageId!),
+          eq(residentialUnlock.buyer_id, b.id)
+        )
+      )
+      .limit(1);
+    if (mine) return NextResponse.json({ received: true, skipped: "already owned" });
+    const [pkg] = await db
+      .select()
+      .from(residentialPackage)
+      .where(eq(residentialPackage.id, packageId!))
+      .limit(1);
+    if (!pkg || pkg.status !== "published") {
+      return NextResponse.json({ received: true, skipped: "package unavailable" });
+    }
+    itemLabel = pkg.name; // package names are public teaser content
+    link = `${appUrl()}/buyers/residential`;
+  }
+
+  // One nudge per buyer per item, ever — across retries and repeat expiries.
+  const marker = await db
+    .insert(usageCounter)
+    .values({
+      key: `cart_nudge:${b.id}:${propertyId ?? packageId}`,
+      window_start: CREDIT_MARKER_WINDOW,
+      count: 1,
+    })
+    .onConflictDoNothing({ target: [usageCounter.key, usageCounter.window_start] })
+    .returning();
+  if (marker.length === 0) return NextResponse.json({ received: true, skipped: "already nudged" });
+
+  const unsubUrl = `${appUrl()}/api/unsubscribe?token=${encodeURIComponent(signBuyerUnsub(b.email))}`;
+  await sendEmail({
+    to: b.email,
+    subject: "Your checkout didn't finish — it's still available",
+    html:
+      `<p>${b.company_name} — you started checking out ${itemLabel}, but the payment didn't go through. No charge was made.</p>` +
+      `<p>It's still available right now. <a href="${link}">Pick up where you left off</a>.</p>` +
+      `<p style="color:#888;font-size:12px">This is a one-time reminder — we won't email you about it again. ` +
+      `<a href="${unsubUrl}">Unsubscribe from alerts</a>.</p>`,
+    tags: { kind: "cart_recovery" },
+    headers: {
+      "List-Unsubscribe": `<${unsubUrl}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    },
+  }).catch(() => null);
+  return NextResponse.json({ received: true, nudged: b.id });
+}
 
 /**
  * Undeliverable purchase -> account credit (replacement-lead policy, disclosed
