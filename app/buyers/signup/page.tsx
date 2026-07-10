@@ -11,9 +11,12 @@ export const dynamic = "force-dynamic";
 export default async function BuyerSignup({
   searchParams,
 }: {
-  searchParams: { error?: string; trade?: string };
+  searchParams: { error?: string; trade?: string; respkg?: string };
 }) {
   const co = await getDefaultCompany();
+  // Residential package pitch landed them here — speak to that product and
+  // route them to the marketplace after signup.
+  const respkg = /^[0-9a-f-]{36}$/i.test(searchParams.respkg ?? "") ? searchParams.respkg : null;
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-6 py-10">
       <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8">
@@ -22,13 +25,15 @@ export default async function BuyerSignup({
         </Link>
         <h1 className="mt-4 text-xl font-semibold">Create your free profile</h1>
         <p className="mt-1 text-sm text-gray-500">
-          See the commercial jobs open near your office, in your trade. Your first job sheet is
-          free — no card required.
+          {respkg
+            ? "See the new-homeowner address lists for your area — and the commercial jobs open in your trade. No card required."
+            : "See the commercial jobs open near your office, in your trade. Your first job sheet is free — no card required."}
         </p>
 
         <form action={createBuyerAccount} className="mt-6 space-y-3">
           {/* Trade from the outreach link — scopes the shelf/copy after signup. */}
           <input type="hidden" name="trade" value={asTrade(searchParams.trade)} />
+          {respkg ? <input type="hidden" name="respkg" value={respkg} /> : null}
           <input
             type="text"
             name="company"
