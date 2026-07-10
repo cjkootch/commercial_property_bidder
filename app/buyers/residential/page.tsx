@@ -2,20 +2,34 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, residentialPackage } from "@/lib/db/schema";
+import { buyer, residentialPackage, residentialUnlock } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { currentBuyerId } from "@/app/buyers/actions";
+import { startResidentialPackageCheckout } from "./actions";
 import { Logo } from "@/components/Logo";
 import type { PackageTeaser } from "@/lib/residential/teaser";
 import { usd } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function ResidentialMarketplace() {
+export default async function ResidentialMarketplace({
+  searchParams,
+}: {
+  searchParams?: { purchased?: string; canceled?: string; err?: string };
+}) {
   const buyerId = await currentBuyerId();
   if (!buyerId) redirect("/buyers/login");
   const [me] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
   if (!me) redirect("/buyers/login");
+
+  const owned = new Set(
+    (
+      await db
+        .select({ pkg: residentialUnlock.residential_package_id })
+        .from(residentialUnlock)
+        .where(eq(residentialUnlock.buyer_id, me.id))
+    ).map((r) => r.pkg)
+  );
 
   const co = await getDefaultCompany();
   const brand = co?.name ?? "Greenkeep";
@@ -53,6 +67,23 @@ export default async function ResidentialMarketplace() {
             New homeowner and new construction signals for local landscapers and outdoor service providers.
           </p>
         </div>
+
+        {searchParams?.purchased ? (
+          <div className="mb-6 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+            Payment received — your report is unlocking now. It appears below as{" "}
+            <strong>View report</strong> within a few seconds (we also emailed you the link).
+          </div>
+        ) : null}
+        {searchParams?.canceled ? (
+          <div className="mb-6 rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
+            Checkout canceled — the report is still available whenever you&apos;re ready.
+          </div>
+        ) : null}
+        {searchParams?.err ? (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {searchParams.err}
+          </div>
+        ) : null}
 
         {packages.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-300 bg-white p-12 text-center">
@@ -112,12 +143,19 @@ export default async function ResidentialMarketplace() {
                   <div className="mt-auto border-t border-gray-100 bg-gray-50 p-4">
                     <div className="flex items-center justify-between">
                       <span className="text-xl font-bold text-gray-900">{usd(pkg.price_cents / 100, { cents: false })}</span>
-                      {pkg.status === "published" ? (
-                        // Purchases aren't wired yet (residential is pre-launch)
-                        // — a dead-looking live button erodes trust.
-                        <button disabled title="Residential reports go on sale soon" className="rounded-lg bg-gray-300 px-4 py-2 text-sm font-semibold text-white shadow-sm cursor-not-allowed">
-                          On sale soon
-                        </button>
+                      {owned.has(pkg.id) ? (
+                        <Link
+                          href={`/buyers/residential/${pkg.id}`}
+                          className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand/90"
+                        >
+                          View report
+                        </Link>
+                      ) : pkg.status === "published" ? (
+                        <form action={startResidentialPackageCheckout.bind(null, pkg.id)}>
+                          <button className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand/90">
+                            Get the report
+                          </button>
+                        </form>
                       ) : (
                         <button disabled className="rounded-lg bg-gray-300 px-4 py-2 text-sm font-semibold text-white shadow-sm cursor-not-allowed">
                           Sold Out

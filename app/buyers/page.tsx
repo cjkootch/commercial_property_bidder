@@ -322,6 +322,9 @@ export default async function BuyerDashboard({
             <Link href="/buyers/prospects" className="text-gray-600 hover:text-gray-900">
               My prospects
             </Link>
+            <Link href="/buyers/residential" className="text-gray-600 hover:text-gray-900">
+              Residential
+            </Link>
             <Link href="/buyers/profile" className="text-gray-600 hover:text-gray-900">
               Profile
             </Link>
