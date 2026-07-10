@@ -131,6 +131,14 @@
     {
       "path": "/api/cron/rfps?market=brownsville",
       "schedule": "17 7 * * 1"
+    },
+    {
+      "path": "/api/cron/taxsales?want=15&market=beaumont",
+      "schedule": "27 6 * * 1"
+    },
+    {
+      "path": "/api/cron/tabc?want=15&market=beaumont",
+      "schedule": "37 6 * * 1"
     }
   ]
 }

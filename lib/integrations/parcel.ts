@@ -556,6 +556,41 @@ const COUNTY_SERVICES: CountyService[] = [
       };
     },
   },
+  {
+    // Jefferson County (Beaumont–Port Arthur) — the PACS-export layer on the
+    // Port of Beaumont's AGOL org (verified live 2026-07-10: 122,329 parcels,
+    // CURRENT 2026 tax year, real PTAD state_code — 5,785 F1 — so the class
+    // gates work natively). NOTE: layer id 1, not 0; the org also hosts a
+    // stale 2018 partial extract under a similar name — don't confuse them.
+    // Third-party mirror — best-effort, failure leaves the gates conservative.
+    county: "Jefferson",
+    url: "https://services.arcgis.com/ZXAF35aJr7XcgDMv/arcgis/rest/services/JCAD_Parcels/FeatureServer/1",
+    normalize: (p) => ({
+      owner: str(p.file_as_name),
+      parcel_id: str(p.geo_id) ?? str(p.Prop_ID) ?? str(p.prop_id_1),
+      // `situs` holds just the street NUMBER on this layer.
+      address: str(
+        [str(p.situs), str(p.situs_street_prefx), str(p.situs_street), str(p.situs_street_sufix)]
+          .filter(Boolean)
+          .join(" ")
+      ),
+      acres: numOrNull(p.legal_acreage) || null, // 0 means "not stated"
+      last_sale_date: dateOrNull(p.coo_sl_dt), // change-of-ownership, epoch ms
+      market_value: numOrNull(p.market) || null,
+      owner_mailing_address: str(
+        [
+          [str(p.addr_line1), str(p.addr_line2), str(p.addr_line3)].filter(Boolean).join(" "),
+          str(p.addr_city),
+          [str(p.addr_state), str(p.zip)].filter(Boolean).join(" "),
+        ]
+          .filter(Boolean)
+          .join(", ")
+      ),
+      building_sqft: numOrNull(p.total_imprv_area) || null,
+      improvement_value: numOrNull(p.imprv_val) || null,
+      state_class: str(p.state_code), // arrives space-padded ('F1   ')
+    }),
+  },
 ];
 
 async function queryCountyWithAttrs(
