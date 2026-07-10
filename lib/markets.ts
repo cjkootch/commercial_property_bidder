@@ -78,7 +78,9 @@ export const MARKETS: Record<string, Market> = {
     label: "San Antonio metro",
     metroSearch: "San Antonio, Texas",
     metroCity: "san antonio",
-    bbox: [-99.1, 28.8, -97.9, 29.95],
+    // North edge 29.72: keeps New Braunfels (29.70) but cedes Hays County
+    // (San Marcos/Kyle/Buda) to the Austin market — they're Austin MSA.
+    bbox: [-99.1, 28.8, -97.9, 29.72],
     // LGBS is headquartered in San Antonio — Bexar is core territory
     // (verified live 2026-07-10: 66 properties in the pipeline).
     taxSaleCounties: ["BEXAR COUNTY"],
@@ -92,6 +94,27 @@ export const MARKETS: Record<string, Market> = {
       { slug: "nisd", agency: "Northside ISD", city: "San Antonio" },
       { slug: "saisd", agency: "San Antonio ISD", city: "San Antonio" },
       { slug: "schertz", agency: "City of Schertz", city: "Schertz" },
+    ],
+  },
+  austin: {
+    key: "austin",
+    label: "Austin metro",
+    metroSearch: "Austin, Texas",
+    metroCity: "austin",
+    // Includes Hays County (San Marcos/Kyle/Buda — Austin MSA) at the south.
+    bbox: [-98.3, 29.72, -97.2, 30.9],
+    // LGBS carries Hays but NOT Travis/Williamson (verified live 2026-07-10:
+    // 18 Hays parcels, 0 for the other two — different delinquent-tax firms).
+    taxSaleCounties: ["HAYS COUNTY"],
+    // 83 pending applications across the three counties at probe time.
+    tabcCounties: ["Travis", "Williamson", "Hays"],
+    // No violations311Url: Austin 311 is a Socrata dataset — own adapter.
+    bonfirePortals: [
+      // Verified serving public JSON 2026-07-10. The City of Austin and
+      // CapMetro don't run Bonfire portals under any probed slug.
+      { slug: "austinisd", agency: "Austin ISD", city: "Austin" },
+      { slug: "wilco", agency: "Williamson County", city: "Georgetown" },
+      { slug: "roundrocktexas", agency: "City of Round Rock", city: "Round Rock" },
     ],
   },
 };

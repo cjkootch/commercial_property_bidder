@@ -260,6 +260,52 @@ const COUNTY_SERVICES: CountyService[] = [
       };
     },
   },
+  {
+    // Travis County taxmaps layer (verified live 2026-07-10: 373,683
+    // parcels, real PTAD land_state_cd, market values, owner). deed_date
+    // exists but is ~2 years stale plus year-2222 sentinels — informational
+    // only, never a freshness signal. County-hosted (not AGOL): verify
+    // reachability from Vercel after deploy, same lesson as Bexar/SARA.
+    county: "Travis",
+    url: "https://taxmaps.traviscountytx.gov/arcgis/rest/services/Parcels/FeatureServer/0",
+    normalize: (p) => {
+      const impr =
+        (numOrNull(p.imprv_homesite_val) ?? 0) + (numOrNull(p.imprv_non_homesite_val) ?? 0);
+      return {
+        owner: str(p.py_owner_name),
+        parcel_id: str(p.geo_id) ?? str(p.PROP_ID),
+        address: str(p.situs_address),
+        // 0 means "not stated" on this layer (a $199M downtown block carries
+        // tcad_acres 0) — null it so acreage gates don't treat it as tiny.
+        acres: numOrNull(p.tcad_acres) || numOrNull(p.legal_acre) || null,
+        last_sale_date: dateOrNull(p.deed_date),
+        market_value: numOrNull(p.market_value) || null,
+        owner_mailing_address: str(p.py_address),
+        improvement_value: impr > 0 ? impr : null,
+        state_class: str(p.land_state_cd),
+        land_use: str(p.land_type_desc),
+      };
+    },
+  },
+  {
+    // Williamson County parcels via Georgetown's open-data service
+    // (verified live 2026-07-10). No PTAD class or values — the gates fall
+    // back to acreage + explicit-residential rejection, like Montgomery.
+    county: "Williamson",
+    url: "https://gis.georgetowntexas.gov/arcgis/rest/services/OpenData/OpenData_FeatureService/FeatureServer/2",
+    normalize: (p) => ({
+      owner: str(p.OWNER),
+      parcel_id: str(p.WCADID) ?? str(p.WCADR),
+      address: str(p.SITEADD),
+      acres: numOrNull(p.ACRES) || null, // 0 = not stated on this layer
+
+      owner_mailing_address: str(
+        [str(p.MAILADD), str(p.MAILCITY), [str(p.MAILST), str(p.MAILZIP)].filter(Boolean).join(" ")]
+          .filter(Boolean)
+          .join(", ")
+      ),
+    }),
+  },
 ];
 
 async function queryCountyWithAttrs(
