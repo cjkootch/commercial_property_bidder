@@ -48,7 +48,13 @@ export async function runResidentialPackaging(): Promise<ResidentialPackagingSum
       unplaceable++;
       continue;
     }
-    const key = `${geo}|${lead.subdivision_name || "nosub"}`;
+    // HCAD abstract-tract legals ("ABST 69 C SMITH") aren't subdivisions a
+    // buyer would recognize — group them by geography instead.
+    const subName =
+      lead.subdivision_name && !/^abst\b/i.test(lead.subdivision_name)
+        ? lead.subdivision_name
+        : null;
+    const key = `${geo}|${subName || "nosub"}`;
     const list = bySub.get(key) ?? [];
     list.push(lead);
     bySub.set(key, list);
@@ -84,17 +90,23 @@ export async function runResidentialPackaging(): Promise<ResidentialPackagingSum
     // subdivision would mislabel the product. Only subdivision-keyed groups
     // carry the subdivision name.
     const isBundle = key.endsWith(BUNDLE);
-    const sub = isBundle ? null : groupLeads[0].subdivision_name;
+    const sub =
+      isBundle || /^abst\b/i.test(groupLeads[0].subdivision_name ?? "")
+        ? null
+        : groupLeads[0].subdivision_name;
+    // ZIP in the bundle name: two ZIP bundles in one city otherwise collide
+    // ("Houston Residential New Mover Report" x2 on the shelf).
+    const geoName = city && zip ? `${city} ${zip}` : city || zip;
     const name = sub
       ? `${sub} Residential Opportunity Report`
-      : `${city || zip} Residential New Mover Report`;
+      : `${geoName} Residential New Mover Report`;
 
     const [pkg] = await db
       .insert(schema.residentialPackage)
       .values({
         company_id: co.id,
         name,
-        geography_label: sub ? `${sub} / ${city}` : city || zip,
+        geography_label: sub ? `${sub} / ${city}` : geoName,
         zip,
         lead_count: groupLeads.length,
         signal_summary: buildPackageTeaser(groupLeads),
