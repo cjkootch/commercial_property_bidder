@@ -17,6 +17,13 @@ type CountyService = {
   county: string;
   /** ArcGIS layer query endpoint (…/MapServer/<id>). */
   url: string;
+  /** Optional second lookup (e.g. a city zoning layer) merged over the
+   *  normalized fields — for counties whose CAD publishes no class signal. */
+  enrich?: (
+    lng: number,
+    lat: number,
+    signal: AbortSignal
+  ) => Promise<Partial<ReturnType<CountyService["normalize"]>>>;
   /** Map a raw ArcGIS feature's attributes into the normalized fields. */
   normalize: (p: Record<string, unknown>) => {
     owner: string | null;
@@ -344,6 +351,34 @@ const COUNTY_SERVICES: CountyService[] = [
     // fall back to acreage + explicit-residential.
     county: "El Paso",
     url: "https://services2.arcgis.com/fKvlzLJczghwPYHS/arcgis/rest/services/ElPasoCADWebService/FeatureServer/0",
+    // EPCAD has no class signal at all, which made the conservative
+    // commercial gates reject every El Paso venue. The city's zoning layer
+    // (verified live 2026-07-10: C4 at Cielo Vista Mall) supplies the
+    // Res/Com flag: C/M/I zones read commercial, R/A residential, special
+    // districts stay unknown (gates stay conservative).
+    enrich: async (lng, lat, signal) => {
+      const sp = new URLSearchParams({
+        geometry: `${lng},${lat}`,
+        geometryType: "esriGeometryPoint",
+        inSR: "4326",
+        spatialRel: "esriSpatialRelIntersects",
+        outFields: "ZONE_",
+        returnGeometry: "false",
+        f: "json",
+      });
+      const res = await fetch(
+        `https://gis.elpasotexas.gov/dev/rest/services/Planning/Zoning/FeatureServer/0/query?${sp.toString()}`,
+        { signal }
+      );
+      if (!res.ok) return {};
+      const data = (await res.json()) as {
+        features?: { attributes?: { ZONE_?: string } }[];
+      };
+      const zone = String(data.features?.[0]?.attributes?.ZONE_ ?? "");
+      if (/^[CMI]/i.test(zone)) return { land_use: "Com" };
+      if (/^[RA]/i.test(zone)) return { land_use: "Res" };
+      return {};
+    },
     normalize: (p) => ({
       owner: str(p.file_as_name),
       parcel_id: str(p.geo_id) ?? str(p.prop_id_text) ?? str(p.prop_id),
@@ -393,6 +428,13 @@ async function queryCountyWithAttrs(
     return null;
   }
   const norm = svc.normalize(f.properties ?? {});
+  if (svc.enrich) {
+    try {
+      Object.assign(norm, await svc.enrich(lng, lat, signal));
+    } catch {
+      // enrichment is best-effort — the base parcel still stands
+    }
+  }
   return {
     parcel: {
       county: svc.county,
