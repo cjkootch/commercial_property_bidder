@@ -76,6 +76,10 @@ export default async function ClaimPage({
       ).filter((u) => u.trade === trade).length >= FREE_MAX_PER_LEAD
     : false;
   const claimable = !!avail?.open && !freeSpent;
+  // Free spot spent but paid spots remain: say exactly that. Collapsing this
+  // into "filled up" told engaged companies a lead was gone while 2/3 spots
+  // sat open — false scarcity, and it turns away ready buyers.
+  const paidOpen = !!avail?.open && freeSpent;
   const cap = leadMaxBuyers();
 
   const cost = note(prop?.notes ?? null, /est\. cost (\$[\d,]+)/);
@@ -133,6 +137,31 @@ export default async function ClaimPage({
             <Link href="/terms" className="underline">*Terms</Link>
           </p>
         </div>
+      ) : paidOpen ? (
+        <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
+          <div className="font-medium text-gray-900">Still open — the free spot went fast:</div>
+          <ul className="mt-2 space-y-1 text-gray-600">
+            <li>• {trigger}</li>
+            {trade === "landscaping" && teaser?.turf_sqft ? (
+              <li>
+                • ~{Math.round(teaser.turf_sqft).toLocaleString()} sq ft of maintainable grounds
+                {teaser.verified ? " (hand-verified measurement)" : ""}
+              </li>
+            ) : null}
+            {trade !== "landscaping" && est ? <li>• {est.basis}</li> : null}
+            {est ? (
+              <li>• Est. {usdShort(est.annualLo)}–{usdShort(est.annualHi)}/yr recurring contract value</li>
+            ) : null}
+            {prop!.city ? <li>• {prop!.city} area</li> : null}
+            <li>• Full sheet: exact location, decision contacts, our aerial measurement, contract value, and the window to bid</li>
+          </ul>
+          <p className="mt-2 text-xs text-gray-400">
+            Another company claimed the free spot, but {avail!.spotsLeft} of {cap} spots on this
+            job {avail!.spotsLeft === 1 ? "is" : "are"} still open* — create your profile to see
+            it, and your free sheet applies to the next open job near you.{" "}
+            <Link href="/terms" className="underline">*Terms</Link>
+          </p>
+        </div>
       ) : (
         <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           {prop ? (
@@ -181,7 +210,11 @@ export default async function ClaimPage({
           type="submit"
           className="w-full rounded-md bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark"
         >
-          {claimable ? "Create profile & unlock my free sheet" : "Create profile"}
+          {claimable
+            ? "Create profile & unlock my free sheet"
+            : paidOpen
+              ? "Create profile & see this job"
+              : "Create profile"}
         </button>
         <p className="text-center text-[11px] text-gray-400">
           By creating a profile you agree to our{" "}
