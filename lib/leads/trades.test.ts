@@ -208,4 +208,101 @@ describe("leads/trades — per-trade ranking", () => {
     expect(TRADES.cleaning.rank(ti)).toBeGreaterThan(TRADES.pest.rank(ti));
     expect(TRADES.paving.rank(ti)).toBeGreaterThan(TRADES.pest.rank(ti));
   });
+
+  it("fire protection puts code-mandated demand first", () => {
+    const restaurant = TRADES.fire.rank(
+      input({ kind: "opening", notes: "TABC license application submitted" })
+    );
+    const office = TRADES.fire.rank(input({ kind: "opening", notes: "Sales-tax registration" }));
+    const fireCited = TRADES.fire.rank(input({ kind: "violation", notes: "cited for fire code violation" }));
+    const weedsCited = TRADES.fire.rank(input({ kind: "violation", notes: "weeds/overgrowth" }));
+    expect(restaurant).toBeGreaterThan(office);
+    expect(fireCited).toBeGreaterThan(weedsCited);
+    // Food service quotes the flat code-mandated program, marked recurring.
+    const est = TRADES.fire.estimateValue({
+      kind: "opening",
+      notes: "TABC license application",
+      teaser: null,
+      buildingSqft: null,
+      improvementValue: null,
+      landSqft: null,
+      stateClass: null,
+      landUse: null,
+    })!;
+    expect(est.basis).toContain("required by fire code");
+    expect(est.per).toBeUndefined(); // recurring — the "/yr" copy is correct
+  });
+
+  it("signage and roofing sell PROJECTS — bands are marked, never '/yr recurring'", () => {
+    expect(TRADES.signage.sells).toBe("project");
+    expect(TRADES.roofing.sells).toBe("project");
+    const base = {
+      kind: "opening" as const,
+      notes: null,
+      teaser: null,
+      buildingSqft: 40_000,
+      improvementValue: null,
+      landSqft: 200_000,
+      stateClass: "F1",
+      landUse: null,
+    };
+    expect(TRADES.signage.estimateValue(base)!.per).toBe("project");
+    expect(TRADES.roofing.estimateValue({ ...base, kind: "transfer" })!.per).toBe("project");
+    // Every other trade's estimates stay recurring (per absent).
+    for (const t of Object.values(TRADES)) {
+      if (t.sells === "project") continue;
+      const est = t.estimateValue({ ...base, teaser: { annual_lo: 1_000, annual_hi: 2_000 } });
+      if (est) expect(est.per).toBeUndefined();
+    }
+    // Signage openings/rebrands are date-driven; citations get no invented number.
+    expect(TRADES.signage.estimateValue({ ...base, kind: "violation" })).toBeNull();
+    expect(TRADES.signage.rank(input({ kind: "opening" }))).toBeGreaterThan(
+      TRADES.signage.rank(input({ kind: "transfer" }))
+    );
+  });
+
+  it("roofing prices the footprint, not the tower", () => {
+    // 300k sqft interior on a 100k sqft lot: a multi-story building. The
+    // roof is the footprint (lot * 0.6), never the stacked interior.
+    const tower = TRADES.roofing.estimateValue({
+      kind: "transfer",
+      notes: null,
+      teaser: null,
+      buildingSqft: 300_000,
+      improvementValue: null,
+      landSqft: 100_000,
+      stateClass: "F1",
+      landUse: null,
+    })!;
+    expect(tower.basis).toContain("60,000 sq ft");
+    // Transfers lead the roofing shelf (condition reports + insurance timing).
+    expect(TRADES.roofing.rank(input({ kind: "transfer" }))).toBeGreaterThan(
+      TRADES.roofing.rank(input({ kind: "construction" }))
+    );
+    // No footprint data -> no number invented.
+    expect(
+      TRADES.roofing.estimateValue({
+        kind: "transfer",
+        notes: null,
+        teaser: null,
+        buildingSqft: null,
+        improvementValue: null,
+        landSqft: 100_000,
+        stateClass: null,
+        landUse: null,
+      })
+    ).toBeNull();
+  });
+
+  it("new trades resolve through asTrade and carry prospecting definitions", () => {
+    expect(asTrade("fire")).toBe("fire");
+    expect(asTrade("signage")).toBe("signage");
+    expect(asTrade("roofing")).toBe("roofing");
+    // Vendor signals match real company names, not adjacent verticals.
+    expect(TRADES.fire.vendorSignal.test("Lone Star Fire Protection Services")).toBe(true);
+    expect(TRADES.fire.vendorSignal.test("Firewood Depot")).toBe(false);
+    expect(TRADES.signage.vendorSignal.test("FastSigns of Houston — sign company")).toBe(true);
+    expect(TRADES.signage.vendorSignal.test("DocuSign")).toBe(false);
+    expect(TRADES.roofing.vendorSignal.test("Apex Commercial Roofing")).toBe(true);
+  });
 });

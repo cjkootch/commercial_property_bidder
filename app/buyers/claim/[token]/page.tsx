@@ -126,7 +126,7 @@ export default async function ClaimPage({
             ) : null}
             {trade !== "landscaping" && est ? <li>• {est.basis}</li> : null}
             {est ? (
-              <li>• Est. {usdShort(est.annualLo)}–{usdShort(est.annualHi)}/yr recurring contract value</li>
+              <li>• Est. {usdShort(est.annualLo)}–{usdShort(est.annualHi)}{est.per === "project" ? " project value" : "/yr recurring contract value"}</li>
             ) : null}
             {prop!.city ? <li>• {prop!.city} area</li> : null}
             <li>• Full sheet: exact location, decision contacts, our aerial measurement, contract value, and the window to bid</li>
@@ -150,7 +150,7 @@ export default async function ClaimPage({
             ) : null}
             {trade !== "landscaping" && est ? <li>• {est.basis}</li> : null}
             {est ? (
-              <li>• Est. {usdShort(est.annualLo)}–{usdShort(est.annualHi)}/yr recurring contract value</li>
+              <li>• Est. {usdShort(est.annualLo)}–{usdShort(est.annualHi)}{est.per === "project" ? " project value" : "/yr recurring contract value"}</li>
             ) : null}
             {prop!.city ? <li>• {prop!.city} area</li> : null}
             <li>• Full sheet: exact location, decision contacts, our aerial measurement, contract value, and the window to bid</li>

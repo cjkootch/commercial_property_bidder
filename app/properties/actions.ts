@@ -896,7 +896,7 @@ export async function offerLeadToBuyers(propertyId: string): Promise<void> {
     }
     const est = TRADES[t].estimateValue(tradeValueInput(prop!, kind));
     return {
-      valueTxt: est ? `${usd(est.annualLo)}–${usd(est.annualHi)}/yr` : null,
+      valueTxt: est ? `${usd(est.annualLo)}–${usd(est.annualHi)}${est.per === "project" ? " project" : "/yr"}` : null,
       noun: `commercial ${TRADES[t].service} contract`,
     };
   };
