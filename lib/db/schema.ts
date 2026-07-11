@@ -410,6 +410,13 @@ export const buyerOutreach = pgTable("buyer_outreach", {
   last_event: text("last_event"),
   // One follow-up max: set when the 48h engaged-but-unclaimed nudge goes out.
   nudged_at: timestamp("nudged_at", { withTimezone: true }),
+  // Sequence-step attribution (CRM style): the nudge is a STEP on this same
+  // thread, tracked by its own message id so the webhook can attribute the
+  // step's opens/clicks. open_count/click_count stay thread-level totals;
+  // these timestamps answer "did the FOLLOW-UP move them?".
+  nudge_message_id: text("nudge_message_id"),
+  nudge_opened_at: timestamp("nudge_opened_at", { withTimezone: true }),
+  nudge_clicked_at: timestamp("nudge_clicked_at", { withTimezone: true }),
   ...timestamps,
 },
 (t) => [

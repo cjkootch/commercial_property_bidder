@@ -107,6 +107,17 @@ export async function POST(req: NextRequest) {
             updated_at: new Date(),
           })
           .where(eq(buyerOutreach.resend_message_id, emailId));
+        // Follow-up step: same thread, attributed to the nudge's message id.
+        await db
+          .update(buyerOutreach)
+          .set({
+            nudge_opened_at: sql`coalesce(${buyerOutreach.nudge_opened_at}, ${at.toISOString()})`,
+            opened_at: sql`coalesce(${buyerOutreach.opened_at}, ${at.toISOString()})`,
+            open_count: sql`${buyerOutreach.open_count} + 1`,
+            last_event: "nudge_opened",
+            updated_at: new Date(),
+          })
+          .where(eq(buyerOutreach.nudge_message_id, emailId));
         break;
       case "email.clicked":
         await db
@@ -127,6 +138,16 @@ export async function POST(req: NextRequest) {
             updated_at: new Date(),
           })
           .where(eq(buyerOutreach.resend_message_id, emailId));
+        await db
+          .update(buyerOutreach)
+          .set({
+            nudge_clicked_at: sql`coalesce(${buyerOutreach.nudge_clicked_at}, ${at.toISOString()})`,
+            clicked_at: sql`coalesce(${buyerOutreach.clicked_at}, ${at.toISOString()})`,
+            click_count: sql`${buyerOutreach.click_count} + 1`,
+            last_event: "nudge_clicked",
+            updated_at: new Date(),
+          })
+          .where(eq(buyerOutreach.nudge_message_id, emailId));
         break;
       case "email.bounced": {
         await db
