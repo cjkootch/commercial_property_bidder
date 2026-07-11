@@ -294,10 +294,64 @@ describe("leads/trades — per-trade ranking", () => {
     ).toBeNull();
   });
 
+  it("waste puts mandated food-service demand first and owns dumping citations", () => {
+    const restaurant = TRADES.waste.rank(
+      input({ kind: "opening", notes: "TABC license application submitted" })
+    );
+    const office = TRADES.waste.rank(input({ kind: "opening", notes: "Sales-tax registration" }));
+    const dumping = TRADES.waste.rank(input({ kind: "violation", notes: "illegal dumping/debris" }));
+    const weeds = TRADES.waste.rank(input({ kind: "violation", notes: "weeds/overgrowth" }));
+    expect(restaurant).toBeGreaterThan(office);
+    expect(dumping).toBeGreaterThan(weeds);
+    // Food service quotes the mandated program, marked recurring.
+    const est = TRADES.waste.estimateValue({
+      kind: "opening",
+      notes: "TABC license application",
+      teaser: null,
+      buildingSqft: null,
+      improvementValue: null,
+      landSqft: null,
+      stateClass: null,
+      landUse: null,
+    })!;
+    expect(est.basis).toContain("required for food service");
+    expect(est.per).toBeUndefined();
+  });
+
+  it("painting sells projects, leads with transfers, invents no number without size", () => {
+    expect(TRADES.painting.sells).toBe("project");
+    expect(TRADES.painting.rank(input({ kind: "transfer" }))).toBeGreaterThan(
+      TRADES.painting.rank(input({ kind: "opening" }))
+    );
+    const base = {
+      kind: "transfer" as const,
+      notes: null,
+      teaser: null,
+      buildingSqft: 40_000,
+      improvementValue: null,
+      landSqft: 200_000,
+      stateClass: "F1",
+      landUse: null,
+    };
+    const est = TRADES.painting.estimateValue(base)!;
+    expect(est.per).toBe("project");
+    expect(est.annualLo).toBe(40_000);
+    expect(est.annualHi).toBe(120_000);
+    expect(
+      TRADES.painting.estimateValue({ ...base, buildingSqft: null, improvementValue: null })
+    ).toBeNull();
+  });
+
   it("new trades resolve through asTrade and carry prospecting definitions", () => {
     expect(asTrade("fire")).toBe("fire");
     expect(asTrade("signage")).toBe("signage");
     expect(asTrade("roofing")).toBe("roofing");
+    expect(asTrade("waste")).toBe("waste");
+    expect(asTrade("painting")).toBe("painting");
+    expect(TRADES.waste.vendorSignal.test("Lone Star Dumpster Service")).toBe(true);
+    expect(TRADES.waste.vendorSignal.test("City Wastewater Treatment Facility")).toBe(false);
+    expect(TRADES.painting.vendorSignal.test("Alamo Commercial Painting LLC")).toBe(true);
+    expect(TRADES.painting.vendorSignal.test("Splatter Paintball Park")).toBe(false);
     // Vendor signals match real company names, not adjacent verticals.
     expect(TRADES.fire.vendorSignal.test("Lone Star Fire Protection Services")).toBe(true);
     expect(TRADES.fire.vendorSignal.test("Firewood Depot")).toBe(false);
