@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { guarded } from "@/lib/cron-guard";
 import { MARKETS } from "@/lib/markets";
 import { runTaxSaleSourcing } from "@/lib/pipeline/taxsales";
 import { runTabcSourcing } from "@/lib/pipeline/tabc";
@@ -28,25 +29,27 @@ function rotation(): Pair[] {
 }
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-  const pairs = rotation();
-  // Slot index from the wall clock (2h grain, matching the cron cadence).
-  // ?slot= lets an operator run a specific pair by index for debugging.
-  const forced = Number(req.nextUrl.searchParams.get("slot"));
-  const slot = Number.isFinite(forced) && forced >= 0
-    ? forced % pairs.length
-    : Math.floor(Date.now() / (2 * 3600_000)) % pairs.length;
-  const pair = pairs[slot];
+  return guarded("feeds", async () => {
+    const secret = process.env.CRON_SECRET;
+    if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    const pairs = rotation();
+    // Slot index from the wall clock (2h grain, matching the cron cadence).
+    // ?slot= lets an operator run a specific pair by index for debugging.
+    const forced = Number(req.nextUrl.searchParams.get("slot"));
+    const slot = Number.isFinite(forced) && forced >= 0
+      ? forced % pairs.length
+      : Math.floor(Date.now() / (2 * 3600_000)) % pairs.length;
+    const pair = pairs[slot];
 
-  const summary =
-    pair.feed === "taxsales"
-      ? await runTaxSaleSourcing({ want: 15, market: pair.market })
-      : pair.feed === "tabc"
-        ? await runTabcSourcing({ want: 15, market: pair.market })
-        : await runRfpSourcing({ market: pair.market });
+    const summary =
+      pair.feed === "taxsales"
+        ? await runTaxSaleSourcing({ want: 15, market: pair.market })
+        : pair.feed === "tabc"
+          ? await runTabcSourcing({ want: 15, market: pair.market })
+          : await runRfpSourcing({ market: pair.market });
 
-  return Response.json({ slot, of: pairs.length, market: pair.market, feed: pair.feed, summary });
+    return Response.json({ slot, of: pairs.length, market: pair.market, feed: pair.feed, summary });
+  });
 }

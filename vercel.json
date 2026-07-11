@@ -29,8 +29,16 @@
       "schedule": "57 11 * * 1"
     },
     {
-      "path": "/api/cron/prospecting",
-      "schedule": "17 12 * * 1"
+      "path": "/api/cron/demand",
+      "schedule": "7 14 * * 1-6"
+    },
+    {
+      "path": "/api/cron/demand",
+      "schedule": "7 17 * * 1-6"
+    },
+    {
+      "path": "/api/cron/demand",
+      "schedule": "7 20 * * 1-6"
     },
     {
       "path": "/api/cron/renewals",
@@ -43,6 +51,10 @@
     {
       "path": "/api/cron/nudges?apply=1",
       "schedule": "7 15 * * *"
+    },
+    {
+      "path": "/api/cron/nudges?apply=1",
+      "schedule": "7 21 * * *"
     },
     {
       "path": "/api/cron/residential?want=200",
