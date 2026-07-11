@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { desc, like } from "drizzle-orm";
+import { desc, gte, like } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { leadUnlock, property } from "@/lib/db/schema";
 import { resolveTenant } from "@/lib/tenant";
+import { MARKETS } from "@/lib/markets";
 import { exclusivePriceCents, leadPriceCents } from "@/lib/integrations/stripe";
 import { leadMaxBuyers } from "@/lib/leads/availability";
 import { TRADES } from "@/lib/leads/trades";
@@ -48,7 +49,13 @@ async function openJobStats() {
     const c = noteRe(p.notes, /est\. cost \$([\d,]+)/);
     if (c) devValue += Number(c.replace(/,/g, ""));
   }
-  return { openJobs: open.length, devValue };
+  // Live-true proof: sheets actually delivered in the last 7 days.
+  const weekAgo = new Date(Date.now() - 7 * 86400_000);
+  const recentUnlocks = await db
+    .select({ id: leadUnlock.id })
+    .from(leadUnlock)
+    .where(gte(leadUnlock.created_at, weekAgo));
+  return { openJobs: open.length, devValue, sheetsThisWeek: recentUnlocks.length };
 }
 
 /** Redacted sample job sheet — shows the product's structure, hides the goods. */
@@ -151,7 +158,8 @@ export default async function Home() {
   const price = Math.round(leadPriceCents() / 100);
   const exclusivePrice = Math.round(exclusivePriceCents() / 100);
   const cap = leadMaxBuyers();
-  const { openJobs, devValue } = await openJobStats();
+  const { openJobs, devValue, sheetsThisWeek } = await openJobStats();
+  const metroCount = Object.keys(MARKETS).length;
 
   const sheetItems = [
     ["Exact address + aerial", "The site from above with the service areas measured — before you ever roll a truck."],
@@ -256,7 +264,7 @@ export default async function Home() {
                 </span>
               ))}
               <span className="rounded-full border border-dashed border-white/20 px-3 py-1 text-xs font-medium text-gray-400">
-                Roofing, plumbing, electrical + more coming
+                Plumbing, electrical + more coming
               </span>
             </div>
           </div>
@@ -276,7 +284,15 @@ export default async function Home() {
                 in verified commercial projects
               </span>
             ) : null}
-            <span>Houston &amp; Dallas–Fort Worth · expanding nationwide</span>
+            {sheetsThisWeek > 0 ? (
+              <span>
+                <strong className="text-white">{sheetsThisWeek}</strong> job sheet
+                {sheetsThisWeek === 1 ? "" : "s"} delivered this week
+              </span>
+            ) : null}
+            <span>
+              <strong className="text-white">{metroCount}</strong> Texas metros · expanding nationwide
+            </span>
           </div>
         ) : null}
       </section>
@@ -434,7 +450,7 @@ export default async function Home() {
               ["Where do these leads come from?", "That's the trade secret — and the reason a sheet is worth paying for. What we can say: we continuously monitor independent signal sources across county, state, and municipal systems — signals scattered across systems in formats nobody reads — and consolidate them into one dashboard. Every lead is verified against county records before it reaches you: a real commercial property, measured and priced, that is about to award service contracts. Judge us on the free one."],
               [`Why cap a job at ${cap} companies?`, "Because a lead shared with fifty companies is worthless. A tight cap — counted within your trade, so you never compete with a different trade's buyers — keeps every sheet worth bidding on, and the exclusive option exists when you want zero competition."],
               ["Which trades do you cover?", "Landscaping, pest control, commercial cleaning, paving, security, and HVAC today — with roofing, plumbing, electrical, and more on the way. The same property event (a new owner, an opening, a buildout) puts vendor decisions in motion for every trade at once; you only ever see the jobs ranked for yours."],
-              ["Which cities are you in?", "Houston and Dallas–Fort Worth today, and we're expanding nationwide metro by metro. In every city we cover, the goal is the same: the most complete picture of who's about to buy — every signal source consolidated, every lead verified."],
+              ["Which cities are you in?", "Nine Texas metros today — Houston, Dallas–Fort Worth, San Antonio, Austin, El Paso, Corpus Christi, Waco, Brownsville–Harlingen, and Beaumont–Port Arthur — and we're expanding metro by metro. In every city we cover, the goal is the same: the most complete picture of who's about to buy — every signal source consolidated, every lead verified."],
               ["What if the free sheet isn't good?", "Then you close the tab and you've lost nothing. We put a real job — measurement, contacts, letter — in your hands first because the sheet is the sales pitch."],
             ].map(([q, a]) => (
               <div key={q} className="rounded-2xl border border-gray-200 bg-white p-6">
