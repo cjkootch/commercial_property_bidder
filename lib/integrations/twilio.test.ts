@@ -1,6 +1,19 @@
 import { describe, expect, it } from "vitest";
 import crypto from "node:crypto";
-import { toE164, verifyTwilioSignature } from "./twilio";
+import { smsStatusRank, toE164, verifyTwilioSignature } from "./twilio";
+
+describe("smsStatusRank", () => {
+  it("orders the delivery lifecycle monotonically", () => {
+    expect(smsStatusRank("queued")).toBeLessThan(smsStatusRank("sent"));
+    expect(smsStatusRank("sent")).toBeLessThan(smsStatusRank("delivered"));
+    // Terminal states tie — a retried callback is an idempotent no-op.
+    expect(smsStatusRank("failed")).toBe(smsStatusRank("delivered"));
+    expect(smsStatusRank("undelivered")).toBe(smsStatusRank("delivered"));
+    // The out-of-order case that motivated the guard:
+    expect(smsStatusRank("sent")).toBeLessThan(smsStatusRank("delivered"));
+    expect(smsStatusRank("unknown-future-status")).toBe(0);
+  });
+});
 
 describe("toE164", () => {
   it("normalizes US formats", () => {
