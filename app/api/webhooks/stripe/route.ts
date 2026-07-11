@@ -450,6 +450,7 @@ async function handleExpiredCheckout(session: CheckoutSession | undefined) {
       `<p style="color:#888;font-size:12px">This is a one-time reminder — we won't email you about it again. ` +
       `<a href="${unsubUrl}">Unsubscribe from alerts</a>.</p>`,
     tags: { kind: "cart_recovery" },
+    logAs: { kind: "cart_nudge", buyerId: b.id, refId: propertyId ?? packageId ?? null },
     headers: {
       "List-Unsubscribe": `<${unsubUrl}>`,
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",

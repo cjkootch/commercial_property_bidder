@@ -492,6 +492,30 @@ export const sourcingReject = pgTable("sourcing_reject", {
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// --- email_send --------------------------------------------------------------
+// The central send log for one-off emails (publish alerts, cart nudges, and
+// any future path): sendEmail({logAs}) inserts a row and stores the Resend
+// message id, so the engagement webhook can attribute opens/clicks. Exists
+// because two shipped paths were flying blind — the rule is now "if it sends,
+// it logs" (docs/instrumentation.md). Campaign sends keep their richer
+// domain tables (buyer_outreach/outreach); this is for everything else.
+
+export const emailSend = pgTable("email_send", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** "res_publish_alert" | "cart_nudge" | ... — the path that sent it. */
+  kind: text("kind").notNull(),
+  buyer_id: uuid("buyer_id").references(() => buyer.id, { onDelete: "set null" }),
+  /** What it was about (package id, property id) — attribution joins. */
+  ref_id: text("ref_id"),
+  to_email: text("to_email").notNull(),
+  subject: text("subject"),
+  resend_message_id: text("resend_message_id"),
+  delivered_at: timestamp("delivered_at", { withTimezone: true }),
+  opened_at: timestamp("opened_at", { withTimezone: true }),
+  clicked_at: timestamp("clicked_at", { withTimezone: true }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // --- suppression ---------------------------------------------------------
 // Checked before every send (build spec section 9). Email is unique.
 

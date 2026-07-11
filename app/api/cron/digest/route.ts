@@ -48,6 +48,20 @@ export async function GET(req: NextRequest) {
     })
     .from(sql`(select 1) as one`);
 
+  // A/B subject-line win rates, all-time (the variant is embedded in the
+  // stored message as "SUBJECT[A]: ..." — this makes the running experiment
+  // actually readable; before this line, results were never surfaced).
+  const ab = await db
+    .select({
+      variant: sql<string>`case when ${buyerOutreach.message} like 'SUBJECT[B]%' then 'B' else 'A' end`,
+      sent: sql<number>`count(*)`,
+      opened: sql<number>`count(*) filter (where ${buyerOutreach.opened_at} is not null)`,
+      clicked: sql<number>`count(*) filter (where ${buyerOutreach.clicked_at} is not null)`,
+    })
+    .from(buyerOutreach)
+    .where(and(eq(buyerOutreach.status, "sent"), sql`${buyerOutreach.message} like 'SUBJECT[%'`))
+    .groupBy(sql`1`);
+
   // The hot list: clicked in the last 24h, not yet converted.
   const hot = await db
     .select({
@@ -77,6 +91,7 @@ export async function GET(req: NextRequest) {
       ${row("Buyer chat messages", Number(counts.chats))}
     </table>
     ${hot.length ? `<p style="margin:12px 0 4px"><strong>Hot (clicked in the last 24h):</strong></p><ul style="margin:0;padding-left:18px">${hot.map((h) => `<li>${esc(h.company)}${h.city ? ` (${esc(h.city)})` : ""} — ${h.clicks} clicks</li>`).join("")}</ul>` : ""}
+    ${ab.length ? `<p style="margin:12px 0 4px"><strong>Subject A/B (all-time):</strong></p><ul style="margin:0;padding-left:18px">${ab.map((v) => `<li>Variant ${v.variant}: ${v.sent} sent · ${v.opened} opened (${v.sent ? Math.round((100 * Number(v.opened)) / Number(v.sent)) : 0}%) · ${v.clicked} clicked (${v.sent ? Math.round((100 * Number(v.clicked)) / Number(v.sent)) : 0}%)</li>`).join("")}</ul>` : ""}
   </div>`;
 
   await sendEmail({

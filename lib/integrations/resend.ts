@@ -38,6 +38,13 @@ export async function sendEmail(args: {
    *  address). Replies ARE the conversion event — route them somewhere
    *  watched. */
   replyTo?: string;
+  /** Log this send to email_send so the engagement webhook can attribute
+   *  opens/clicks. REQUIRED for any buyer-facing one-off path (the
+   *  instrumentation rule: if it sends, it logs — docs/instrumentation.md).
+   *  Campaign sends that already persist their message id in a domain table
+   *  (buyer_outreach/outreach) skip this. Best-effort: a log failure never
+   *  fails the send. */
+  logAs?: { kind: string; buyerId?: string | null; refId?: string | null };
 }): Promise<SendResult> {
   const key = getResendKey();
   const from = getResendFrom();
@@ -64,6 +71,22 @@ export async function sendEmail(args: {
     });
     const data = (await res.json().catch(() => ({}))) as { id?: string; message?: string };
     if (!res.ok || !data.id) return { ok: false, error: data.message || `HTTP ${res.status}` };
+    if (args.logAs) {
+      try {
+        const { db } = await import("../db");
+        const { emailSend } = await import("../db/schema");
+        await db.insert(emailSend).values({
+          kind: args.logAs.kind,
+          buyer_id: args.logAs.buyerId ?? null,
+          ref_id: args.logAs.refId ?? null,
+          to_email: args.to,
+          subject: args.subject,
+          resend_message_id: data.id,
+        });
+      } catch (e) {
+        console.error("email_send log failed (send succeeded):", e);
+      }
+    }
     return { ok: true, id: data.id };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "send failed" };
