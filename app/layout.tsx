@@ -6,11 +6,11 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://greenkeep.us"),
   title: "Greenkeep",
   description:
-    "High-intent commercial job leads for local service companies — landscaping, pest control, cleaning, paving, security, HVAC, and more.",
+    "High-intent commercial job leads for local service companies — landscaping, pest control, cleaning, HVAC, fire protection, roofing, and more, across 9 Texas metros.",
   openGraph: {
     title: "Greenkeep — buy the job, not the click",
     description:
-      "High-intent commercial leads for landscaping, pest control, cleaning, paving, security, and HVAC — measured from the air, capped at 3 companies per trade. First sheet free.",
+      "High-intent commercial leads across 11 service trades and 9 Texas metros — verified against county records, capped at 3 companies per trade. First sheet free.",
     type: "website",
   },
 };

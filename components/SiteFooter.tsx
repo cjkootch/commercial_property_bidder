@@ -40,8 +40,10 @@ export function SiteFooter({
               </ul>
             </div>
             <div>
-              <div className="font-semibold text-gray-900">Legal</div>
+              <div className="font-semibold text-gray-900">Company</div>
               <ul className="mt-3 space-y-2 text-gray-500">
+                <li><Link href="/about" className="hover:text-gray-900">About</Link></li>
+                <li><Link href="/contact" className="hover:text-gray-900">Contact</Link></li>
                 <li><Link href="/terms" className="hover:text-gray-900">Terms</Link></li>
                 <li><Link href="/privacy" className="hover:text-gray-900">Privacy</Link></li>
               </ul>

@@ -18,6 +18,8 @@ const PUBLIC_PREFIXES = [
   "/terms",
   "/privacy",
   "/why",
+  "/about", // diligence pages — a login wall here reads as fly-by-night
+  "/contact",
   "/residential",
   "/commercial",
   "/bids", // owner-side bid requests (public form)
