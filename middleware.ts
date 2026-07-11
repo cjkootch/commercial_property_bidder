@@ -38,6 +38,7 @@ const PUBLIC_PREFIXES = [
   "/api/property-preview",
   "/api/postcard-asset", // Lob fetches the prospect aerial by unguessable slug
   "/api/cron", // routes self-authenticate with CRON_SECRET
+  "/api/reports/snapshot", // self-authenticates with CRON_SECRET (machine twin of /reports)
 ];
 
 export function middleware(req: NextRequest) {
