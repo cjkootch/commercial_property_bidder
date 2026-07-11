@@ -31,7 +31,59 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
-_None open — all three cleared 2026-07-10 (see Done). Awaiting Claude's next round._
+### 4. CivicEngage/CivicPlus bid-board tenant sweep (the Ionwave replacement)
+
+Your McAllen report found Hidalgo County's CivicEngage bid board
+(`hidalgocounty.us/Bids.aspx?CatID=All&showAllBids=on`) is server-rendered,
+no-login, raw-HTTP-parseable — and CivicPlus/CivicEngage powers hundreds of
+Texas municipal sites. The Ionwave feed died on content (0% grounds); this
+sweep decides whether a one-parser CivicEngage feed lives or dies the same way.
+
+- Sweep our nine metros (Houston, DFW, San Antonio, Austin, El Paso, Corpus,
+  Waco, Brownsville, Beaumont) — core cities, counties, and major suburbs
+  (Arlington, Plano, Round Rock, Sugar Land, Pasadena, Laredo excluded) — for
+  live `/Bids.aspx` boards. CivicPlus tenants are usually the agency's own
+  domain (`<city>tx.gov`, `<county>.us`, etc.); detection = GET `/Bids.aspx`
+  returning the bid-table page.
+- For each live board: open-bid count, one sanitized sample row, and whether
+  the table HTML shape matches Hidalgo County's (one parser?).
+- **The deciding number:** grounds hit rate across ALL open bids found, using
+  the same keyword set as the Ionwave probe (landscap, grounds, mow,
+  irrigation, tree/arbor, janitor/custodial services, right-of-way, median,
+  park/athletic-field maintenance). Distinguish services from supplies.
+- Politeness: one GET per candidate domain, paced; skip anything gated.
+
+Deliverable: `docs/market-research/civicengage-bid-boards-<date>.md`.
+
+### 5. Hidalgo TABC per-city split (small)
+
+Same Socrata dataset as the probe (`data.texas.gov/resource/mxm5-tdpj.json`),
+`upper(county)='HIDALGO'`, but grouped by city — how do the 23 pending split
+across McAllen / Edinburg / Mission / Pharr / elsewhere? Also note the address
+field quality (full situs?). This sizes how much of metro #10's TABC signal
+the Edinburg+Weslaco parcel clips can actually gate, informing whether we
+launch with partial coverage or wait for the CAD data request.
+
+Deliverable: fold into a short section appended to
+`docs/market-research/mcallen-hidalgo-<date>-addendum.md`.
+
+### 6. Fresh-deed hunt — Harris & Travis county clerks (completes the set)
+
+Same playbook as your Bexar and Tarrant/Dallas hunts (both were exactly the
+right format). Two counties, one question each:
+
+- **Harris (Houston)**: check `harris.tx.publicsearch.us` first; if absent,
+  the clerk's own system (harriscountyclerk.org / ccinfo). Public, no-login,
+  recorded-date-range + deed doc-type filter? Certified-through freshness and
+  last-10-day volume.
+- **Travis (Austin)**: this one matters double — Travis CAD deed data is
+  frozen ~2 years stale (verified 2026-07-09), which is why Austin residential
+  is deferred. A days-fresh clerk source would unblock the entire Austin
+  new-mover product. Check `travis.tx.publicsearch.us`, then the clerk's
+  official records search.
+
+Flag anything gated; do not bypass. Deliverable:
+`docs/market-research/fresh-deed-sources-harris-travis-<date>.md`.
 
 ## Done
 
