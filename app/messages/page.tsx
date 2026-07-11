@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, chatMessage } from "@/lib/db/schema";
+import { buyer, chatMessage, smsSend } from "@/lib/db/schema";
 
 // Operator inbox: one thread per buyer, newest activity first, unread counts.
 export const dynamic = "force-dynamic";
@@ -21,9 +21,32 @@ export default async function MessagesInbox() {
   }
   const list = [...threads.values()];
 
+  // SMS "awaiting reply" badge: threads whose latest message is inbound.
+  const sms = await db
+    .select({ phone: smsSend.phone, direction: smsSend.direction })
+    .from(smsSend)
+    .orderBy(desc(smsSend.created_at))
+    .limit(2000);
+  const latestByPhone = new Map<string, string>();
+  for (const m of sms) if (!latestByPhone.has(m.phone)) latestByPhone.set(m.phone, m.direction);
+  const smsAwaiting = [...latestByPhone.values()].filter((d) => d === "in").length;
+
   return (
     <div>
-      <h1 className="text-2xl font-semibold">Messages</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">Messages</h1>
+        <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs font-semibold">
+          <span className="bg-brand px-3 py-1.5 text-white">Buyer chats</span>
+          <Link href="/messages/sms" className="bg-white px-3 py-1.5 text-gray-600 hover:bg-gray-50">
+            Texts
+            {smsAwaiting > 0 ? (
+              <span className="ml-1.5 rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-bold text-white">
+                {smsAwaiting}
+              </span>
+            ) : null}
+          </Link>
+        </div>
+      </div>
       <p className="mt-1 text-sm text-gray-500">
         Buyer chat threads — replies also go out by email.
       </p>
