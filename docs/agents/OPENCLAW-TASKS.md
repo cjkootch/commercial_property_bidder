@@ -31,8 +31,67 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
-_None open — round 3 was run in-house by Claude 2026-07-10 (operator asked
-for same-night turnaround while OpenClaw was busy; see Done). Round 4 TBD._
+### 7. Permit + 311 signal expansion — DFW, San Antonio, Austin (the big one)
+
+Houston runs four signal feeds; Dallas/SA/Austin each run two. New signal
+TYPES in metros we already sell multiply against 11 trades and existing
+demand machinery — better ROI than new metros. For each of Dallas, Fort
+Worth, Arlington, San Antonio, and Austin:
+
+- **Building permits**: the city's open-data endpoint (all five run Socrata
+  or ArcGIS open-data portals). Document: dataset id/URL, update cadence
+  (daily?), fields for valuation/cost, work type, commercial-vs-residential
+  discriminator, issue date, address/coords quality. Sample 3 rows. Our
+  Houston permits feed filters `minCost` + commercial + recency — say
+  whether the same filter is expressible.
+- **Code violations / 311**: the city's dataset. Document: case-type
+  vocabulary (which types imply forced property maintenance: high weeds,
+  dumping/debris, graffiti, stagnant water, dangerous structure), status
+  fields, freshness, address quality. Sample 3 rows.
+- Note any API-key/app-token requirements (Socrata tokens are free —
+  FLAG for human signup rather than creating one).
+
+Deliverable: `docs/market-research/permit-311-signals-<date>.md`, one
+section per city, with a build-order recommendation (which city's data is
+cleanest first).
+
+### 8. Clerk fresh-deed hunt — Cameron, Jefferson, Nueces, McLennan, Hidalgo
+
+Completes the residential-expansion map (Bexar/Tarrant/Dallas verified
+open; El Paso + Travis blocked on Cloudflare). Same playbook and format as
+your prior hunts. For each county: check `<county>.tx.publicsearch.us`
+first, then the clerk's own system. Public, no-login, recorded-date-range +
+deed doc-type filter? Certified-through freshness, last-10-day volume,
+CAPTCHA posture. Flag anything gated; don't bypass.
+
+Deliverable: `docs/market-research/fresh-deed-sources-round3-<date>.md`.
+
+### 9. State scout: which state is "Texas 2.0"?
+
+The stack's three signal legs are Texas agencies (TABC licenses, LGBS tax
+sales, CAD parcel rolls). Before any out-of-state move, we need to know
+which state replicates all the legs with Texas-grade openness. Score
+Florida, Arizona, Georgia, North Carolina, and Tennessee on:
+
+1. **Alcohol licensing**: does the state ABC publish pending/new license
+   applications, machine-readable, with premises addresses? (Florida DBPR
+   is the hypothesis to test first.)
+2. **Tax sales**: statewide or major-county delinquent/tax-deed pipelines
+   with public property lists (the LGBS equivalent).
+3. **Parcel rolls**: assessor/appraiser data openness — statewide portals
+   (e.g., FL DOR), per-county GIS, vendor patterns; owner/class/value/deed
+   fields.
+4. **Recorder freshness**: county recorder/clerk official-records search
+   in the 2-3 biggest metros — GovOS/PublicSearch tenants count double
+   (our scraper pattern already exists).
+5. **Procurement**: Bonfire/Ionwave/CivicEngage footprint in the top metros.
+
+Deliverable: `docs/market-research/state-scout-<date>.md` — one page per
+state, a scored comparison table, and ONE recommended state with its
+first-metro pick. Evidence rules as always: exact URLs, sample rows,
+freshness measured not assumed.
+
+_Priority: 7 first, then 8, then 9._
 
 <!-- Round-3 briefs preserved below for reference; all delivered.
 
