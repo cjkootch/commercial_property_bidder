@@ -103,6 +103,28 @@ export async function sendSms(args: {
 }
 
 /**
+ * Delivery-state rank — status callbacks can arrive out of order (a late
+ * "sent" after "delivered"), so updates must never move a message backwards.
+ * Terminal states rank equal so a retried callback is an idempotent no-op.
+ */
+export function smsStatusRank(status: string): number {
+  switch (status) {
+    case "delivered":
+    case "undelivered":
+    case "failed":
+      return 3;
+    case "sent":
+      return 2;
+    case "queued":
+    case "accepted":
+    case "sending":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+/**
  * Validate X-Twilio-Signature: base64(HMAC-SHA1(url + sorted(key+value)…)).
  * `url` must be the EXACT public URL Twilio hit (scheme + host + path).
  */

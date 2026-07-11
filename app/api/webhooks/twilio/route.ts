@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
-import { verifyTwilioSignature } from "@/lib/integrations/twilio";
+import { smsStatusRank, verifyTwilioSignature } from "@/lib/integrations/twilio";
 import { sendEmail } from "@/lib/integrations/resend";
 
 // Twilio webhook, two shapes on one URL (both form-encoded POSTs):
@@ -33,6 +33,9 @@ export async function POST(req: NextRequest) {
   // --- delivery status callback ---------------------------------------------
   if (params.MessageStatus && params.MessageSid) {
     const status = params.MessageStatus; // queued|sent|delivered|undelivered|failed
+    // Callbacks arrive out of order — never downgrade (a late "sent" must not
+    // overwrite "delivered"). Rank guard in the WHERE keeps it one atomic
+    // statement (no transactions on the Neon HTTP driver).
     await db
       .update(smsSend)
       .set({
@@ -40,7 +43,16 @@ export async function POST(req: NextRequest) {
         error_code: params.ErrorCode || null,
         ...(status === "delivered" ? { delivered_at: new Date() } : {}),
       })
-      .where(eq(smsSend.twilio_sid, params.MessageSid));
+      .where(
+        and(
+          eq(smsSend.twilio_sid, params.MessageSid),
+          sql`case ${smsSend.status}
+                when 'delivered' then 3 when 'undelivered' then 3 when 'failed' then 3
+                when 'sent' then 2
+                when 'queued' then 1 when 'accepted' then 1 when 'sending' then 1
+                else 0 end <= ${smsStatusRank(status)}`
+        )
+      );
     return new Response(null, { status: 204 });
   }
 
@@ -48,6 +60,22 @@ export async function POST(req: NextRequest) {
   const from = params.From ?? "";
   const body = (params.Body ?? "").trim();
   if (!from || !body) return new Response(null, { status: 204 });
+
+  // Twilio retries webhooks on slow/failed responses — dedupe by message SID
+  // so a retry never double-logs the reply or double-pages the operator.
+  const inboundSid = params.MessageSid || params.SmsMessageSid || null;
+  if (inboundSid) {
+    const [dup] = await db
+      .select({ id: smsSend.id })
+      .from(smsSend)
+      .where(eq(smsSend.twilio_sid, inboundSid))
+      .limit(1);
+    if (dup) {
+      return new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
+        headers: { "Content-Type": "text/xml" },
+      });
+    }
+  }
 
   const word = body.toLowerCase().replace(/[^a-z]/g, "");
   if (STOP_WORDS.has(word)) {
@@ -72,7 +100,7 @@ export async function POST(req: NextRequest) {
     company_key: match?.key ?? null,
     phone: from,
     body,
-    twilio_sid: params.MessageSid || params.SmsMessageSid || null,
+    twilio_sid: inboundSid,
     status: "received",
   });
 
