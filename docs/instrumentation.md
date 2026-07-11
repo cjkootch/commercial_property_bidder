@@ -23,6 +23,16 @@ how the system improves; a path without it can't be judged, only vibed about.
    tables (not Resend-side tags alone) and shown in the digest. The subject
    A/B test reads its variant from the stored `SUBJECT[A|B]:` message prefix.
 
+## SMS (Twilio)
+
+The rule extends to texts: every outbound SMS goes through
+`sendSms()` (`lib/integrations/twilio.ts`), which refuses opted-out numbers
+and logs an `sms_send` row; delivery state updates via the status callback on
+`app/api/webhooks/twilio/route.ts`, and inbound replies log there too
+(direction `in`) + page the operator. STOP/START keywords maintain
+`sms_opt_out`. The thread renders on the company profile. Never build bulk
+cold texting — TCPA treats SMS like calls, not email.
+
 ## Exemptions
 
 - Transactional mail the buyer asked for this second (magic links, receipts,

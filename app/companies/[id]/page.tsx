@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, buyerOutreach, leadUnlock, property, prospectCompany } from "@/lib/db/schema";
+import { buyer, buyerOutreach, leadUnlock, property, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
 import { displayName } from "@/lib/leads/market";
 import { TRADES, asTrade } from "@/lib/leads/trades";
-import { blockCompany, replyToCompany, unblockCompany } from "../actions";
+import { toE164 } from "@/lib/integrations/twilio";
+import { blockCompany, replyToCompany, smsCompany, unblockCompany } from "../actions";
 
 // Company profile drill-down: identity, the full cross-campaign email journey
 // (every send with its funnel state and the exact copy), claim-page reads, and
@@ -26,7 +27,7 @@ export default async function CompanyProfilePage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { reply?: string };
+  searchParams: { reply?: string; sms?: string };
 }) {
   const [p] = await db
     .select()
@@ -88,6 +89,29 @@ export default async function CompanyProfilePage({
         .where(eq(leadUnlock.buyer_id, account.id))
         .orderBy(desc(leadUnlock.created_at))
     : [];
+
+  // SMS thread + opt-out state. Guarded: before migration 0045 these tables
+  // don't exist yet, and the rest of the profile must still render.
+  let smsThread: (typeof smsSend.$inferSelect)[] = [];
+  let smsOptedOut = false;
+  const phoneE164 = toE164(p.phone);
+  try {
+    smsThread = await db
+      .select()
+      .from(smsSend)
+      .where(eq(smsSend.company_key, p.key))
+      .orderBy(desc(smsSend.created_at));
+    if (phoneE164) {
+      const [opt] = await db
+        .select({ id: smsOptOut.id })
+        .from(smsOptOut)
+        .where(eq(smsOptOut.phone, phoneE164))
+        .limit(1);
+      smsOptedOut = !!opt;
+    }
+  } catch {
+    // sms tables not migrated yet — the compose form still works once they are.
+  }
 
   const usd = (c: number) => `$${(c / 100).toLocaleString()}`;
   // null = not a campaign row (operator direct reply) — badge it as a reply,
@@ -270,6 +294,71 @@ export default async function CompanyProfilePage({
               Send from leads@
             </button>
           </form>
+        </div>
+      ) : null}
+
+      {p.phone ? (
+        <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4">
+          <h2 className="text-sm font-bold text-gray-900">
+            Text {p.phone}{" "}
+            <span className="font-normal text-gray-400">
+              — one-to-one reply/follow-up, logged below, STOP honored
+            </span>
+          </h2>
+          {smsOptedOut ? (
+            <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              This number replied STOP — sending is blocked until they text START.
+            </p>
+          ) : null}
+          {searchParams.sms === "sent" ? (
+            <p className="mt-2 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">Sent.</p>
+          ) : searchParams.sms ? (
+            <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              Not sent (
+              {searchParams.sms === "missing"
+                ? "message is required"
+                : searchParams.sms === "nophone"
+                  ? "no phone on file"
+                  : searchParams.sms}
+              ).
+            </p>
+          ) : null}
+          {smsThread.length ? (
+            <ul className="mt-3 space-y-1.5">
+              {smsThread.map((m) => (
+                <li key={m.id} className={`flex ${m.direction === "in" ? "justify-start" : "justify-end"}`}>
+                  <div
+                    className={`max-w-md rounded-lg px-3 py-1.5 text-sm ${
+                      m.direction === "in" ? "bg-gray-100 text-gray-800" : "bg-brand/10 text-gray-800"
+                    }`}
+                  >
+                    {m.body}
+                    <div className="mt-0.5 text-[10px] text-gray-400">
+                      {m.direction === "in" ? "them" : "you"} · {fmt(m.created_at)}
+                      {m.direction === "out" ? ` · ${m.status}` : ""}
+                      {m.error_code ? ` (${m.error_code})` : ""}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {!smsOptedOut ? (
+            <form action={smsCompany} className="mt-3 space-y-2">
+              <input type="hidden" name="id" value={p.id} />
+              <textarea
+                name="body"
+                rows={3}
+                maxLength={1200}
+                placeholder="Text message — plain text, keep it short (160 chars = 1 segment)."
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                required
+              />
+              <button className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:opacity-90">
+                Send SMS
+              </button>
+            </form>
+          ) : null}
         </div>
       ) : null}
 

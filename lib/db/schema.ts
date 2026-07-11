@@ -516,6 +516,42 @@ export const emailSend = pgTable("email_send", {
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// --- sms_send ----------------------------------------------------------------
+// The SMS twin of email_send — every Twilio message (out OR in) gets a row
+// (the instrumentation rule: if it sends, it logs). Status callbacks update
+// delivery state by twilio_sid; inbound replies land here too (direction
+// "in") so the company profile shows the whole thread.
+
+export const smsSend = pgTable("sms_send", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  direction: text("direction").notNull().default("out"), // out | in
+  /** "company_sms" | "inbound" | future kinds — the path that sent it. */
+  kind: text("kind").notNull(),
+  /** prospect_company.key — joins SMS onto the company journey. */
+  company_key: text("company_key"),
+  buyer_id: uuid("buyer_id").references(() => buyer.id, { onDelete: "set null" }),
+  ref_id: text("ref_id"),
+  /** The counterparty's number, E.164 (their phone for both directions). */
+  phone: text("phone").notNull(),
+  body: text("body").notNull(),
+  twilio_sid: text("twilio_sid"),
+  // queued | sent | delivered | undelivered | failed | received
+  status: text("status").notNull().default("queued"),
+  error_code: text("error_code"),
+  delivered_at: timestamp("delivered_at", { withTimezone: true }),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// SMS opt-outs (STOP replies + manual). Checked before EVERY outbound SMS —
+// Twilio blocks STOP'd numbers at the carrier level too, but we keep our own
+// ledger so the UI can say "opted out" instead of silently failing.
+export const smsOptOut = pgTable("sms_opt_out", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  phone: text("phone").notNull().unique(), // E.164
+  reason: text("reason"),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // --- suppression ---------------------------------------------------------
 // Checked before every send (build spec section 9). Email is unique.
 
