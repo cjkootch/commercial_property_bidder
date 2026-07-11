@@ -31,6 +31,11 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
+_None open — round 3 was run in-house by Claude 2026-07-10 (operator asked
+for same-night turnaround while OpenClaw was busy; see Done). Round 4 TBD._
+
+<!-- Round-3 briefs preserved below for reference; all delivered.
+
 ### 4. CivicEngage/CivicPlus bid-board tenant sweep (the Ionwave replacement)
 
 Your McAllen report found Hidalgo County's CivicEngage bid board
@@ -85,6 +90,8 @@ right format). Two counties, one question each:
 Flag anything gated; do not bypass. Deliverable:
 `docs/market-research/fresh-deed-sources-harris-travis-<date>.md`.
 
+-->
+
 ## Done
 
 - 2026-07-10 — Texas metro expansion sweep →
@@ -113,3 +120,19 @@ Flag anything gated; do not bypass. Deliverable:
   Tarrant certified through 07/06, Dallas through 07/08; days-fresh, no
   CAPTCHA; FLAG: bulk "Export all Results" rate/volume untested before a
   scaled recurring pull).
+- 2026-07-10 — [run by Claude] CivicEngage bid-board sweep →
+  `docs/market-research/civicengage-bid-boards-2026-07-10.md` (6 live boards
+  of 49 probed, 35 unique bids, **0 grounds-relevant** — feed killed on
+  content, same as Ionwave; quarterly re-probe trigger noted).
+- 2026-07-10 — [run by Claude] Hidalgo TABC per-city split →
+  `docs/market-research/mcallen-hidalgo-2026-07-10-addendum.md` (Edinburg 7 /
+  McAllen 4 / Mission 4 / Pharr 2 / Weslaco 2 / other 4; the city clips gate
+  9 of 23 = 39% — recommendation stays: CAD data request before building
+  metro #10).
+- 2026-07-10 — [run by Claude] Harris & Travis fresh-deed hunt →
+  `docs/market-research/fresh-deed-sources-harris-travis-2026-07-10.md`
+  (**travis.tx.publicsearch.us EXISTS** — same GovOS platform, RP/Land
+  Records confirmed from app config; 5-min attended check of the certified
+  date decides Austin residential. Harris: no PublicSearch tenant; clerk's
+  own ASP.NET search has the right fields, no CAPTCHA, but bounced to its
+  maintenance page at probe time — attended re-check; HCAD fallback fine).
