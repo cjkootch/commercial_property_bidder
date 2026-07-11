@@ -37,13 +37,13 @@ import {
 } from "../leads/trades";
 import { scrapeBusinessContact } from "../integrations/contact";
 import { geocodeAddress } from "../integrations/geocoding";
+import { upsertProspectCompany } from "../leads/companies";
 import { sendEmail } from "../integrations/resend";
 import { signBuyerClaim, signBuyerUnsub } from "../buyer-auth";
 import { leadMaxBuyers } from "../leads/availability";
 import { haversineMiles } from "../sourcing/criteria";
 import { loadMarketLeads, type LeadKind, type MarketLead } from "../leads/market";
 import { leadTierFor } from "../leads/pricing-tiers";
-import { upsertProspectCompany } from "../leads/companies";
 
 /** Don't email a NEWLY DISCOVERED company again within this window. Known
  *  contacts (past recipients) instead follow the area-alert cadence below. */
@@ -636,6 +636,24 @@ export async function runBuyerProspecting(opts?: {
     }
     if (opts?.excludeKeys?.some((x) => x && key.includes(x))) {
       log.push(`  \u00d7 ${c.name} \u2014 excluded by operator`);
+      // LEARNED blocklist: a live-send exclude is an operator verdict, not a
+      // one-off \u2014 persist it as blocked so no future run (especially the
+      // autonomous daily engine) ever re-surfaces this company.
+      if (doSend && !opts?.dryRun) {
+        try {
+          await upsertProspectCompany({ name: c.name, trade });
+          await db
+            .update(schema.prospectCompany)
+            .set({
+              blocked_at: new Date(),
+              blocked_reason: "operator exclude= on a live send",
+              updated_at: new Date(),
+            })
+            .where(eq(schema.prospectCompany.key, key));
+        } catch {
+          // best-effort: the exclusion itself already applied this run
+        }
+      }
       continue;
     }
     attempts--;

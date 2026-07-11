@@ -31,6 +31,10 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
+_None open — round 4 cleared 2026-07-10 (see Done). Round 5 TBD._
+
+<!-- Round-4 briefs preserved below for reference; all delivered.
+
 ### 7. Permit + 311 signal expansion — DFW, San Antonio, Austin (the big one)
 
 Houston runs four signal feeds; Dallas/SA/Austin each run two. New signal
@@ -92,6 +96,8 @@ first-metro pick. Evidence rules as always: exact URLs, sample rows,
 freshness measured not assumed.
 
 _Priority: 7 first, then 8, then 9._
+
+-->
 
 <!-- Round-3 briefs preserved below for reference; all delivered.
 
@@ -195,3 +201,26 @@ Flag anything gated; do not bypass. Deliverable:
   date decides Austin residential. Harris: no PublicSearch tenant; clerk's
   own ASP.NET search has the right fields, no CAPTCHA, but bounced to its
   maintenance page at probe time — attended re-check; HCAD fallback fine).
+- 2026-07-10 — Permit + 311 signal expansion (DFW/SA/Austin) →
+  `docs/market-research/permit-311-signals-2026-07-10.md` (build order: SA +
+  Austin first — both legs clean, Houston-style commercial+minCost+recency
+  filter verified expressible; SA 311 has the richest granular vocabulary
+  (Overgrown/Illegal Dumping/Graffiti/Dangerous). Fort Worth migrated Socrata
+  →ArcGIS (old ids dead), permits ideal but code lags 3-4wk. Arlington
+  permits-only (311 = mislabeled Greensboro NC data, walled). Dallas weakest:
+  permits froze 2019, 311 ~92% single opaque "Code Concern" umbrella).
+- 2026-07-10 — Clerk fresh-deed hunt, round 3 (Cameron/Jefferson/Nueces/
+  McLennan/Hidalgo) → `docs/market-research/fresh-deed-sources-round3-2026-07-10.md`
+  (clean sweep — NONE gated: 4 are Kofile PublicSearch on the Bexar query
+  shape, days-fresh (Cameron 07/08, Jefferson 07/09, Nueces 07/09, Hidalgo
+  07/08, vols 875-3,174/10d); McLennan = public Tyler portal, 1-click
+  disclaimer only. Deed-only counts + McLennan freshness need a browser-click
+  pass — harness limit, not site gating).
+- 2026-07-10 — State scout "Texas 2.0" (FL/AZ/GA/NC/TN) →
+  `docs/market-research/state-scout-2026-07-10.md` (**FLORIDA wins 5/5** —
+  first metro Tampa/Hillsborough; standout = DBPR daily application CSV w/
+  premises addresses (matches TABC) + statewide parcel FeatureServer +
+  RealAuction tax deeds + Broward/Orange double-count recorders + live
+  Bonfire. AZ/Phoenix A- runner-up (best open assessor API; procurement
+  fragmented). GA beats TX on statewide recorder+license roll but retail
+  licensing is local).
