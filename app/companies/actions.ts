@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany } from "@/lib/db/schema";
 import { sendEmail } from "@/lib/integrations/resend";
+import { sendSms } from "@/lib/integrations/twilio";
 
 // Operator verdicts on the company graph: a blocked profile never receives
 // another campaign email (the qualifier skips it in every run, every trade).
@@ -84,4 +85,27 @@ export async function unblockCompany(formData: FormData): Promise<void> {
     .where(eq(prospectCompany.id, id));
   revalidatePath("/companies");
   revalidatePath(`/companies/${id}`);
+}
+
+/** Operator 1:1 SMS from the company profile. Twilio-backed, logged to
+ *  sms_send, opt-outs honored. One-to-one replies/follow-ups only — bulk
+ *  cold texting is a TCPA problem email doesn't have; don't build it. */
+export async function smsCompany(formData: FormData): Promise<void> {
+  const id = (formData.get("id") as string) || "";
+  const body = ((formData.get("body") as string) || "").trim().slice(0, 1200);
+  if (!id || !body) redirect(`/companies/${id}?sms=missing`);
+
+  const [p] = await db.select().from(prospectCompany).where(eq(prospectCompany.id, id)).limit(1);
+  if (!p?.phone) redirect(`/companies/${id}?sms=nophone`);
+
+  const res = await sendSms({
+    to: p.phone,
+    body,
+    kind: "company_sms",
+    companyKey: p.key,
+    refId: p.id,
+  });
+  if (!res.ok) redirect(`/companies/${id}?sms=${encodeURIComponent(res.error.slice(0, 80))}`);
+  revalidatePath(`/companies/${id}`);
+  redirect(`/companies/${id}?sms=sent`);
 }
