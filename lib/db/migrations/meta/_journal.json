@@ -309,6 +309,13 @@
       "when": 1783786324057,
       "tag": "0043_flashy_luke_cage",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1783787102787,
+      "tag": "0044_green_vapor",
+      "breakpoints": true
     }
   ]
 }

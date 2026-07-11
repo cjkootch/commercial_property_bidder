@@ -107,6 +107,7 @@ export async function notifyBuyersOfPackagePublish(packageId: string): Promise<P
         `<p style="color:#888;font-size:12px">You get these because you turned on new-job alerts. ` +
         `<a href="${unsubUrl}">Unsubscribe with one click</a> or manage alerts in <a href="${b0}/buyers">your dashboard</a>.</p>`,
       tags: { kind: "residential_alert" },
+      logAs: { kind: "res_publish_alert", buyerId: b.id, refId: pkg.id },
       headers: {
         "List-Unsubscribe": `<${unsubUrl}>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",

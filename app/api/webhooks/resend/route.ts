@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyerOutreach, outreach, suppression, usageCounter } from "@/lib/db/schema";
+import { buyerOutreach, outreach, suppression, usageCounter, emailSend } from "@/lib/db/schema";
 import {
   getResendKey,
   getResendWebhookSecret,
@@ -87,6 +87,10 @@ export async function POST(req: NextRequest) {
           .update(buyerOutreach)
           .set({ delivered_at: at, last_event: type, updated_at: new Date() })
           .where(eq(buyerOutreach.resend_message_id, emailId));
+        await db
+          .update(emailSend)
+          .set({ delivered_at: at })
+          .where(eq(emailSend.resend_message_id, emailId));
         break;
       case "email.opened":
         await db
@@ -118,6 +122,10 @@ export async function POST(req: NextRequest) {
             updated_at: new Date(),
           })
           .where(eq(buyerOutreach.nudge_message_id, emailId));
+        await db
+          .update(emailSend)
+          .set({ opened_at: sql`coalesce(${emailSend.opened_at}, ${at.toISOString()})` })
+          .where(eq(emailSend.resend_message_id, emailId));
         break;
       case "email.clicked":
         await db
@@ -148,6 +156,10 @@ export async function POST(req: NextRequest) {
             updated_at: new Date(),
           })
           .where(eq(buyerOutreach.nudge_message_id, emailId));
+        await db
+          .update(emailSend)
+          .set({ clicked_at: sql`coalesce(${emailSend.clicked_at}, ${at.toISOString()})` })
+          .where(eq(emailSend.resend_message_id, emailId));
         break;
       case "email.bounced": {
         await db
