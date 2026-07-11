@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { alertOperatorOfSale } from "@/lib/email/operator-alerts";
 import {
   buyer,
   leadUnlock,
@@ -82,6 +83,8 @@ export async function POST(req: NextRequest) {
     };
     const meta = inv?.subscription_details?.metadata;
     if (meta?.type === "first_look" && meta.buyer_id) {
+      const amt = (inv as { amount_paid?: number }).amount_paid ?? null;
+      alertOperatorOfSale({ what: "First Look subscription payment", amountCents: amt }).catch(() => {});
       await db
         .update(buyer)
         .set({
@@ -129,6 +132,26 @@ export async function POST(req: NextRequest) {
   if (session.payment_status && session.payment_status !== "paid") {
     return NextResponse.json({ received: true, skipped: `payment_status ${session.payment_status}` });
   }
+
+  // Audit gap fix: money settling must alert the operator — before this, a
+  // first sale would have fired no notification at all. Fires before the
+  // fulfillment branches so credit-fallback outcomes still alert.
+  alertOperatorOfSale({
+    what: session.metadata?.type === "residential_package"
+      ? "residential address report"
+      : session.metadata?.type === "postcard"
+        ? "postcard mailing"
+        : session.metadata?.type === "prospect_postcard"
+          ? "prospect postcard mailing"
+          : session.metadata?.type === "first_look"
+            ? "First Look subscription"
+            : kind === "exclusive"
+              ? "EXCLUSIVE lead unlock"
+              : "lead unlock",
+    amountCents: (session as { amount_total?: number | null }).amount_total ?? null,
+    buyerEmail: (session as { customer_details?: { email?: string | null } }).customer_details?.email ?? null,
+    detail: propertyId ? `property ${propertyId}` : session.metadata?.residential_package_id ? `package ${session.metadata.residential_package_id}` : null,
+  }).catch(() => {});
 
   // First Look subscription activated — flip the plan on.
   if (session.metadata?.type === "first_look") {

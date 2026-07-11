@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { alertOperatorOfSignup } from "@/lib/email/operator-alerts";
 import { buyer, chatMessage, leadActivity, leadUnlock, property, suppression } from "@/lib/db/schema";
 import {
   BUYER_COOKIE,
@@ -85,6 +86,10 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
         .returning()
     )[0];
 
+  if (!existing) {
+    alertOperatorOfSignup({ company, email, trade, city: city || null, via: "claim" }).catch(() => {});
+  }
+
   const claimed = await tryFreeUnlock(row.id, claim.property_id, co?.name ?? null);
 
   // Stitch the journey: the claim token carries the company we pitched, so
@@ -143,6 +148,8 @@ export async function createBuyerAccount(formData: FormData): Promise<void> {
       lat: coords?.[1] ?? null,
     })
     .returning();
+
+  alertOperatorOfSignup({ company, email, trade, city: city || null, via: "signup" }).catch(() => {});
 
   cookies().set(BUYER_COOKIE, signBuyerSession(row.id), {
     httpOnly: true,
