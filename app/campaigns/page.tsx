@@ -21,6 +21,10 @@ type Blast = {
   delivered: number;
   opened: number;
   clicked: number;
+  /** Sequence step 2 (the 48h follow-up): sent / opened / clicked. */
+  nudged: number;
+  nudgeOpened: number;
+  nudgeClicked: number;
   claims: number;
 };
 
@@ -37,6 +41,9 @@ async function loadBlasts(): Promise<Blast[]> {
       delivered_at: buyerOutreach.delivered_at,
       opened_at: buyerOutreach.opened_at,
       clicked_at: buyerOutreach.clicked_at,
+      nudged_at: buyerOutreach.nudged_at,
+      nudge_opened_at: buyerOutreach.nudge_opened_at,
+      nudge_clicked_at: buyerOutreach.nudge_clicked_at,
     })
     .from(buyerOutreach)
     .orderBy(desc(buyerOutreach.created_at))
@@ -63,6 +70,9 @@ async function loadBlasts(): Promise<Blast[]> {
         delivered: 0,
         opened: 0,
         clicked: 0,
+        nudged: 0,
+        nudgeOpened: 0,
+        nudgeClicked: 0,
         claims: 0,
       };
       byProp.set(key, b);
@@ -73,6 +83,9 @@ async function loadBlasts(): Promise<Blast[]> {
     if (r.delivered_at) b.delivered++;
     if (r.opened_at) b.opened++;
     if (r.clicked_at) b.clicked++;
+    if (r.nudged_at) b.nudged++;
+    if (r.nudge_opened_at) b.nudgeOpened++;
+    if (r.nudge_clicked_at) b.nudgeClicked++;
     if (r.sent_at && (!b.lastSent || r.sent_at > b.lastSent)) b.lastSent = r.sent_at;
   }
   const ids = [...new Set([...byProp.values()].map((b) => b.propertyId))];
@@ -215,6 +228,7 @@ export default async function CampaignsPage({
                   <th className="px-3 py-2.5 text-right font-medium">Delivered</th>
                   <th className="px-3 py-2.5 text-right font-medium">Opened</th>
                   <th className="px-3 py-2.5 text-right font-medium">Clicked</th>
+                  <th className="px-3 py-2.5 text-right font-medium" title="The 48h follow-up step: sent / opened / clicked">Follow-up</th>
                   <th className="px-3 py-2.5 text-right font-medium">Bounced</th>
                   <th className="px-3 py-2.5 text-right font-medium">No email</th>
                   <th className="px-3 py-2.5 text-right font-medium">Claims</th>
@@ -247,6 +261,9 @@ export default async function CampaignsPage({
                     <td className="px-3 py-3 text-right tabular-nums">{b.delivered}</td>
                     <td className="px-3 py-3 text-right tabular-nums">{b.opened}</td>
                     <td className="px-3 py-3 text-right tabular-nums">{b.clicked}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-gray-600">
+                      {b.nudged ? `${b.nudged} · ${b.nudgeOpened}o · ${b.nudgeClicked}c` : "\u2014"}
+                    </td>
                     <td
                       className={`px-3 py-3 text-right tabular-nums ${b.bounced ? "font-medium text-red-600" : ""}`}
                     >

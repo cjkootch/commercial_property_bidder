@@ -205,6 +205,12 @@ export async function runNudges(opts?: { limit?: number; apply?: boolean }): Pro
     });
     if (res.ok) {
       sent++;
+      // Store the step's OWN message id so the Resend webhook can attribute
+      // the follow-up's opens/clicks (sequence-step reporting on /campaigns).
+      await db
+        .update(buyerOutreach)
+        .set({ nudge_message_id: res.id, updated_at: new Date() })
+        .where(eq(buyerOutreach.id, t.id));
       log.push(`  ✓ ${t.company_name} <${t.email}> — nudged`);
     } else {
       // Send failed after the claim — release it so a later run retries.
