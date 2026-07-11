@@ -31,6 +31,10 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
+_None open — round 5 cleared 2026-07-11 (see Done). Round 6 TBD._
+
+<!-- Round-5 briefs preserved below for reference; all delivered.
+
 ### 10. Tampa–Hillsborough full market workup (Florida metro #1 prep)
 
 Your state scout picked Florida/Tampa — now the build dossier, same shape as
@@ -91,6 +95,8 @@ Deliverable: `docs/market-research/lead-pricing-benchmark-<date>.md` with a
 table: source | trade | shared/exclusive | price | citation URL.
 
 _Priority: 11 first (unblocks a build already queued), then 10, then 12._
+
+-->
 
 <!-- Round-4 briefs preserved below for reference; all delivered.
 
@@ -283,3 +289,36 @@ Flag anything gated; do not bypass. Deliverable:
   Bonfire. AZ/Phoenix A- runner-up (best open assessor API; procurement
   fragmented). GA beats TX on statewide recorder+license roll but retail
   licensing is local).
+- 2026-07-11 — Kofile/PublicSearch parser recon (7-county deed build prep) →
+  `docs/market-research/kofile-parser-recon-2026-07-11.md` (**ONE parser
+  serves all 7** — identical PublicSearch SPA; must map by COLUMN INDEX not
+  fixed selectors (cells carry only positional col-N classes). Dallas is the
+  exception: inserts a "Town" col shifting Legal to col-10 → map header-text→
+  index per tenant. URL contract identical: department=RP&searchType=
+  quickSearch&searchValue=<term>&recordedDateRange=YYYYMMDD,YYYYMMDD +
+  limit/offset 50/page. Correction: date-range-only deep-link does NOT render
+  — searchValue is REQUIRED. Doc-type filter is coarse (REAL PROPERTY/OPR
+  bucket); granular DEED/WARRANTY DEED is free-text in col-5 only → classify
+  by regex, not filter. No rate-limiting tripped at ≥10s pacing; Export
+  control present on all 7, login/pay-gated → flagged).
+- 2026-07-11 — Tampa–Hillsborough market workup (FL metro #1) →
+  `docs/market-research/tampa-hillsborough-2026-07-11.md` (all 5 legs GO;
+  KEEP Tampa as #1. DBPR: prior /abt/eds/ URL DEAD → live set at /sto/
+  file_download/extracts/ (daily.csv activity + bd400lic.csv master 219,946
+  rows; pending vs active = Primary Status 10=In-Process/20=Current;
+  Hillsborough = County code 39). Parcels: HCPA self-hosted (owner+sales, no
+  value) + FDOR Cadastral 2025 (JV+DOR_UC); International Plaza point-query
+  confirmed incl. 2025-12-31 $3.18M sale; hosted layer rejects numeric CO_NO
+  → use spatial envelope. Tax deeds RealTaxDeed + Lands Available public.
+  Recorder = clerk-hosted OBPA (not Acclaim/Kofile). Bonfire: Hillsborough
+  ~25 open + HART; Tampa/airport on OpenGov, schools DemandStar. bbox
+  [-82.8754, 27.5264, -82.0545, 28.1734] — first non-TX bbox).
+- 2026-07-11 — Competitor lead-pricing benchmark →
+  `docs/market-research/lead-pricing-benchmark-2026-07-11.md` (shared is the
+  market default: Angi 3-8 buyers, Networx ≤4, CraftJack ~3, Thumbtack 4-5;
+  only Networx sells a clearly-priced EXCLUSIVE tier (~1.3-2x shared).
+  Blended per-shared-lead: cleaning ~$8-35, landscaping ~$10-55, pest
+  ~$18-50, painting ~$15-60, HVAC ~$20-100, roofing ~$30-150+. GATING:
+  no vendor publishes a clean per-trade card; CraftJack domain now
+  301s to Angi (winding down) — its numbers are stale secondary. Only
+  Networx ranges + Networx/Thumbtack models are OFFICIAL; rest [EST]).
