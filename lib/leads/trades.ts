@@ -26,7 +26,9 @@ export type Trade =
   | "hvac"
   | "fire"
   | "signage"
-  | "roofing";
+  | "roofing"
+  | "waste"
+  | "painting";
 
 export const DEFAULT_TRADE: Trade = "landscaping";
 
@@ -436,6 +438,82 @@ function roofingRank(i: TradeRankInput): number {
   return base * bidWindowMultiplier(i.monthsToCompletion, i.urgent);
 }
 
+/**
+ * Waste & grease services value model: the fourth monetization of the TABC
+ * feed — grease-trap pumping is mandated by city ordinance for food service,
+ * and every occupied building carries a waste contract.
+ *   - food-service opening (TABC / NAICS 72): grease trap + waste, both
+ *     signed before the doors open, one of them by law ................... 30k
+ *   - other openings: the first waste contract at occupancy .............. 18k
+ *   - dumping/debris/trash citations: the problem IS waste — the owner
+ *     must arrange disposal now .......................................... 16k
+ *   - construction: roll-off service through the build ................... 15k
+ *   - transfer: waste contracts re-bid with the building ................. 14k
+ *   - distress: cleanout roll-offs pre/post sale .......................... 8k
+ *   - weeds-only citations ................................................ 3k
+ *   - public grounds bids .................................................. 0
+ */
+function wasteRank(i: TradeRankInput): number {
+  const notes = i.notes ?? "";
+  let base: number;
+  switch (i.kind) {
+    case "opening":
+      base = /TABC|NAICS 72|restaurant|food|\bbar\b/i.test(notes) ? 30_000 : 18_000;
+      break;
+    case "violation":
+      base = /dumping|debris|trash/i.test(notes) ? 16_000 : 3_000;
+      break;
+    case "construction":
+      base = 15_000;
+      break;
+    case "transfer":
+      base = 14_000;
+      break;
+    case "distress":
+      base = 8_000;
+      break;
+    default:
+      return 0;
+  }
+  return base * bidWindowMultiplier(i.monthsToCompletion, i.urgent);
+}
+
+/**
+ * Commercial painting value model: PROJECT work — the transfer-side mirror
+ * of signage (new owners repaint/rebrand; TI always ends in paint).
+ *   - transfer: repaint/rebrand after the ownership change ............... 20k
+ *   - construction: TI/new-build finish painting ......................... 18k
+ *   - opening: storefront refresh before day one ......................... 16k
+ *   - graffiti/appearance citations: forced repaint ...................... 12k
+ *   - distress: pre-sale spruce-up ........................................ 5k
+ *   - other citations ...................................................... 3k
+ *   - public grounds bids .................................................. 0
+ */
+function paintingRank(i: TradeRankInput): number {
+  const notes = i.notes ?? "";
+  let base: number;
+  switch (i.kind) {
+    case "transfer":
+      base = 20_000;
+      break;
+    case "construction":
+      base = 18_000;
+      break;
+    case "opening":
+      base = 16_000;
+      break;
+    case "violation":
+      base = /graffiti|paint/i.test(notes) ? 12_000 : 3_000;
+      break;
+    case "distress":
+      base = 5_000;
+      break;
+    default:
+      return 0;
+  }
+  return base * bidWindowMultiplier(i.monthsToCompletion, i.urgent);
+}
+
 export const TRADES: Record<Trade, TradeDef> = {
   landscaping: {
     key: "landscaping",
@@ -716,6 +794,74 @@ export const TRADES: Record<Trade, TradeDef> = {
       "flat roof repair",
     ],
     vendorSignal: /roof|tpo\b|epdm|shingle|waterproofing/i,
+  },
+  waste: {
+    key: "waste",
+    noun: "waste service companies",
+    label: "Waste & grease",
+    service: "waste service",
+    relevant: (kind) => kind !== "rfp",
+    rank: wasteRank,
+    // Food service anchors on the mandated program (grease-trap pumping per
+    // city ordinance + front-of-house waste); construction is roll-offs for
+    // the build term; everything else scales with interior sqft (a proxy
+    // for dumpster count and pickup frequency).
+    estimateValue: (i) => {
+      if (/TABC|NAICS 72|restaurant|food|\bbar\b/i.test(i.notes ?? "")) {
+        return {
+          annualLo: 2_400,
+          annualHi: 7_200,
+          basis: "waste + grease-trap service program (grease-trap pumping required for food service)",
+        };
+      }
+      if (i.kind === "construction") {
+        return { annualLo: 6_000, annualHi: 18_000, basis: "roll-off service through the build" };
+      }
+      const sqft = interiorSqft(i);
+      if (!sqft) return null;
+      const [lo, hi] =
+        sqft < 10_000 ? [1_800, 4_200] : sqft < 50_000 ? [3_600, 9_600] : sqft < 200_000 ? [7_200, 18_000] : [14_400, 36_000];
+      return { annualLo: lo, annualHi: hi, basis: `~${sqft.toLocaleString()} sq ft est. interior (county records)` };
+    },
+    prospectKeywords: [
+      "commercial waste services",
+      "dumpster service",
+      "grease trap cleaning",
+      "roll-off dumpster rental",
+    ],
+    // Space in "waste (…)" keeps wastewater-treatment plants out.
+    vendorSignal:
+      /waste (management|services|solutions|disposal|hauling|removal)|dumpster|roll.?off|grease trap|used cooking oil|garbage|refuse|sanitation/i,
+  },
+  painting: {
+    key: "painting",
+    noun: "painting contractors",
+    label: "Painting",
+    service: "commercial painting",
+    sells: "project",
+    relevant: (kind) => kind !== "rfp",
+    rank: paintingRank,
+    // Project bands (per: "project"). Repaint pricing scales with interior
+    // sqft at commercial repaint rates; without a size signal there's no
+    // honest number — trigger-only copy.
+    estimateValue: (i) => {
+      const sqft = Math.min(interiorSqft(i) ?? 0, 200_000);
+      if (sqft < 2_000) return null;
+      return {
+        annualLo: round100(sqft * 1),
+        annualHi: round100(sqft * 3),
+        basis: `~${sqft.toLocaleString()} sq ft est. interior (county records)`,
+        per: "project",
+      };
+    },
+    prospectKeywords: [
+      "commercial painting",
+      "painting contractor",
+      "commercial painters",
+      "industrial painting",
+    ],
+    // "paint" alone matches paintball parks and paint retailers.
+    vendorSignal: /paint(ing|ers)\b|protective coatings?|epoxy floor|drywall/i,
   },
 };
 
