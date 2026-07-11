@@ -31,7 +31,66 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
-_None open — round 4 cleared 2026-07-10 (see Done). Round 5 TBD._
+### 10. Tampa–Hillsborough full market workup (Florida metro #1 prep)
+
+Your state scout picked Florida/Tampa — now the build dossier, same shape as
+your McAllen workup (that format drove two same-day metro launches):
+
+- **DBPR alcohol licenses**: the daily application CSV — exact URL, schema,
+  one sanitized sample row, how "pending/new application" is distinguished,
+  premises-address quality, county/city fields. This is our TABC leg.
+- **Hillsborough parcels**: the county appraiser layer — endpoint, row count,
+  owner/use-class/value/acreage/sale-date fields, vintage, point-query test
+  at a known commercial address (e.g. a Tampa mall), AGOL vs self-hosted.
+- **Tax deeds**: the RealAuction pipeline + Lands Available list — what's
+  public without login, list shape, upcoming-sale counts.
+- **Clerk recorder**: freshness + platform (GovOS/Acclaim?), same checks as
+  your Texas hunts.
+- **Procurement**: verify the Bonfire tenant live; sweep Tampa/Hillsborough/
+  HART/school-district slugs.
+- **bbox proposal** for a `tampa` market entry (no Texas neighbors to
+  collide with — note it's our first non-TX bbox).
+- Quick-compare paragraph: does Orlando/Orange or Broward beat Tampa on any
+  leg badly enough to reconsider?
+
+Deliverable: `docs/market-research/tampa-hillsborough-<date>.md`.
+
+### 11. Kofile/PublicSearch parser recon — the 7-county deed build prep
+
+Dallas, Tarrant, Bexar, Cameron, Jefferson, Nueces, Hidalgo all run the same
+platform. Before we build ONE fetcher, map the variance (shape only — no
+bulk pulls, stay a polite client):
+
+- Results-table DOM: are column ids/classes identical across all seven
+  tenants? Selector map for GRANTOR/GRANTEE/DOC TYPE/RECORDED DATE/DOC
+  NUMBER/LEGAL DESCRIPTION.
+- **Doc-type vocabularies per county**: the Document Types filter list —
+  which codes mean conveyance (WARRANTY DEED, DEED, SPECIAL WARRANTY...)
+  per tenant. This is the residential "new mover" discriminator.
+- Pagination + page-size mechanics; how the date-range + docType combo
+  encodes in the URL (reproducible deep links per county).
+- Observe (don't exercise) the "Export all Results" control: same on all
+  tenants? Any visible row-limit note?
+- Rate-limit posture: are there per-IP 429s like Ionwave? (Pace ≥10s;
+  report anything you trip, do not push through it.)
+
+Deliverable: `docs/market-research/kofile-parser-recon-<date>.md`.
+
+### 12. Competitor lead-pricing benchmark (public pages only)
+
+Our sheet prices ($ tiers by est. contract value) were set by reasoning,
+not market evidence. Collect the PUBLIC pricing of the incumbent lead
+sellers our buyers already know: Angi Leads/HomeAdvisor, Networx, CraftJack,
+Thumbtack (pro pricing pages, help-center rate cards, published ranges) —
+per-lead price by trade (pest, cleaning, HVAC, roofing, painting,
+landscaping) and whether leads are shared or exclusive, plus any published
+per-trade close-rate claims. No signups, no quote funnels — public pages
+and archived help docs only; flag anything gated.
+
+Deliverable: `docs/market-research/lead-pricing-benchmark-<date>.md` with a
+table: source | trade | shared/exclusive | price | citation URL.
+
+_Priority: 11 first (unblocks a build already queued), then 10, then 12._
 
 <!-- Round-4 briefs preserved below for reference; all delivered.
 
