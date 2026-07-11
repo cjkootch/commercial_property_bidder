@@ -8,6 +8,19 @@ cannot reach the network, so client-side-rendered numbers (certified-through
 dates, row counts) are flagged for attended verification rather than
 measured._
 
+> **CORRECTION (2026-07-10, ~9:30pm CST):** the operator ran the attended
+> check. The Travis PublicSearch tenant is an **EMPTY SHELL** — the UI
+> returns "No documents to search in department" for Land Records (and the
+> app config's `departmentDateRanges` is `{}`, corroborating: platform
+> deployed, index never loaded). The clerk's REAL system is
+> **https://www.tccsearch.org/** (linked from the clerk's recording page),
+> which is **Cloudflare-gated** ("Just a moment", 403 to non-browser
+> clients) — the same posture as the El Paso clerk. **Travis verdict
+> downgrades to BLOCKED-pending-attended-path**, exactly like El Paso: a
+> human decision on an attended/real-browser route, or Austin residential
+> stays parked. The section below is preserved for the record but its
+> optimistic read is superseded.
+
 ## Travis County (Austin) — PLATFORM CONFIRMED, numbers need one attended look
 
 - **`travis.tx.publicsearch.us` EXISTS** (HTTP 200) — the same GovOS/Kofile
@@ -63,9 +76,10 @@ measured._
 | Dallas | GovOS PublicSearch | headless browser, no CAPTCHA | certified 07/08 (2d) | export-limit check (human) |
 | Tarrant | GovOS PublicSearch | headless browser, no CAPTCHA | certified 07/06 (4d) | export-limit check (human) |
 | Bexar | GovOS PublicSearch | headless browser, no CAPTCHA | certified 07/07 (3d) | export-limit check (human) |
-| **Travis** | **GovOS PublicSearch (confirmed)** | expected same | **unmeasured — 5-min attended check** | read certified date in a browser |
+| **Travis** | PublicSearch shell EMPTY; real system = tccsearch.org | **NO — Cloudflare-gated** | unmeasured | human decision on an attended path (El Paso situation) |
 | Harris | Clerk's own ASP.NET | bounced to maintenance page at probe time | unmeasured | attended re-check; HCAD fallback is acceptable |
 
-If Travis's attended check comes back days-fresh, one GovOS scraper pattern
-covers **four of our top counties** and upgrades DFW + SA + Austin
-residential to days-fresh in a single build.
+The one-scraper prize is therefore **three counties** (Dallas, Tarrant,
+Bexar — all verified open), upgrading DFW + SA residential to days-fresh.
+Travis joins El Paso in the Cloudflare-gated column; Austin residential
+stays parked pending a human call on an attended-browser path.
