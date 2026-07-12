@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
@@ -17,7 +18,7 @@ import { sendEmail } from "@/lib/integrations/resend";
 // Configure the number's "A message comes in" webhook to POST here; outbound
 // status callbacks are attached per-message by sendSms().
 export const dynamic = "force-dynamic";
-export const maxDuration = 60; // the AI reply adds a model call
+export const maxDuration = 300; // the deferred AI reply sleeps 45s-3min before sending
 
 const STOP_WORDS = new Set(["stop", "stopall", "unsubscribe", "cancel", "end", "quit", "revoke", "optout"]);
 const START_WORDS = new Set(["start", "unstop", "yes"]);
@@ -129,73 +130,123 @@ export async function POST(req: NextRequest) {
     status: "received",
   });
 
-  // --- AI auto-reply (operator standing approval 2026-07-12) -----------------
-  // Claude answers with the same rules as the draft button (deliver the claim
-  // link on interest, never invent details, polite close on not-interested).
-  // Goes quiet after AI_REPLY_CAP replies in a thread — the human takes over.
-  // Kill switch: SMS_AI_AUTOREPLY=0. STOP/opt-in keywords are never answered,
-  // and sendSms refuses opted-out numbers regardless.
-  let aiReply: string | null = null;
-  let aiCapped = false;
-  if (!isStop && !isStart && process.env.SMS_AI_AUTOREPLY !== "0") {
-    const thread = await db
-      .select({ direction: smsSend.direction, body: smsSend.body, kind: smsSend.kind })
-      .from(smsSend)
-      .where(eq(smsSend.phone, from))
-      .orderBy(asc(smsSend.created_at));
-    const aiCount = thread.filter((m) => m.kind === "ai_reply").length;
-    aiCapped = aiCount >= AI_REPLY_CAP;
-    if (!aiCapped) {
-      let claimUrl: string | null = null;
-      let offeredPropertyId: string | null = null;
-      let inventory: string | null = null;
-      let currentOpportunity: string | null = null;
-      if (match) {
-        const offers = await db
-          .select({ claim_url: buyerOutreach.claim_url, property_id: buyerOutreach.property_id })
-          .from(buyerOutreach)
-          .where(eq(buyerOutreach.company_key, match.key))
-          .orderBy(desc(buyerOutreach.sent_at))
-          .limit(10);
-        const withClaim = offers.find((o) => o.claim_url);
-        claimUrl = withClaim?.claim_url ?? null;
-        offeredPropertyId = withClaim?.property_id ?? null;
-        [currentOpportunity, inventory] = await Promise.all([
-          currentOpportunityFor(match.key),
-          inventoryContextFor({
-            companyName: match.name,
-            trade: match.trade,
-            lat: match.office_lat,
-            lng: match.office_lng,
-            excludePropertyId: offeredPropertyId,
-          }),
-        ]);
-      }
-      const draft = await draftSmsReply({
-        companyName: match?.name ?? null,
-        city: match?.office_city ?? null,
-        trade: match?.trade ?? null,
-        claimUrl,
-        currentOpportunity,
-        inventory,
-        thread,
-      });
-      if (draft) {
-        const res = await sendSms({
-          to: from,
-          body: draft,
-          kind: "ai_reply",
-          companyKey: match?.key ?? null,
-          refId: match?.id ?? null,
-        });
-        if (res.ok) aiReply = draft;
-      }
-    }
+  // --- AI auto-reply, humanized (operator standing approval 2026-07-12) ------
+  // Claude answers with the same rules as the draft button. The reply is
+  // DELAYED 45s–3min (a human texting back, not a bot) via waitUntil — Twilio
+  // gets its TwiML immediately. If the prospect texts again while we're
+  // "typing", this invocation yields to the newer one so they get ONE reply
+  // to their latest message. Cap: AI_REPLY_CAP per thread, then the human
+  // takes over. Kill switch: SMS_AI_AUTOREPLY=0. STOP/opt-in keywords are
+  // never answered, and sendSms refuses opted-out numbers regardless.
+  if (!isStop && !isStart) {
+    waitUntil(deferredAiReply({ from, body, inboundSid, match: match ?? null, base }));
   }
 
-  // Page the operator with both sides (skip pure opt-out bookkeeping).
+  // Empty TwiML so Twilio doesn't auto-reply or log an error.
+  return new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
+    headers: { "Content-Type": "text/xml" },
+  });
+}
+
+type CompanyMatch = {
+  key: string;
+  name: string;
+  id: string;
+  trade: string;
+  office_city: string | null;
+  office_lat: number | null;
+  office_lng: number | null;
+} | null;
+
+async function deferredAiReply(args: {
+  from: string;
+  body: string;
+  inboundSid: string | null;
+  match: CompanyMatch;
+  base: string;
+}) {
+  const { from, body, inboundSid, match, base } = args;
+  let aiReply: string | null = null;
+  let aiCapped = false;
+  try {
+    if (process.env.SMS_AI_AUTOREPLY !== "0") {
+      // Human-ish lag before "our" text appears.
+      const delayMs = 45_000 + Math.floor(Math.random() * 135_000);
+      await new Promise((r) => setTimeout(r, delayMs));
+
+      const thread = await db
+        .select({
+          direction: smsSend.direction,
+          body: smsSend.body,
+          kind: smsSend.kind,
+          twilio_sid: smsSend.twilio_sid,
+        })
+        .from(smsSend)
+        .where(eq(smsSend.phone, from))
+        .orderBy(asc(smsSend.created_at));
+
+      // Yield if they texted again while we were "typing" — the newer
+      // invocation replies to the full context instead.
+      const inbounds = thread.filter((m) => m.direction === "in");
+      const latestInbound = inbounds[inbounds.length - 1];
+      const superseded = inboundSid && latestInbound?.twilio_sid !== inboundSid;
+
+      aiCapped = thread.filter((m) => m.kind === "ai_reply").length >= AI_REPLY_CAP;
+      if (!aiCapped && !superseded) {
+        let claimUrl: string | null = null;
+        let offeredPropertyId: string | null = null;
+        let inventory: string | null = null;
+        let currentOpportunity: string | null = null;
+        if (match) {
+          const offers = await db
+            .select({ claim_url: buyerOutreach.claim_url, property_id: buyerOutreach.property_id })
+            .from(buyerOutreach)
+            .where(eq(buyerOutreach.company_key, match.key))
+            .orderBy(desc(buyerOutreach.sent_at))
+            .limit(10);
+          const withClaim = offers.find((o) => o.claim_url);
+          claimUrl = withClaim?.claim_url ?? null;
+          offeredPropertyId = withClaim?.property_id ?? null;
+          [currentOpportunity, inventory] = await Promise.all([
+            currentOpportunityFor(match.key),
+            inventoryContextFor({
+              companyName: match.name,
+              trade: match.trade,
+              lat: match.office_lat,
+              lng: match.office_lng,
+              excludePropertyId: offeredPropertyId,
+            }),
+          ]);
+        }
+        const draft = await draftSmsReply({
+          companyName: match?.name ?? null,
+          city: match?.office_city ?? null,
+          trade: match?.trade ?? null,
+          claimUrl,
+          currentOpportunity,
+          inventory,
+          thread: thread.map((m) => ({ direction: m.direction, body: m.body })),
+        });
+        if (draft) {
+          const res = await sendSms({
+            to: from,
+            body: draft,
+            kind: "ai_reply",
+            companyKey: match?.key ?? null,
+            refId: match?.id ?? null,
+          });
+          if (res.ok) aiReply = draft;
+        }
+      }
+      if (superseded) return; // the newer invocation alerts + replies
+    }
+  } catch (e) {
+    console.error("deferredAiReply failed:", e);
+  }
+
+  // Page the operator with both sides of the exchange.
   const to = process.env.ALERT_EMAIL;
-  if (to && !isStop && !isStart) {
+  if (to) {
     const link = match ? `${base}/companies/${match.id}` : `${base}/messages/sms`;
     const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
     await sendEmail({
@@ -213,9 +264,4 @@ export async function POST(req: NextRequest) {
       tags: { kind: "operator_alert" },
     }).catch(() => {});
   }
-
-  // Empty TwiML so Twilio doesn't auto-reply or log an error.
-  return new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
-    headers: { "Content-Type": "text/xml" },
-  });
 }
