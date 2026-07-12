@@ -9,6 +9,15 @@ import { isNotNull, isNull, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
 import { toE164 } from "@/lib/integrations/twilio";
+import { signBuyerClaim } from "@/lib/buyer-auth";
+
+/** Claim links for texts are minted FRESH at suggestion/send time — a stored
+ *  buyer_outreach.claim_url may be older than the 30-day token TTL, and a
+ *  dead link in a text is worse than no text (2026-07-12 audit). */
+export function freshClaimUrl(propertyId: string, company: string, trade: string | null): string {
+  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "https://greenkeep.us").replace(/\/$/, "");
+  return `${base}/buyers/claim/${signBuyerClaim(propertyId, company)}?trade=${trade || "landscaping"}`;
+}
 
 export const TEXT_QUEUE_DAILY_CAP = () => {
   const n = Number(process.env.TEXT_QUEUE_DAILY_CAP);
@@ -80,6 +89,7 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
         email: prospectCompany.email,
         office_city: prospectCompany.office_city,
         claim_views: prospectCompany.claim_views,
+        trade: prospectCompany.trade,
       })
       .from(prospectCompany)
       .where(
@@ -93,6 +103,7 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
       .select({
         company_key: buyerOutreach.company_key,
         claim_url: buyerOutreach.claim_url,
+        property_id: buyerOutreach.property_id,
         sent_at: buyerOutreach.sent_at,
         opened_at: buyerOutreach.opened_at,
         clicked_at: buyerOutreach.clicked_at,
@@ -108,15 +119,15 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
   const alreadyTexted = new Set(texted.map((t) => t.phone));
   const optedOut = new Set(optOuts.map((o) => o.phone));
 
-  type Agg = { opens: number; clicks: number; claimUrl: string | null; claimAt: number };
+  type Agg = { opens: number; clicks: number; propertyId: string | null; claimAt: number };
   const byKey = new Map<string, Agg>();
   for (const o of outreach) {
-    const a = byKey.get(o.company_key) ?? { opens: 0, clicks: 0, claimUrl: null, claimAt: 0 };
+    const a = byKey.get(o.company_key) ?? { opens: 0, clicks: 0, propertyId: null, claimAt: 0 };
     if (o.opened_at || o.nudge_opened_at) a.opens++;
     if (o.clicked_at || o.nudge_clicked_at) a.clicks++;
     const at = o.sent_at?.getTime() ?? 0;
-    if (o.claim_url && at >= a.claimAt) {
-      a.claimUrl = o.claim_url;
+    if (o.claim_url && o.property_id && at >= a.claimAt) {
+      a.propertyId = o.property_id;
       a.claimAt = at;
     }
     byKey.set(o.company_key, a);
@@ -127,7 +138,7 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
     const phone = toE164(c.phone);
     if (!phone || alreadyTexted.has(phone) || optedOut.has(phone)) continue;
     const a = byKey.get(c.key);
-    if (!a?.claimUrl) continue; // step 2 needs a link to deliver
+    if (!a?.propertyId) continue; // step 2 needs a link to deliver
     // Heat: claim-page reads dominate, then clicks/opens; a missing email
     // adds weight because SMS is the only channel left for them.
     const score = c.claim_views * 5 + a.clicks * 3 + a.opens + (c.email ? 0 : 2);
@@ -144,11 +155,14 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
       clicks: a.clicks,
       hasEmail: !!c.email,
       opener: openerFor(c.name, c.office_city),
-      claimUrl: a.claimUrl,
+      claimUrl: freshClaimUrl(a.propertyId, c.name, c.trade),
     });
   }
   out.sort((a, b) => b.score - a.score);
-  return out.slice(0, limit);
+  // Sister companies sharing one office line must not each earn an opener —
+  // one phone, one first touch (highest score wins; sort above decides).
+  const seen = new Set<string>();
+  return out.filter((s) => (seen.has(s.phone) ? false : (seen.add(s.phone), true))).slice(0, limit);
 }
 
 /** Queue sends already made today (Chicago wall clock), for the daily cap.
@@ -198,28 +212,40 @@ export function nudgeTextFor(name: string, claimUrl: string): string {
  *  Returns phone → opener time. */
 export function selectSmsNudges(args: {
   now: Date;
-  sends: Array<{ direction: string; kind: string; phone: string; created_at: Date }>;
+  sends: Array<{ direction: string; kind: string; phone: string; created_at: Date; status?: string }>;
   optedOut: Set<string>;
 }): Map<string, Date> {
   const cutoff = args.now.getTime() - SMS_NUDGE_AFTER_HOURS * 3600_000;
   const oldest = args.now.getTime() - SMS_NUDGE_MAX_AGE_DAYS * 86400_000;
   // Any inbound = they replied (the conversation path owns them now).
   // Any prior nudge = they had their one follow-up.
+  // Any OTHER outbound (manual inbox_sms, ai_reply, smoke test) = a human or
+  // the AI is already working this phone — a robotic "didn't hear back" on
+  // top of a live thread contradicts it and outs the automation (2026-07-12
+  // audit).
   const done = new Set<string>();
   for (const s of args.sends) {
-    if (s.direction === "in" || s.kind === "text_nudge") done.add(s.phone);
+    if (s.direction === "in" || s.kind !== "text_queue") done.add(s.phone);
   }
-  const openers = new Map<string, number>();
+  const openers = new Map<string, { t: number; reachable: boolean }>();
   for (const s of args.sends) {
     if (s.direction !== "out" || s.kind !== "text_queue") continue;
     const t = s.created_at.getTime();
+    // A carrier-rejected opener (landline, bad number) means the nudge would
+    // fail identically — don't burn a cap slot on an unreachable phone. A
+    // status we haven't heard back on yet counts as reachable.
+    const reachable = s.status !== "failed" && s.status !== "undelivered";
     const prev = openers.get(s.phone);
-    if (prev == null || t < prev) openers.set(s.phone, t);
+    if (!prev || t < prev.t) {
+      openers.set(s.phone, { t, reachable: reachable || (prev?.reachable ?? false) });
+    } else if (reachable && !prev.reachable) {
+      prev.reachable = true;
+    }
   }
   const out = new Map<string, Date>();
-  for (const [phone, t] of openers) {
-    if (done.has(phone) || args.optedOut.has(phone)) continue;
-    if (t <= cutoff && t >= oldest) out.set(phone, new Date(t));
+  for (const [phone, o] of openers) {
+    if (done.has(phone) || args.optedOut.has(phone) || !o.reachable) continue;
+    if (o.t <= cutoff && o.t >= oldest) out.set(phone, new Date(o.t));
   }
   return out;
 }
@@ -244,6 +270,7 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
         kind: smsSend.kind,
         phone: smsSend.phone,
         created_at: smsSend.created_at,
+        status: smsSend.status,
       })
       .from(smsSend),
     db.select({ phone: smsOptOut.phone }).from(smsOptOut),
@@ -253,6 +280,7 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
         key: prospectCompany.key,
         name: prospectCompany.name,
         phone: prospectCompany.phone,
+        trade: prospectCompany.trade,
         blocked_at: prospectCompany.blocked_at,
         buyer_id: prospectCompany.buyer_id,
       })
@@ -261,11 +289,11 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
     db
       .select({
         company_key: buyerOutreach.company_key,
-        claim_url: buyerOutreach.claim_url,
+        property_id: buyerOutreach.property_id,
         sent_at: buyerOutreach.sent_at,
       })
       .from(buyerOutreach)
-      .where(isNotNull(buyerOutreach.claim_url)),
+      .where(and(isNotNull(buyerOutreach.claim_url), isNotNull(buyerOutreach.property_id))),
   ]);
 
   const due = selectSmsNudges({
@@ -275,26 +303,30 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
   });
   if (due.size === 0) return [];
 
-  const claimByKey = new Map<string, { url: string; at: number }>();
+  const offerByKey = new Map<string, { propertyId: string; at: number }>();
   for (const o of outreach) {
     const at = o.sent_at?.getTime() ?? 0;
-    const prev = claimByKey.get(o.company_key);
-    if (!prev || at >= prev.at) claimByKey.set(o.company_key, { url: o.claim_url!, at });
+    const prev = offerByKey.get(o.company_key);
+    if (!prev || at >= prev.at) offerByKey.set(o.company_key, { propertyId: o.property_id!, at });
   }
 
+  // Deterministic company order so a phone shared by two companies always
+  // resolves to the same one — and only ONE nudge per phone regardless.
   const out: SmsNudgeTarget[] = [];
-  for (const c of companies) {
+  const nudgedPhones = new Set<string>();
+  for (const c of [...companies].sort((a, b) => a.key.localeCompare(b.key))) {
     const phone = toE164(c.phone);
-    if (!phone || !due.has(phone)) continue;
+    if (!phone || !due.has(phone) || nudgedPhones.has(phone)) continue;
     if (c.blocked_at || c.buyer_id) continue; // converted/blocked since the opener
-    const claim = claimByKey.get(c.key);
-    if (!claim) continue; // nothing to deliver
+    const offer = offerByKey.get(c.key);
+    if (!offer) continue; // nothing to deliver
+    nudgedPhones.add(phone);
     out.push({
       companyId: c.id,
       companyKey: c.key,
       name: c.name,
       phone,
-      text: nudgeTextFor(c.name, claim.url),
+      text: nudgeTextFor(c.name, freshClaimUrl(offer.propertyId, c.name, c.trade)),
     });
   }
   // Oldest opener first — they've waited longest and their tokens expire first.

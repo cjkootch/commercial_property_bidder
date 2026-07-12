@@ -64,6 +64,24 @@ describe("selectSmsNudges (the no-reply follow-up)", () => {
   it("skips opted-out numbers", () => {
     expect(pick([opener("+15550001111", 3 * D)], ["+15550001111"]).size).toBe(0);
   });
+  it("skips a phone a human (or the AI) already texted after the opener", () => {
+    const sends = [
+      opener("+15550001111", 3 * D),
+      { direction: "out", kind: "inbox_sms", phone: "+15550001111", created_at: at(1 * D) },
+    ];
+    expect(pick(sends).size).toBe(0);
+  });
+  it("skips openers the carrier rejected — the nudge would fail the same way", () => {
+    expect(pick([{ ...opener("+15550001111", 3 * D), status: "undelivered" }]).size).toBe(0);
+    expect(pick([{ ...opener("+15550001111", 3 * D), status: "failed" }]).size).toBe(0);
+  });
+  it("nudges when any opener log for the phone was deliverable", () => {
+    const sends = [
+      { ...opener("+15550001111", 3 * D), status: "failed" },
+      { ...opener("+15550001111", 3 * D - H), status: "delivered" },
+    ];
+    expect(pick(sends).has("+15550001111")).toBe(true);
+  });
   it("measures from the FIRST opener when retries logged more than one", () => {
     const due = pick([opener("+15550001111", 3 * D), opener("+15550001111", 1 * H)]);
     expect(due.get("+15550001111")?.getTime()).toBe(NOW.getTime() - 3 * D);

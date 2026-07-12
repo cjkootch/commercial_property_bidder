@@ -1,11 +1,12 @@
 import { NextRequest } from "next/server";
 import { waitUntil } from "@vercel/functions";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
 import { sendSms, smsStatusRank, verifyTwilioSignature } from "@/lib/integrations/twilio";
 import { draftSmsReply } from "@/lib/integrations/claude";
-import { currentOpportunityFor, inventoryContextFor } from "@/lib/sms/ai-context";
+import { inventoryContextFor } from "@/lib/sms/ai-context";
+import { freshClaimUrl } from "@/lib/sms/queue";
 import { sendEmail } from "@/lib/integrations/resend";
 
 // Twilio webhook, two shapes on one URL (both form-encoded POSTs):
@@ -57,11 +58,17 @@ export async function POST(req: NextRequest) {
       .where(
         and(
           eq(smsSend.twilio_sid, params.MessageSid),
+          // Outbound rows only — an sid collision must never clobber an
+          // inbound row's "received" status.
+          eq(smsSend.direction, "out"),
+          // STRICT less-than: retried same-status callbacks are true no-ops
+          // (no delivered_at re-stamping), and equal-rank terminal states
+          // (delivered vs failed) can't overwrite each other.
           sql`case ${smsSend.status}
                 when 'delivered' then 3 when 'undelivered' then 3 when 'failed' then 3
                 when 'sent' then 2
                 when 'queued' then 1 when 'accepted' then 1 when 'sending' then 1
-                else 0 end <= ${smsStatusRank(status)}`
+                else 0 end < ${smsStatusRank(status)}`
         )
       );
     return new Response(null, { status: 204 });
@@ -88,8 +95,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const word = body.toLowerCase().replace(/[^a-z]/g, "");
-  const isStop = STOP_WORDS.has(word);
+  // Keyword detection on the LEADING word (skipping a courtesy "please"), not
+  // the whole body collapsed — "Stop texting me" and "Please stop" are opt-outs
+  // even though they aren't bare keywords, and neither Twilio's carrier-level
+  // handling nor a collapsed-string compare catches them (2026-07-12 audit).
+  // A false positive here costs one prospect (recoverable via START, and the
+  // operator is paged); a false negative is a compliance violation.
+  const words = body.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter(Boolean);
+  const lead = (words[0] === "please" ? words[1] : words[0]) ?? "";
+  const isStop = STOP_WORDS.has(lead);
   // "YES"/"START" are opt-in keywords ONLY for a number that actually opted
   // out — a mid-conversation "Yes" is the conversion signal, not bookkeeping.
   const [optedOutRow] = await db
@@ -97,7 +111,7 @@ export async function POST(req: NextRequest) {
     .from(smsOptOut)
     .where(eq(smsOptOut.phone, from))
     .limit(1);
-  const isStart = START_WORDS.has(word) && !!optedOutRow;
+  const isStart = START_WORDS.has(lead) && !!optedOutRow;
   if (isStop) {
     await db
       .insert(smsOptOut)
@@ -107,31 +121,72 @@ export async function POST(req: NextRequest) {
     await db.delete(smsOptOut).where(eq(smsOptOut.phone, from));
   }
 
-  // Match the sender to a company profile by phone (either format on file).
+  // Match the sender to a company profile. The thread belongs to whoever WE
+  // texted: the most recent attributed outbound for this phone wins, so two
+  // companies sharing an office line can't cross-contaminate context (the
+  // digit-match fallback is sorted for determinism, not correctness).
   const digits = from.replace(/\D/g, "").replace(/^1/, "");
-  const companies = await db
-    .select({
-      key: prospectCompany.key,
-      name: prospectCompany.name,
-      id: prospectCompany.id,
-      phone: prospectCompany.phone,
-      trade: prospectCompany.trade,
-      office_city: prospectCompany.office_city,
-      office_lat: prospectCompany.office_lat,
-      office_lng: prospectCompany.office_lng,
-    })
-    .from(prospectCompany);
-  const match = companies.find((c) => (c.phone ?? "").replace(/\D/g, "").replace(/^1/, "") === digits);
+  const [companies, [lastAttributed]] = await Promise.all([
+    db
+      .select({
+        key: prospectCompany.key,
+        name: prospectCompany.name,
+        id: prospectCompany.id,
+        phone: prospectCompany.phone,
+        trade: prospectCompany.trade,
+        office_city: prospectCompany.office_city,
+        office_lat: prospectCompany.office_lat,
+        office_lng: prospectCompany.office_lng,
+      })
+      .from(prospectCompany),
+    db
+      .select({ company_key: smsSend.company_key })
+      .from(smsSend)
+      .where(
+        and(eq(smsSend.phone, from), eq(smsSend.direction, "out"), isNotNull(smsSend.company_key))
+      )
+      .orderBy(desc(smsSend.created_at))
+      .limit(1),
+  ]);
+  const match =
+    (lastAttributed?.company_key
+      ? companies.find((c) => c.key === lastAttributed.company_key)
+      : undefined) ??
+    companies
+      .filter((c) => (c.phone ?? "").replace(/\D/g, "").replace(/^1/, "") === digits)
+      .sort((a, b) => a.key.localeCompare(b.key))[0];
 
-  await db.insert(smsSend).values({
-    direction: "in",
-    kind: "inbound",
-    company_key: match?.key ?? null,
-    phone: from,
-    body,
-    twilio_sid: inboundSid,
-    status: "received",
-  });
+  const [inserted] = await db
+    .insert(smsSend)
+    .values({
+      direction: "in",
+      kind: "inbound",
+      company_key: match?.key ?? null,
+      phone: from,
+      body,
+      twilio_sid: inboundSid,
+      status: "received",
+    })
+    .returning({ id: smsSend.id });
+
+  // Twilio retries can slip past the select-then-insert dedupe when the first
+  // invocation is still in flight (no unique constraint on twilio_sid, no
+  // transactions). Deterministic winner election: every duplicate inserts,
+  // then only the row with the smallest id proceeds to reply/alert.
+  if (inboundSid && inserted) {
+    const dupes = await db
+      .select({ id: smsSend.id })
+      .from(smsSend)
+      .where(and(eq(smsSend.twilio_sid, inboundSid), eq(smsSend.direction, "in")));
+    const winner = dupes.map((d) => d.id).sort()[0];
+    if (winner !== inserted.id) {
+      // Loser cleans up its own row so the thread doesn't show the text twice.
+      await db.delete(smsSend).where(eq(smsSend.id, inserted.id));
+      return new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
+        headers: { "Content-Type": "text/xml" },
+      });
+    }
+  }
 
   // --- AI auto-reply, humanized (operator standing approval 2026-07-12) ------
   // Claude answers with the same rules as the draft button. The reply is
@@ -141,8 +196,32 @@ export async function POST(req: NextRequest) {
   // to their latest message. Cap: AI_REPLY_CAP per thread, then the human
   // takes over. Kill switch: SMS_AI_AUTOREPLY=0. STOP/opt-in keywords are
   // never answered, and sendSms refuses opted-out numbers regardless.
-  if (!isStop && !isStart) {
+  if (!isStop && !isStart && !optedOutRow) {
     waitUntil(deferredAiReply({ from, body, inboundSid, match: match ?? null, base }));
+  } else {
+    // STOP/START/still-opted-out messages never enter the AI pipeline (no
+    // Claude spend, no claim token minted for an opted-out number) — but the
+    // operator still gets paged; "page on every inbound" has no exceptions.
+    const to = process.env.ALERT_EMAIL;
+    if (to) {
+      const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      const what = isStop ? "🚫 STOP" : isStart ? "✅ re-opted in (START)" : "💬 (opted-out number)";
+      waitUntil(
+        sendEmail({
+          to,
+          subject: `${what} — SMS from ${match?.name ?? from}`,
+          html:
+            `<p><strong>${esc(match?.name ?? from)}</strong> texted:</p>` +
+            `<blockquote style="border-left:3px solid #b45309;margin:8px 0;padding:4px 12px;">${esc(body)}</blockquote>` +
+            (isStop
+              ? `<p>Number opted out — all sending to it is now blocked.</p>`
+              : isStart
+                ? `<p>Number re-opted in — sending unblocked.</p>`
+                : `<p>This number is opted out; no reply was sent and none can be until they text START.</p>`),
+          tags: { kind: "operator_alert" },
+        }).catch(() => {})
+      );
+    }
   }
 
   // Empty TwiML so Twilio doesn't auto-reply or log an error.
@@ -171,6 +250,10 @@ async function deferredAiReply(args: {
   const { from, body, inboundSid, match, base } = args;
   let aiReply: string | null = null;
   let aiCapped = false;
+  // Every inbound text the AI hasn't answered yet — the alert quotes them all,
+  // so a rapid-fire prospect's earlier messages aren't invisible to the
+  // operator when only the newest invocation survives the supersede check.
+  let unanswered: string[] = [body];
   try {
     if (process.env.SMS_AI_AUTOREPLY !== "0") {
       // Human-ish lag before "our" text appears.
@@ -183,10 +266,14 @@ async function deferredAiReply(args: {
           body: smsSend.body,
           kind: smsSend.kind,
           twilio_sid: smsSend.twilio_sid,
+          created_at: smsSend.created_at,
         })
         .from(smsSend)
         .where(eq(smsSend.phone, from))
-        .orderBy(asc(smsSend.created_at));
+        // id tiebreaker: equal timestamps must order the same way for every
+        // concurrent invocation, or two racers can each think the OTHER is
+        // newest and both yield (zero replies, zero alerts).
+        .orderBy(asc(smsSend.created_at), asc(smsSend.id));
 
       // Yield if they texted again while we were "typing" — the newer
       // invocation replies to the full context instead.
@@ -194,22 +281,47 @@ async function deferredAiReply(args: {
       const latestInbound = inbounds[inbounds.length - 1];
       const superseded = inboundSid && latestInbound?.twilio_sid !== inboundSid;
 
-      aiCapped = thread.filter((m) => m.kind === "ai_reply").length >= AI_REPLY_CAP;
+      // The trailing run of inbound messages = everything since our last text.
+      const trailing: string[] = [];
+      for (let i = thread.length - 1; i >= 0 && thread[i].direction === "in"; i--) {
+        trailing.unshift(thread[i].body);
+      }
+      if (trailing.length) unanswered = trailing;
+
+      // Runaway brake per 24h window — a lifetime count would eventually
+      // silence the AI for exactly the long-lived repeat prospects it serves
+      // best.
+      const dayAgo = Date.now() - 24 * 3600_000;
+      aiCapped =
+        thread.filter((m) => m.kind === "ai_reply" && m.created_at.getTime() >= dayAgo).length >=
+        AI_REPLY_CAP;
       if (!aiCapped && !superseded) {
         let claimUrl: string | null = null;
         let offeredPropertyId: string | null = null;
         let currentOpportunity: string | null = null;
         if (match) {
           const offers = await db
-            .select({ claim_url: buyerOutreach.claim_url, property_id: buyerOutreach.property_id })
+            .select({
+              claim_url: buyerOutreach.claim_url,
+              property_id: buyerOutreach.property_id,
+              message: buyerOutreach.message,
+            })
             .from(buyerOutreach)
             .where(eq(buyerOutreach.company_key, match.key))
             .orderBy(desc(buyerOutreach.sent_at))
             .limit(10);
-          const withClaim = offers.find((o) => o.claim_url);
-          claimUrl = withClaim?.claim_url ?? null;
-          offeredPropertyId = withClaim?.property_id ?? null;
-          currentOpportunity = await currentOpportunityFor(match.key);
+          // One offer row grounds BOTH the link and the "current opportunity"
+          // description — mixing rows made the AI describe property X while
+          // linking property Y. The link is minted fresh (stored claim_url
+          // may be past its 30-day token TTL).
+          const withClaim = offers.find((o) => o.claim_url && o.property_id);
+          if (withClaim) {
+            claimUrl = freshClaimUrl(withClaim.property_id!, match.name, match.trade);
+            offeredPropertyId = withClaim.property_id;
+            currentOpportunity = withClaim.message
+              ? `The opportunity already offered to them (from our email):\n${withClaim.message.slice(0, 500)}`
+              : null;
+          }
         }
         // Inventory loads for EVERY sender — unmatched numbers get links
         // minted with a blank company (the claim page asks them to fill it
@@ -262,14 +374,19 @@ async function deferredAiReply(args: {
       subject: `${needsHuman || aiCapped ? "🔔 YOUR TURN — " : "💬 "}SMS reply from ${match?.name ?? from}`,
       html:
         `<p><strong>${esc(match?.name ?? from)}</strong> texted:</p>` +
-        `<blockquote style="border-left:3px solid #2f7d4f;margin:8px 0;padding:4px 12px;">${esc(body)}</blockquote>` +
+        unanswered
+          .map(
+            (m) =>
+              `<blockquote style="border-left:3px solid #2f7d4f;margin:8px 0;padding:4px 12px;">${esc(m)}</blockquote>`
+          )
+          .join("") +
         (aiReply
           ? `<p>🤖 AI answered:</p><blockquote style="border-left:3px solid #2563eb;margin:8px 0;padding:4px 12px;">${esc(aiReply)}</blockquote>` +
             (needsHuman
               ? `<p>🔔 The AI promised <strong>you'd</strong> follow up personally — that promise is now yours to keep.</p>`
               : "")
           : aiCapped
-            ? `<p>⚠️ Runaway brake tripped (${AI_REPLY_CAP} AI replies in this thread) — <strong>your turn</strong>.</p>`
+            ? `<p>⚠️ Runaway brake tripped (${AI_REPLY_CAP} AI replies to this number in 24h) — <strong>your turn</strong>.</p>`
             : `<p>No AI reply was sent — reply yourself.</p>`) +
         `<p><a href="${link}">Open the thread</a> to take over any time.</p>`,
       tags: { kind: "operator_alert" },

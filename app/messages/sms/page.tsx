@@ -84,8 +84,11 @@ export default async function SmsInbox({
   let prefill = searchParams.draft ?? "";
   if (!prefill && active?.companyId && active.needsReply) {
     const openerSent = active.msgs.some((m) => m.kind === "text_queue");
+    // "Step 2 already happened" = a claim link actually went out. Detecting
+    // it by the opt-out phrase false-positived on AI replies (which carry the
+    // same courtesy line without the link) and left the pitch undelivered.
     const step2Sent = active.msgs.some(
-      (m) => m.direction === "out" && (m.body.includes("not interested") || m.body.includes("Reply STOP"))
+      (m) => m.direction === "out" && m.body.includes("/buyers/claim/")
     );
     if (openerSent && !step2Sent) {
       const key = active.msgs.find((m) => m.company_key)?.company_key;
