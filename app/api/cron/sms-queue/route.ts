@@ -3,6 +3,7 @@ import { guarded } from "@/lib/cron-guard";
 import { sendSms } from "@/lib/integrations/twilio";
 import {
   suggestedTexts,
+  smsNudgeTargets,
   queueSentToday,
   withinSmsSendWindow,
   TEXT_QUEUE_DAILY_CAP,
@@ -66,10 +67,32 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Leftover budget goes to the no-reply follow-up (the SMS mirror of the
+    // email 48h nudge): silent openers get the pitch + claim link once, then
+    // quiet forever. Fresh openers outrank nudges when budget is tight.
+    const nudges = await smsNudgeTargets(budget - sent.filter((r) => r.sid).length);
+    const nudged: Array<{ company: string; phone: string; sid?: string; error?: string }> = [];
+    for (const n of nudges) {
+      const res = await sendSms({
+        to: n.phone,
+        body: n.text,
+        kind: "text_nudge",
+        companyKey: n.companyKey,
+        refId: n.companyId,
+      });
+      nudged.push(
+        res.ok
+          ? { company: n.name, phone: n.phone, sid: res.sid }
+          : { company: n.name, phone: n.phone, error: res.error }
+      );
+    }
+
     return Response.json({
       dailyCap: cap,
-      sentToday: used + sent.filter((r) => r.sid).length,
+      sentToday:
+        used + sent.filter((r) => r.sid).length + nudged.filter((r) => r.sid).length,
       sent,
+      nudged,
     });
   });
 }

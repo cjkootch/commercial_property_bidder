@@ -482,7 +482,9 @@ export async function getReportData(days: number): Promise<ReportData> {
       enabled: process.env.SMS_AUTOPILOT !== "0",
       aiEnabled: process.env.SMS_AI_AUTOREPLY !== "0",
       sentToday: smsOut.filter(
-        (r) => r.kind === "text_queue" && chicagoDay(r.created_at) === today
+        (r) =>
+          (r.kind === "text_queue" || r.kind === "text_nudge") &&
+          chicagoDay(r.created_at) === today
       ).length,
       cap: TEXT_QUEUE_DAILY_CAP(),
     },

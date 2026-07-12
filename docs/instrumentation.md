@@ -44,6 +44,14 @@ the route, not just the schedule), targeted stored numbers only (engaged or
 phone-only prospects holding a live claim link — never generated lists),
 kill switch `SMS_AUTOPILOT=0`.
 
+The cadence mirrors email's 48h nudge: an opener that gets NO reply within
+48h earns ONE follow-up (kind `text_nudge`, same cron, leftover budget after
+fresh openers) delivering the step-2 pitch + claim link it never earned by
+replying — then silence forever. Same shared daily cap, same window, skips
+replies/opt-outs/converted/blocked, and never fires past claim-token life
+(25d). A reply at any point routes the number to the AI conversation path
+instead.
+
 Conversations are AI-answered (same standing approval): the inbound webhook
 has Claude reply under the draft-button rules (deliver the claim link on
 interest, never invent details, polite close on not-interested), capped at
