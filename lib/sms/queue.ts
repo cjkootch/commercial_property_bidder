@@ -15,6 +15,22 @@ export const TEXT_QUEUE_DAILY_CAP = () => {
   return Number.isFinite(n) && n > 0 ? n : 15;
 };
 
+/** Automated sends only go out when a human plausibly would: weekdays,
+ *  9am–6pm on Texas wall clock. Enforced in the cron route itself so an
+ *  edited cron schedule can never text someone at 3am. */
+export function withinSmsSendWindow(now: Date): boolean {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    hour: "numeric",
+    hour12: false,
+    weekday: "short",
+  }).formatToParts(now);
+  const hour = Number(parts.find((p) => p.type === "hour")?.value);
+  const day = parts.find((p) => p.type === "weekday")?.value ?? "";
+  const weekday = !["Sat", "Sun"].includes(day);
+  return weekday && hour >= 9 && hour < 18;
+}
+
 export function openerFor(name: string, city: string | null): string {
   return `Hi, is this ${name}${city ? ` in ${city}` : ""}?\n\nThanks,\n-Cole`;
 }
