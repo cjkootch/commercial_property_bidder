@@ -223,7 +223,11 @@ export const MARKETS: Record<string, Market> = {
     metroSearch: "Orlando, Florida",
     metroCity: "orlando",
     tz: "America/New_York", // Eastern.
-    bbox: [-81.66, 28.34, -80.86, 28.79],
+    // Greater Orlando MSA, not just Orange County: distress (tax-deed /
+    // foreclosure) properties spill into Osceola (Kissimmee ~28.29), Lake
+    // (Mount Dora ~28.80) and Seminole, so the bbox must cover them or those
+    // FL coords fall through to the deployment default. No other metro is near.
+    bbox: [-81.95, 28.05, -80.75, 28.95],
     taxSaleCounties: [],
     tabcCounties: [],
     bonfirePortals: [],

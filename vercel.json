@@ -25,6 +25,10 @@
       "schedule": "32 11 * * 1"
     },
     {
+      "path": "/api/cron/orlando-distress?want=15&maxDates=4",
+      "schedule": "42 11 * * 1"
+    },
+    {
       "path": "/api/cron/transfers?want=30",
       "schedule": "27 11 * * 1"
     },
