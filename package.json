@@ -41,6 +41,7 @@
     "probe:market": "tsx scripts/probe-market.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.111.0",
     "@mapbox/mapbox-gl-draw": "^1.5.1",
     "@neondatabase/serverless": "^1.1.0",
     "@react-pdf/renderer": "^4.5.1",

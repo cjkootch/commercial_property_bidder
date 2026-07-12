@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
-import { replyInboxSms } from "./actions";
+import { buyerOutreach, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
+import { step2For, suggestedTexts, queueSentToday, TEXT_QUEUE_DAILY_CAP } from "@/lib/sms/queue";
+import { draftAiReply, replyInboxSms, sendQueuedText } from "./actions";
 
 // Consolidated SMS inbox — every text conversation in one place (iPhone
 // style): thread list on the left, active conversation + reply box on the
@@ -23,9 +24,9 @@ const fmtTime = (d: Date) =>
 export default async function SmsInbox({
   searchParams,
 }: {
-  searchParams: { t?: string; sms?: string };
+  searchParams: { t?: string; sms?: string; q?: string; draft?: string };
 }) {
-  const [rows, companies, optOuts] = await Promise.all([
+  const [rows, companies, optOuts, queue, queueUsed] = await Promise.all([
     db.select().from(smsSend).orderBy(desc(smsSend.created_at)).limit(2000),
     db
       .select({
@@ -36,7 +37,10 @@ export default async function SmsInbox({
       })
       .from(prospectCompany),
     db.select({ phone: smsOptOut.phone }).from(smsOptOut),
+    suggestedTexts(8),
+    queueSentToday(),
   ]);
+  const queueCap = TEXT_QUEUE_DAILY_CAP();
 
   const optedOut = new Set(optOuts.map((o) => o.phone));
   const byKey = new Map(companies.map((c) => [c.key, c]));
@@ -74,6 +78,30 @@ export default async function SmsInbox({
   const active = searchParams.t ? list.find((t) => t.phone === searchParams.t) : undefined;
   const activeMsgs = active ? [...active.msgs].reverse() : []; // oldest → newest for display
 
+  // Compose-box prefill, in priority order: an AI draft passed back via the
+  // URL, else the deterministic step-2 script when they replied to a queue
+  // opener and we have their claim link to deliver.
+  let prefill = searchParams.draft ?? "";
+  if (!prefill && active?.companyId && active.needsReply) {
+    const openerSent = active.msgs.some((m) => m.kind === "text_queue");
+    const step2Sent = active.msgs.some(
+      (m) => m.direction === "out" && (m.body.includes("not interested") || m.body.includes("Reply STOP"))
+    );
+    if (openerSent && !step2Sent) {
+      const key = active.msgs.find((m) => m.company_key)?.company_key;
+      if (key) {
+        const offers = await db
+          .select({ claim_url: buyerOutreach.claim_url })
+          .from(buyerOutreach)
+          .where(eq(buyerOutreach.company_key, key))
+          .orderBy(desc(buyerOutreach.sent_at))
+          .limit(10);
+        const claimUrl = offers.find((o) => o.claim_url)?.claim_url;
+        if (claimUrl) prefill = step2For(active.name, claimUrl);
+      }
+    }
+  }
+
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -88,6 +116,58 @@ export default async function SmsInbox({
       <p className="mt-1 text-sm text-gray-500">
         Every SMS conversation, one inbox. Replies from prospects also land in your email.
       </p>
+
+      {searchParams.q && searchParams.q !== "sent" ? (
+        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+          Queue send failed: {searchParams.q}
+        </p>
+      ) : null}
+
+      {/* The text queue: suggested first touches for hot, phone-eligible
+          prospects. Nothing sends itself — every message is one operator tap. */}
+      {queue.length > 0 ? (
+        <details className="mt-5 rounded-xl border border-amber-200 bg-amber-50/60" open>
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-amber-900">
+            📱 Text queue — {queue.length} suggested first touches
+            <span className="ml-2 font-normal text-amber-700">
+              ({queueUsed}/{queueCap} sent today · you tap Send, nothing sends itself)
+            </span>
+          </summary>
+          <div className="divide-y divide-amber-100 border-t border-amber-100">
+            {queue.map((s) => (
+              <div key={s.companyId} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={`/companies/${s.companyId}`}
+                    className="font-medium text-gray-900 hover:text-brand hover:underline"
+                  >
+                    {s.name}
+                  </Link>
+                  <span className="ml-2 text-xs text-gray-500">
+                    {s.city ?? ""}
+                    {s.claimViews ? ` · ${s.claimViews} claim views` : ""}
+                    {s.opens ? ` · ${s.opens} opens` : ""}
+                    {s.clicks ? ` · ${s.clicks} clicks` : ""}
+                    {!s.hasEmail ? " · no email (SMS-only)" : ""}
+                  </span>
+                  <div className="mt-1 whitespace-pre-line rounded-md bg-white px-2.5 py-1.5 text-xs text-gray-600">
+                    {s.opener}
+                  </div>
+                </div>
+                <form action={sendQueuedText}>
+                  <input type="hidden" name="companyId" value={s.companyId} />
+                  <button
+                    className="rounded-lg bg-brand px-3.5 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-40"
+                    disabled={queueUsed >= queueCap}
+                  >
+                    Send
+                  </button>
+                </form>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
 
       {list.length === 0 ? (
         <p className="mt-8 rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
@@ -189,20 +269,38 @@ export default async function SmsInbox({
                     This number replied STOP — sending is blocked until they text START.
                   </p>
                 ) : (
-                  <form action={replyInboxSms} className="flex items-end gap-2">
-                    <input type="hidden" name="phone" value={active.phone} />
-                    <textarea
-                      name="body"
-                      rows={2}
-                      maxLength={1200}
-                      placeholder="Text message"
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                      required
-                    />
-                    <button className="shrink-0 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:opacity-90">
-                      Send
-                    </button>
-                  </form>
+                  <div className="space-y-2">
+                    {prefill && !searchParams.draft ? (
+                      <p className="text-[11px] text-amber-700">
+                        Suggested step 2 (their claim link + casual opt-out) is prefilled — edit
+                        freely before sending.
+                      </p>
+                    ) : null}
+                    <form action={replyInboxSms} className="flex items-end gap-2">
+                      <input type="hidden" name="phone" value={active.phone} />
+                      <textarea
+                        name="body"
+                        rows={prefill ? 5 : 2}
+                        maxLength={1200}
+                        placeholder="Text message"
+                        defaultValue={prefill}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                        required
+                      />
+                      <button className="shrink-0 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:opacity-90">
+                        Send
+                      </button>
+                    </form>
+                    <form action={draftAiReply}>
+                      <input type="hidden" name="phone" value={active.phone} />
+                      <button
+                        className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                        title="Claude drafts the reply from the conversation + company context — you review and send"
+                      >
+                        ✨ AI draft
+                      </button>
+                    </form>
+                  </div>
                 )}
               </div>
             </div>
