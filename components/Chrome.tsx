@@ -83,7 +83,7 @@ export function Chrome({ children }: { children: React.ReactNode }) {
       {NAV.map((section, i) => (
         <div key={i}>
           {section.label ? (
-            <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+            <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
               {section.label}
             </div>
           ) : null}
@@ -97,13 +97,13 @@ export function Chrome({ children }: { children: React.ReactNode }) {
                   key={item.href}
                   href={item.href}
                   onClick={() => setOpen(false)}
-                  className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm ${
+                  className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors ${
                     active
-                      ? "bg-brand/10 font-medium text-brand"
-                      : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                      ? "bg-brand font-semibold text-white shadow-sm"
+                      : "text-slate-300 hover:bg-white/5 hover:text-white"
                   }`}
                 >
-                  <Icon name={item.icon} className={active ? "text-brand" : "text-gray-400"} />
+                  <Icon name={item.icon} className={active ? "text-white" : "text-slate-500"} />
                   {item.label}
                 </Link>
               );
@@ -117,12 +117,12 @@ export function Chrome({ children }: { children: React.ReactNode }) {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-gray-200 bg-white lg:flex">
-        <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-3.5">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-slate-800 bg-slate-900 lg:flex">
+        <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3.5">
           <Link href="/dashboard" aria-label="Greenkeep" className="flex items-center gap-2">
-            <Logo name="Greenkeep" />
+            <Logo name="Greenkeep" wordmarkClassName="text-white" />
           </Link>
-          <span className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
             Operator
           </span>
         </div>
@@ -150,14 +150,14 @@ export function Chrome({ children }: { children: React.ReactNode }) {
       {open ? (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-gray-900/40" onClick={() => setOpen(false)} />
-          <div className="absolute inset-y-0 left-0 flex w-64 flex-col bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3.5">
-              <Logo name="Greenkeep" />
+          <div className="absolute inset-y-0 left-0 flex w-64 flex-col bg-slate-900 shadow-xl">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3.5">
+              <Logo name="Greenkeep" wordmarkClassName="text-white" />
               <button
                 type="button"
                 aria-label="Close navigation"
                 onClick={() => setOpen(false)}
-                className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100"
+                className="rounded-md p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
               >
                 <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
                   <path d="M5 5l10 10M15 5L5 15" />
