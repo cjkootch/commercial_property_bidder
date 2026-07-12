@@ -22,12 +22,12 @@ export const maxDuration = 300; // the deferred AI reply sleeps 45s-3min before 
 
 const STOP_WORDS = new Set(["stop", "stopall", "unsubscribe", "cancel", "end", "quit", "revoke", "optout"]);
 const START_WORDS = new Set(["start", "unstop", "yes"]);
-/** After this many AI replies in one conversation, the machine goes quiet
- *  and the human takes over (the alert email flags it). Raised from 4 after
- *  a live thread hit the cap mid-conversation and the prospect got ghosted —
- *  every exchange still pages the operator, so the cap is a runaway brake,
- *  not the handoff point. */
-const AI_REPLY_CAP = 10;
+/** Pure runaway brake — loop/abuse/API-bill protection, NOT a handoff. The
+ *  AI keeps answering until the prospect asks for a human or a question
+ *  falls outside the program brief (the model then promises "Cole will …",
+ *  which the alert email flags as YOUR TURN). No legit sales conversation
+ *  gets near this number. */
+const AI_REPLY_CAP = 30;
 
 export async function POST(req: NextRequest) {
   const form = await req.formData();
@@ -248,21 +248,28 @@ async function deferredAiReply(args: {
     console.error("deferredAiReply failed:", e);
   }
 
-  // Page the operator with both sides of the exchange.
+  // Page the operator with both sides of the exchange. The AI defers by
+  // promising "Cole will …" (a phrasing the prompt mandates) — when that
+  // promise is in the reply, only the operator can keep it, so the alert
+  // escalates from FYI to YOUR TURN.
   const to = process.env.ALERT_EMAIL;
   if (to) {
+    const needsHuman = !!aiReply && /\bCole will\b/i.test(aiReply);
     const link = match ? `${base}/companies/${match.id}` : `${base}/messages/sms`;
     const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
     await sendEmail({
       to,
-      subject: `💬 SMS reply from ${match?.name ?? from}`,
+      subject: `${needsHuman || aiCapped ? "🔔 YOUR TURN — " : "💬 "}SMS reply from ${match?.name ?? from}`,
       html:
         `<p><strong>${esc(match?.name ?? from)}</strong> texted:</p>` +
         `<blockquote style="border-left:3px solid #2f7d4f;margin:8px 0;padding:4px 12px;">${esc(body)}</blockquote>` +
         (aiReply
-          ? `<p>🤖 AI answered:</p><blockquote style="border-left:3px solid #2563eb;margin:8px 0;padding:4px 12px;">${esc(aiReply)}</blockquote>`
+          ? `<p>🤖 AI answered:</p><blockquote style="border-left:3px solid #2563eb;margin:8px 0;padding:4px 12px;">${esc(aiReply)}</blockquote>` +
+            (needsHuman
+              ? `<p>🔔 The AI promised <strong>you'd</strong> follow up personally — that promise is now yours to keep.</p>`
+              : "")
           : aiCapped
-            ? `<p>⚠️ AI reply cap reached for this thread — <strong>your turn</strong>.</p>`
+            ? `<p>⚠️ Runaway brake tripped (${AI_REPLY_CAP} AI replies in this thread) — <strong>your turn</strong>.</p>`
             : `<p>No AI reply was sent — reply yourself.</p>`) +
         `<p><a href="${link}">Open the thread</a> to take over any time.</p>`,
       tags: { kind: "operator_alert" },

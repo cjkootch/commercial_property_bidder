@@ -54,9 +54,13 @@ instead.
 
 Conversations are AI-answered (same standing approval): the inbound webhook
 has Claude reply under the draft-button rules (deliver the claim link on
-interest, never invent details, polite close on not-interested), capped at
-10 AI replies per thread before going quiet for human takeover (a runaway
-brake, not the handoff — the operator is paged on every exchange). Every
+interest, never invent details, polite close on not-interested). The AI
+keeps answering indefinitely — human takeover happens only when the
+prospect asks for a person or a question falls outside the program brief,
+in which case the model defers with the words "Cole will …" and the alert
+email escalates to 🔔 YOUR TURN. A 30-reply-per-thread runaway brake
+guards against loops/abuse; no real conversation reaches it. The operator
+is paged on every exchange regardless. Every
 exchange still pages the operator — the alert email shows the prospect's
 text AND the AI's answer, with a link to take over the thread. Kill switch:
 `SMS_AI_AUTOREPLY=0`. STOP/opt-outs are never answered.
