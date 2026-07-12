@@ -390,7 +390,7 @@ export async function POST(req: NextRequest) {
   waitUntil(alertLastSpot(prop.id));
 
   const link = `${appUrl()}/buyers/leads/${unlock.id}`;
-  const facility = prop.name.replace(/ \((TABS|HCAD|STP|H311|TABC|TAX|RFP|BLD) [^)]+\)$/, "");
+  const facility = prop.name.replace(/ \((TABS|HCAD|STP|H311|TABC|TAX|RFP|BLD|CODE) [^)]+\)$/, "");
   await sendEmail({
     to: b.email,
     subject: `Your job sheet is ready — ${facility}`,

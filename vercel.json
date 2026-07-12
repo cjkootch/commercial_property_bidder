@@ -21,6 +21,10 @@
       "schedule": "22 11 * * 1"
     },
     {
+      "path": "/api/cron/orlando-code?want=25&sinceDays=30",
+      "schedule": "32 11 * * 1"
+    },
+    {
       "path": "/api/cron/transfers?want=30",
       "schedule": "27 11 * * 1"
     },
