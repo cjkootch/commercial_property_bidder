@@ -36,7 +36,7 @@ export function leadKind(name: string): LeadKind {
 
 /** Strip the sourcing ref from a property name for buyer-facing display. */
 export function displayName(name: string): string {
-  return name.replace(/ \((TABS|HCAD|STP|H311|TABC|TAX|RFP) [^)]+\)$/, "");
+  return name.replace(/ \((TABS|HCAD|STP|H311|TABC|TAX|RFP|BLD) [^)]+\)$/, "");
 }
 
 export type Teaser = { annual_lo?: number; annual_hi?: number; turf_sqft?: number } | null;
@@ -91,7 +91,7 @@ export async function loadMarketLeads(trade: Trade = DEFAULT_TRADE): Promise<Mar
   return props
     .filter(
       (p) =>
-        /\((TABS|HCAD|STP|H311|TABC|TAX|RFP) [^)]+\)$/.test(p.name) &&
+        /\((TABS|HCAD|STP|H311|TABC|TAX|RFP|BLD) [^)]+\)$/.test(p.name) &&
         tradeDef.relevant(leadKind(p.name)) &&
         (tradeDef.sellable?.(p.lead_teaser as { turf_sqft?: number; verified?: boolean } | null) ?? true) &&
         p.archived_at == null &&
