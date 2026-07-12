@@ -11,6 +11,7 @@ import { createBuyerProfile } from "../../actions";
 import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
 import { recordClaimView } from "@/lib/leads/companies";
 import { Logo } from "@/components/Logo";
+import { openInventoryFor } from "@/lib/sms/ai-context";
 
 // Public claim landing (token-authenticated): the campaign teaser links here.
 // Shows what we can say for free (project value, type, timing, area — never the
@@ -109,6 +110,19 @@ export default async function ClaimPage({
   // never a turf number (meaningless to a cleaning or HVAC company).
   const est = prop && kind ? TRADES[trade].estimateValue(tradeValueInput(prop, kind)) : null;
 
+  // The carousel: other open jobs in the same metro, each with its own
+  // preview link minted for this company. Best-effort — never blocks render.
+  const similar = prop
+    ? await openInventoryFor({
+        companyName: claim.company ?? "",
+        trade,
+        lat: prop.lat,
+        lng: prop.lng,
+        excludePropertyId: prop.id,
+        limit: 4,
+      })
+    : [];
+
   return (
     <Shell brand={brand}>
       <h1 className="mt-4 text-xl font-semibold">Claim your free job sheet</h1>
@@ -116,6 +130,24 @@ export default async function ClaimPage({
       {claimable ? (
         <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
           <div className="font-medium text-gray-900">Reserved for you:</div>
+          <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+            {est ? (
+              <div className="rounded-md bg-white px-1 py-2">
+                <div className="text-sm font-bold text-gray-900">{usdShort(est.annualLo)}–{usdShort(est.annualHi)}</div>
+                <div className="text-[10px] uppercase tracking-wide text-gray-400">{est.per === "project" ? "project value" : "per year"}</div>
+              </div>
+            ) : null}
+            {trade === "landscaping" && teaser?.turf_sqft ? (
+              <div className="rounded-md bg-white px-1 py-2">
+                <div className="text-sm font-bold text-gray-900">{Math.round(teaser.turf_sqft / 1000)}k sq ft</div>
+                <div className="text-[10px] uppercase tracking-wide text-gray-400">grounds</div>
+              </div>
+            ) : null}
+            <div className="rounded-md bg-white px-1 py-2">
+              <div className="text-sm font-bold text-amber-700">{avail!.spotsLeft} of {cap}</div>
+              <div className="text-[10px] uppercase tracking-wide text-gray-400">spots left</div>
+            </div>
+          </div>
           <ul className="mt-2 space-y-1 text-gray-600">
             <li>• {trigger}</li>
             {trade === "landscaping" && teaser?.turf_sqft ? (
@@ -140,6 +172,24 @@ export default async function ClaimPage({
       ) : paidOpen ? (
         <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
           <div className="font-medium text-gray-900">Still open — the free spot went fast:</div>
+          <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+            {est ? (
+              <div className="rounded-md bg-white px-1 py-2">
+                <div className="text-sm font-bold text-gray-900">{usdShort(est.annualLo)}–{usdShort(est.annualHi)}</div>
+                <div className="text-[10px] uppercase tracking-wide text-gray-400">{est.per === "project" ? "project value" : "per year"}</div>
+              </div>
+            ) : null}
+            {trade === "landscaping" && teaser?.turf_sqft ? (
+              <div className="rounded-md bg-white px-1 py-2">
+                <div className="text-sm font-bold text-gray-900">{Math.round(teaser.turf_sqft / 1000)}k sq ft</div>
+                <div className="text-[10px] uppercase tracking-wide text-gray-400">grounds</div>
+              </div>
+            ) : null}
+            <div className="rounded-md bg-white px-1 py-2">
+              <div className="text-sm font-bold text-amber-700">{avail!.spotsLeft} of {cap}</div>
+              <div className="text-[10px] uppercase tracking-wide text-gray-400">spots left</div>
+            </div>
+          </div>
           <ul className="mt-2 space-y-1 text-gray-600">
             <li>• {trigger}</li>
             {trade === "landscaping" && teaser?.turf_sqft ? (
@@ -227,6 +277,38 @@ export default async function ClaimPage({
           any time from your dashboard.
         </p>
       </form>
+
+      {similar.length > 0 ? (
+        <div className="mt-8 border-t border-gray-100 pt-5">
+          <h2 className="text-sm font-semibold text-gray-700">
+            More open jobs near you
+          </h2>
+          <div className="-mx-2 mt-3 flex snap-x gap-3 overflow-x-auto px-2 pb-2">
+            {similar.map((s) => (
+              <a
+                key={s.propertyId}
+                href={s.claimUrl}
+                className="w-44 shrink-0 snap-start rounded-lg border border-gray-200 bg-gray-50 p-3 hover:border-brand"
+              >
+                <div className="text-xs font-semibold text-gray-900">
+                  {s.city ?? "Nearby"}
+                </div>
+                {s.valueLo != null && s.valueHi != null ? (
+                  <div className="mt-1 text-sm font-bold text-brand">
+                    ${Math.round(s.valueLo / 1000)}k–${Math.round(s.valueHi / 1000)}k/yr
+                  </div>
+                ) : null}
+                {s.reasons.length ? (
+                  <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-gray-500">
+                    {s.reasons.join(" · ")}
+                  </div>
+                ) : null}
+                <div className="mt-2 text-[11px] font-semibold text-brand">Preview →</div>
+              </a>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </Shell>
   );
 }
