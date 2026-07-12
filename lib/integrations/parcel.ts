@@ -7,6 +7,7 @@
 // suggestion for the operator to confirm (build spec section 9).
 
 import type { ParcelResult } from "../geo/types";
+import { marketForCoords } from "../markets";
 
 type ArcGisFeature = {
   geometry?: { type: string; coordinates: unknown };
@@ -15,6 +16,9 @@ type ArcGisFeature = {
 
 type CountyService = {
   county: string;
+  /** Two-letter state; absent = "TX". A point only queries services in its
+   *  own market's state, so a TX lookup never hits the FL cadastral and back. */
+  state?: string;
   /** ArcGIS layer query endpoint (…/MapServer/<id>). */
   url: string;
   /** Optional second lookup (e.g. a city zoning layer) merged over the
@@ -591,7 +595,58 @@ const COUNTY_SERVICES: CountyService[] = [
       state_class: str(p.state_code), // arrives space-padded ('F1   ')
     }),
   },
+  {
+    // Orange County, FL (Orlando) — via the statewide FDOR Cadastral 2025 AGOL
+    // layer (public Query,Extract). Re-probed live 2026-07-12: point query with
+    // outSR=4326 + f=geojson returns the parcel polygon in lng/lat plus JV
+    // (just value), LND_VAL, LND_SQFOOT, owner + mailing, DOR use code. The
+    // layer's native SR is 3086 but queryCountyWithAttrs forces outSR=4326.
+    county: "Orange",
+    state: "FL",
+    url: "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+    normalize: (p) => {
+      const jv = numOrNull(p.JV); // FL "just value" = total market value.
+      const lnd = numOrNull(p.LND_VAL);
+      const sqft = numOrNull(p.LND_SQFOOT);
+      const dorUc = str(p.DOR_UC);
+      return {
+        owner: str(p.OWN_NAME),
+        parcel_id: str(p.PARCEL_ID),
+        address:
+          str([str(p.PHY_ADDR1), str(p.PHY_CITY)].filter(Boolean).join(", ")),
+        acres: sqft ? sqft / 43560 : null,
+        market_value: jv,
+        owner_mailing_address: str(
+          [
+            [str(p.OWN_ADDR1), str(p.OWN_ADDR2)].filter(Boolean).join(" "),
+            str(p.OWN_CITY),
+            [str(p.OWN_STATE), str(p.OWN_ZIPCD)].filter(Boolean).join(" "),
+          ]
+            .filter(Boolean)
+            .join(", ")
+        ),
+        // FDOR TOT_LVG_AREA is residential-only, so no commercial building sqft;
+        // improvement value proxies building size (just value − land value).
+        building_sqft: null,
+        improvement_value: jv != null && lnd != null ? Math.max(0, jv - lnd) : null,
+        land_sqft: sqft,
+        // FL DOR use codes 041–049 are industrial/warehouse — map to the "F2"
+        // marker the pricing models recognize so FL warehouses aren't quoted at
+        // the office rate. Other FL codes (0xx/1xx) don't map to Texas PTAD
+        // classes, so leave null (the models fall back to a wider band).
+        state_class: dorUc && /^04[1-9]$/.test(dorUc) ? "F2" : null,
+      };
+    },
+  },
 ];
+
+/** The county services in a point's own state — a TX lookup never queries the
+ *  FL cadastral (and vice versa), which keeps every lookup to its state's few
+ *  services instead of racing all of them. */
+function servicesFor(lng: number, lat: number): CountyService[] {
+  const st = marketForCoords(lat, lng).state ?? "TX";
+  return COUNTY_SERVICES.filter((s) => (s.state ?? "TX") === st);
+}
 
 async function queryCountyWithAttrs(
   svc: CountyService,
@@ -647,7 +702,7 @@ export async function fetchParcelAtPointWithAttrs(
   const timer = setTimeout(() => controller.abort(), 7000);
   try {
     const results = await Promise.allSettled(
-      COUNTY_SERVICES.map((s) => queryCountyWithAttrs(s, lng, lat, controller.signal))
+      servicesFor(lng, lat).map((s) => queryCountyWithAttrs(s, lng, lat, controller.signal))
     );
     for (const r of results) {
       if (r.status === "fulfilled" && r.value) return r.value;
@@ -694,7 +749,7 @@ export async function fetchParcelAtPoint(
   const timer = setTimeout(() => controller.abort(), 7000);
   try {
     const results = await Promise.allSettled(
-      COUNTY_SERVICES.map((s) => queryCountyWithAttrs(s, lng, lat, controller.signal))
+      servicesFor(lng, lat).map((s) => queryCountyWithAttrs(s, lng, lat, controller.signal))
     );
     for (const r of results) {
       if (r.status === "fulfilled" && r.value) return r.value.parcel;
