@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
 import { toE164 } from "@/lib/integrations/twilio";
 import { signBuyerClaim } from "@/lib/buyer-auth";
+import { DEFAULT_TZ, marketTimezones } from "@/lib/markets";
 
 /** Claim links for texts are minted FRESH at suggestion/send time — a stored
  *  buyer_outreach.claim_url may be older than the 30-day token TTL, and a
@@ -25,11 +26,13 @@ export const TEXT_QUEUE_DAILY_CAP = () => {
 };
 
 /** Automated sends only go out when a human plausibly would: weekdays,
- *  9am–6pm on Texas wall clock. Enforced in the cron route itself so an
- *  edited cron schedule can never text someone at 3am. */
-export function withinSmsSendWindow(now: Date): boolean {
+ *  9am–6pm on the RECIPIENT's local wall clock. Enforced in the cron route
+ *  itself so an edited cron schedule can never text someone at 3am. Pass the
+ *  recipient's market timezone (`marketTz(lat,lng)`); default Central keeps the
+ *  original Texas behavior for callers without a per-recipient tz. */
+export function withinSmsSendWindow(now: Date, tz: string = DEFAULT_TZ): boolean {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Chicago",
+    timeZone: tz,
     hour: "numeric",
     hour12: false,
     weekday: "short",
@@ -38,6 +41,13 @@ export function withinSmsSendWindow(now: Date): boolean {
   const day = parts.find((p) => p.type === "weekday")?.value ?? "";
   const weekday = !["Sat", "Sun"].includes(day);
   return weekday && hour >= 9 && hour < 18;
+}
+
+/** Coarse gate for a run serving multiple metros: open if ANY market's local
+ *  clock is inside the send window. The precise call is per-recipient, on that
+ *  recipient's own market timezone. */
+export function anySmsSendWindowOpen(now: Date): boolean {
+  return marketTimezones().some((tz) => withinSmsSendWindow(now, tz));
 }
 
 export function openerFor(name: string, city: string | null): string {

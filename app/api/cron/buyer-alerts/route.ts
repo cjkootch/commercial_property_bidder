@@ -4,7 +4,8 @@ import { guarded } from "@/lib/cron-guard";
 import { db } from "@/lib/db";
 import { buyer, leadUnlock, property, smsSend } from "@/lib/db/schema";
 import { sendSms } from "@/lib/integrations/twilio";
-import { freshClaimUrl, withinSmsSendWindow } from "@/lib/sms/queue";
+import { anySmsSendWindowOpen, freshClaimUrl, withinSmsSendWindow } from "@/lib/sms/queue";
+import { marketTz } from "@/lib/markets";
 import { leadAvailability } from "@/lib/leads/availability";
 import { TRADES, asTrade } from "@/lib/leads/trades";
 import { haversineMiles } from "@/lib/sourcing/criteria";
@@ -33,8 +34,9 @@ export async function GET(req: NextRequest) {
     if (process.env.BUYER_SMS_ALERTS === "0") {
       return Response.json({ skipped: "BUYER_SMS_ALERTS=0" });
     }
-    if (!withinSmsSendWindow(new Date())) {
-      return Response.json({ skipped: "outside business-hours send window" });
+    const now = new Date();
+    if (!anySmsSendWindowOpen(now)) {
+      return Response.json({ skipped: "outside business-hours send window (all metros)" });
     }
 
     const [buyers, fresh, priorAlerts, unlocks] = await Promise.all([
@@ -68,6 +70,9 @@ export async function GET(req: NextRequest) {
     for (const b of buyers) {
       if (sent.length >= MAX_PER_RUN) break;
       if (!b.notify || !b.phone) continue;
+      // Text on the BUYER's local clock, not Texas time — an El Paso (Mountain)
+      // or Orlando (Eastern) buyer must not be paged an hour early/late.
+      if (!withinSmsSendWindow(now, marketTz(b.lat, b.lng))) continue;
       const trade = asTrade(b.trade);
       // Sellable = same rule as the shelf: parcel measured, or a public bid.
       const candidates = fresh
