@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { leadUnlock, property } from "@/lib/db/schema";
+import { buyer, leadUnlock, property } from "@/lib/db/schema";
 import { verifyBuyerClaim } from "@/lib/buyer-auth";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { FREE_MAX_PER_LEAD } from "@/lib/leads/allocation";
 import { leadAvailability, leadMaxBuyers } from "@/lib/leads/availability";
 import { leadKind } from "@/lib/leads/market";
-import { createBuyerProfile } from "../../actions";
+import { claimAsExistingBuyer, createBuyerProfile, currentBuyerId } from "../../actions";
 import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
 import { recordClaimView } from "@/lib/leads/companies";
 import { Logo } from "@/components/Logo";
@@ -54,6 +54,16 @@ export default async function ClaimPage({
   }
 
   const [prop] = await db.select().from(property).where(eq(property.id, claim.property_id)).limit(1);
+  // A browser that already holds a buyer session skips the form entirely —
+  // they told us who they are when they signed up; asking again is friction.
+  const sessionBuyerId = await currentBuyerId();
+  const [me] = sessionBuyerId
+    ? await db
+        .select({ company_name: buyer.company_name, email: buyer.email })
+        .from(buyer)
+        .where(eq(buyer.id, sessionBuyerId))
+        .limit(1)
+    : [];
   // The hot unconverted signal: this company opened the offer. Best-effort —
   // never blocks the render. (Link-preview bots inflate this slightly; it's
   // a call-list ranking signal, not billing.)
@@ -105,6 +115,8 @@ export default async function ClaimPage({
               ? `${cost} ${(workType ?? "commercial").toLowerCase()} project${start ? `, breaking ground around ${start}` : ""}`
               : "Large commercial project";
   const usdShort = (n: number) => `$${Math.round(n).toLocaleString()}`;
+  const sqftShort = (n: number) =>
+    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M sq ft` : `${Math.round(n / 1000)}k sq ft`;
   // The value lines mirror the trade's OWN memo: landscaping quotes the
   // aerial teaser; every other trade quotes its county-records estimate and
   // never a turf number (meaningless to a cleaning or HVAC company).
@@ -125,12 +137,14 @@ export default async function ClaimPage({
 
   return (
     <Shell brand={brand}>
-      <h1 className="mt-4 text-xl font-semibold">Claim your free job sheet</h1>
+      <h1 className="mt-3 text-xl font-semibold">Claim your free job sheet</h1>
 
-      {claimable ? (
-        <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
-          <div className="font-medium text-gray-900">Reserved for you:</div>
-          <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+      {claimable || paidOpen ? (
+        <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm sm:p-4">
+          <div className="font-medium text-gray-900">
+            {claimable ? "Reserved for you:" : "Still open — the free spot went fast:"}
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-1.5 text-center sm:gap-2">
             {est ? (
               <div className="rounded-md bg-white px-1 py-2">
                 <div className="text-sm font-bold text-gray-900">{usdShort(est.annualLo)}–{usdShort(est.annualHi)}</div>
@@ -139,7 +153,7 @@ export default async function ClaimPage({
             ) : null}
             {trade === "landscaping" && teaser?.turf_sqft ? (
               <div className="rounded-md bg-white px-1 py-2">
-                <div className="text-sm font-bold text-gray-900">{Math.round(teaser.turf_sqft / 1000)}k sq ft</div>
+                <div className="text-sm font-bold text-gray-900">{sqftShort(teaser.turf_sqft)}</div>
                 <div className="text-[10px] uppercase tracking-wide text-gray-400">grounds</div>
               </div>
             ) : null}
@@ -148,67 +162,30 @@ export default async function ClaimPage({
               <div className="text-[10px] uppercase tracking-wide text-gray-400">spots left</div>
             </div>
           </div>
+          {/* The tiles already carry the numbers — the bullets add only what
+              the tiles can't say, so the CTA stays near the fold on phones. */}
           <ul className="mt-2 space-y-1 text-gray-600">
             <li>• {trigger}</li>
-            {trade === "landscaping" && teaser?.turf_sqft ? (
-              <li>
-                • ~{Math.round(teaser.turf_sqft).toLocaleString()} sq ft of maintainable grounds
-                {teaser.verified ? " (hand-verified measurement)" : ""}
-              </li>
+            {trade === "landscaping" && teaser?.turf_sqft && teaser.verified ? (
+              <li>• Grounds hand-verified from aerial measurement</li>
             ) : null}
             {trade !== "landscaping" && est ? <li>• {est.basis}</li> : null}
-            {est ? (
-              <li>• Est. {usdShort(est.annualLo)}–{usdShort(est.annualHi)}{est.per === "project" ? " project value" : "/yr recurring contract value"}</li>
-            ) : null}
             {prop!.city ? <li>• {prop!.city} area</li> : null}
-            <li>• Full sheet: exact location, decision contacts, our aerial measurement, contract value, and the window to bid</li>
+            <li>• Full sheet: exact location, decision contacts, contract value, and the window to bid</li>
           </ul>
           <p className="mt-2 text-xs text-gray-400">
-            Every job is capped at {cap} companies* — ever.
-            {avail!.spotsLeft === 1 ? " This is the last spot." : ""}{" "}
-            <Link href="/terms" className="underline">*Terms</Link>
-          </p>
-        </div>
-      ) : paidOpen ? (
-        <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
-          <div className="font-medium text-gray-900">Still open — the free spot went fast:</div>
-          <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-            {est ? (
-              <div className="rounded-md bg-white px-1 py-2">
-                <div className="text-sm font-bold text-gray-900">{usdShort(est.annualLo)}–{usdShort(est.annualHi)}</div>
-                <div className="text-[10px] uppercase tracking-wide text-gray-400">{est.per === "project" ? "project value" : "per year"}</div>
-              </div>
-            ) : null}
-            {trade === "landscaping" && teaser?.turf_sqft ? (
-              <div className="rounded-md bg-white px-1 py-2">
-                <div className="text-sm font-bold text-gray-900">{Math.round(teaser.turf_sqft / 1000)}k sq ft</div>
-                <div className="text-[10px] uppercase tracking-wide text-gray-400">grounds</div>
-              </div>
-            ) : null}
-            <div className="rounded-md bg-white px-1 py-2">
-              <div className="text-sm font-bold text-amber-700">{avail!.spotsLeft} of {cap}</div>
-              <div className="text-[10px] uppercase tracking-wide text-gray-400">spots left</div>
-            </div>
-          </div>
-          <ul className="mt-2 space-y-1 text-gray-600">
-            <li>• {trigger}</li>
-            {trade === "landscaping" && teaser?.turf_sqft ? (
-              <li>
-                • ~{Math.round(teaser.turf_sqft).toLocaleString()} sq ft of maintainable grounds
-                {teaser.verified ? " (hand-verified measurement)" : ""}
-              </li>
-            ) : null}
-            {trade !== "landscaping" && est ? <li>• {est.basis}</li> : null}
-            {est ? (
-              <li>• Est. {usdShort(est.annualLo)}–{usdShort(est.annualHi)}{est.per === "project" ? " project value" : "/yr recurring contract value"}</li>
-            ) : null}
-            {prop!.city ? <li>• {prop!.city} area</li> : null}
-            <li>• Full sheet: exact location, decision contacts, our aerial measurement, contract value, and the window to bid</li>
-          </ul>
-          <p className="mt-2 text-xs text-gray-400">
-            Another company claimed the free spot, but {avail!.spotsLeft} of {cap} spots on this
-            job {avail!.spotsLeft === 1 ? "is" : "are"} still open* — create your profile to see
-            it, and your free sheet applies to the next open job near you.{" "}
+            {claimable ? (
+              <>
+                Every job is capped at {cap} companies* — ever.
+                {avail!.spotsLeft === 1 ? " This is the last spot." : ""}
+              </>
+            ) : (
+              <>
+                Another company claimed the free spot, but {avail!.spotsLeft} of {cap} spots on
+                this job {avail!.spotsLeft === 1 ? "is" : "are"} still open* — create your profile
+                to see it, and your free sheet applies to the next open job near you.
+              </>
+            )}{" "}
             <Link href="/terms" className="underline">*Terms</Link>
           </p>
         </div>
@@ -228,55 +205,65 @@ export default async function ClaimPage({
         </p>
       )}
 
-      <form action={createBuyerProfile.bind(null, params.token)} className="mt-6 space-y-3">
-        {/* Trade from the outreach link — scopes the shelf/copy after signup. */}
-        <input type="hidden" name="trade" value={asTrade(searchParams.trade)} />
-        <input
-          type="text"
-          name="company"
-          required
-          defaultValue={claim.company ?? ""}
-          placeholder="Company name"
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
-        />
-        <input
-          type="email"
-          name="email"
-          required
-          autoFocus={!!claim.company}
-          placeholder="you@yourcompany.com"
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
-        />
-        <input
-          type="text"
-          name="city"
-          placeholder="Office city (so we match jobs near you)"
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
-        />
-        {searchParams.error ? (
-          <p className="text-sm text-red-600">Please enter your company name and a valid email.</p>
-        ) : null}
-        <button
-          type="submit"
-          className="w-full rounded-md bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark"
-        >
-          {claimable
-            ? "Create profile & unlock my free sheet"
-            : paidOpen
-              ? "Create profile & see this job"
-              : "Create profile"}
-        </button>
-        <p className="text-center text-[11px] text-gray-400">
-          By creating a profile you agree to our{" "}
-          <Link href="/terms" className="underline">Terms</Link> and{" "}
-          <Link href="/privacy" className="underline">Privacy Policy</Link>.
-        </p>
-
-        <p className="text-xs text-gray-400">
-          No card required. We&apos;ll email you when new jobs open near your office — unsubscribe
-          any time from your dashboard.
-        </p>
-      </form>
+      {me ? (
+        <form action={claimAsExistingBuyer.bind(null, params.token)} className="mt-5 space-y-3">
+          <button
+            type="submit"
+            className="w-full rounded-md bg-brand px-3 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
+          >
+            {claimable ? "Unlock my free sheet" : paidOpen ? "See this job" : "See open jobs near me"}
+          </button>
+          <p className="text-center text-[11px] leading-4 text-gray-400">
+            Signed in as {me.company_name} ({me.email}) ·{" "}
+            <Link href="/buyers/login" className="underline">not you?</Link>
+          </p>
+        </form>
+      ) : (
+        <form action={createBuyerProfile.bind(null, params.token)} className="mt-5 space-y-3">
+          {/* Trade from the outreach link — scopes the shelf/copy after signup. */}
+          <input type="hidden" name="trade" value={asTrade(searchParams.trade)} />
+          <input
+            type="text"
+            name="company"
+            required
+            defaultValue={claim.company ?? ""}
+            placeholder="Company name"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+          />
+          <input
+            type="email"
+            name="email"
+            required
+            autoFocus={!!claim.company}
+            placeholder="you@yourcompany.com"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+          />
+          <input
+            type="text"
+            name="city"
+            placeholder="Office city (so we match jobs near you)"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+          />
+          {searchParams.error ? (
+            <p className="text-sm text-red-600">Please enter your company name and a valid email.</p>
+          ) : null}
+          <button
+            type="submit"
+            className="w-full rounded-md bg-brand px-3 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark"
+          >
+            {claimable
+              ? "Create profile & unlock my free sheet"
+              : paidOpen
+                ? "Create profile & see this job"
+                : "Create profile"}
+          </button>
+          <p className="text-center text-[11px] leading-4 text-gray-400">
+            No card required. Unsubscribe any time. By creating a profile you agree to our{" "}
+            <Link href="/terms" className="underline">Terms</Link> and{" "}
+            <Link href="/privacy" className="underline">Privacy Policy</Link>.
+          </p>
+        </form>
+      )}
 
       {similar.length > 0 ? (
         <div className="mt-8 border-t border-gray-100 pt-5">
@@ -314,9 +301,11 @@ export default async function ClaimPage({
 }
 
 function Shell({ brand, children }: { brand: string; children: React.ReactNode }) {
+  // Phones get nearly the full width (the page px + card p stack up fast on a
+  // 390px screen); the roomier padding is desktop-only.
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-6 py-10">
-      <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8">
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-2.5 py-4 sm:px-6 sm:py-10">
+      <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-4 sm:p-8">
         <Logo name={brand} />
         {children}
       </div>

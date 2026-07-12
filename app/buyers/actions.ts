@@ -115,6 +115,24 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
 }
 
 /**
+ * Claim-link tap from a browser that already holds a buyer session: no form,
+ * no retyping the profile they already have. The session identifies the
+ * buyer, the token identifies the lead — same unlock rules and journey
+ * stitching as a fresh signup, same landing either way.
+ */
+export async function claimAsExistingBuyer(token: string): Promise<void> {
+  const claim = verifyBuyerClaim(token);
+  if (!claim) redirect("/buyers/login?expired=1");
+  const buyerId = await currentBuyerId();
+  // Session evaporated between render and tap — fall back to the form.
+  if (!buyerId) redirect(`/buyers/claim/${token}`);
+  const co = await getDefaultCompany();
+  const claimed = await tryFreeUnlock(buyerId, claim.property_id, co?.name ?? null);
+  await linkCompanyToBuyer(claim.company, buyerId);
+  redirect(claimed ? "/buyers" : `/buyers?offer=${claim.property_id}`);
+}
+
+/**
  * Public signup (homepage): same 3-field profile, no campaign token and no
  * lead attached — the buyer picks their free first sheet from the dashboard.
  * SECURITY: an existing email gets routed to the magic-link login instead of
