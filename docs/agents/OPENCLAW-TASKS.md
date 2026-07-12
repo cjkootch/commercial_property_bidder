@@ -31,6 +31,10 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
+_None open — round 9 cleared 2026-07-12 (see Done). Round 10 TBD._
+
+<!-- Round-9 briefs preserved below for reference; all delivered.
+
 Round 9 — de-risk the Orlando legs Claude has NOT already re-probed while
 building in-house. (Permits `ryhf-m453` + FDOR parcels are built and live as of
 2026-07-12; the Socrata `$where` must be `%20`-encoded, not `+` — Orlando's
@@ -111,6 +115,8 @@ Deliverable: `docs/market-research/orange-unincorporated-r2-<date>.md`.
 _Priority: 22 first (the deed leg is the last and hardest, and the go/no-go
 gates the whole signal mix), then 23 (buyers gate launch — can't sell without
 companies), then 24 (county-wide scope)._
+
+-->
 
 <!-- Round-8 briefs preserved below for reference; all delivered.
 
@@ -727,3 +733,43 @@ Flag anything gated; do not bypass. Deliverable:
   no row extractable. Round-7's `ocgis1.ocfl.net` is dead → successor is
   `ocgis4`. **Launch scope = CITY-OF-ORLANDO-ONLY**, unincorporated county as
   later expansion; re-probe the ocgis4 CE /query to promote it to BUILD).
+- 2026-07-12 — Tyler ssweb deed request-shape characterization →
+  `docs/market-research/orange-ssweb-deed-shape-2026-07-12.md` (**VERDICT: deed
+  leg NOT buildable within the rails — DROP deeds for Orlando, ship the other
+  five legs.** The disclaimer ITSELF is gated behind Google reCAPTCHA v2
+  (sitekey 6LemVGAU…) validated at `POST /ssweb/checkHuman`; the "I Accept"
+  button loads disabled and only enables on a `true` checkHuman response.
+  checkHuman is a structural ALWAYS-ON control on the disclaimer page — not
+  something the paced access "tripped" — so the operator-authorized
+  disclaimer-accept path is inseparable from defeating the bot-check. Agent
+  hard-stopped (3 paced GETs, no forged headers), never reached the search
+  form; POST body/pagination/freshness/sub-type remain unobtainable within the
+  rails. Rails-compliant alternative = Comptroller bulk/API or a public-records
+  DATA REQUEST, not interactive scraping — FLAG for human).
+- 2026-07-12 — Florida buyer-roll extract formats →
+  `docs/market-research/fl-buyer-rolls-2026-07-12.md` (**DBPR** = quote/comma
+  CSV, NO header, 21 cols, county-code = field 12 (Orange 58); files
+  `CONSTRUCTIONLICENSE_1/2/3.csv` + `constr_app.csv`; trades: HVAC=CAC/CMC/RA,
+  roofing=CCC/RC, plumbing=CFC/RF/RP, electrical=ECLB, fire=FRO; max eff date
+  2026-07-11 (~daily). **Landscaping-proxy answer: NOT DBPR** — it's FDACS
+  lawn-&-ornamental (Ch.482) + Sunbiz keyword; cleaning/janitorial + irrigation
+  = Sunbiz keyword only. **FDACS** has no static file — Power BI only
+  (`aeslicensing.fdacs.gov/Reports`), bulk = records-request (FLAG). **Sunbiz**
+  fixed-width SFTP (`sftp.floridados.gov`, Public/PubAccess1845!): name pos13,
+  addr pos221, FileDate pos473, no county (filter city/zip). **Contact data:
+  address-only everywhere → enrichment needed; SOLE exception = DBPR
+  `constr_app.csv` applicants carry a PHONE column.** Rank: DBPR-applicants >
+  DBPR-licensee > Sunbiz > FDACS; thin trades = landscaping/janitorial/
+  irrigation).
+- 2026-07-12 — Unincorporated Orange re-probe + OCPA imagery →
+  `docs/market-research/orange-unincorporated-r2-2026-07-12.md` (county code
+  enforcement **NO-BUILD** — `ocgis4.ocfl.net` `/query` still down server-wide
+  (HTTP 000 timeout on every layer; metadata 200s but no queryable mirror),
+  right schema (INSP_RES_DT freshness, INCI_ZONED comm/res) but un-obtainable;
+  county permits **NO-BUILD** — only non-Accela feed (`Economic_Incentive_
+  Permits`) is frozen at 2021-02-22 → City-of-Orlando-only permit coverage
+  stands. **OCPA imagery = YES (build-ready)**: `GET ocpaimages.ocpafl.org/api/
+  Image/GetPIDImage?pid=<15-digit PID>` (property photo) + `GetPIDSketch?pid=…&
+  bldgNum=1` (building sketch) are anonymously callable, no auth/referer/key
+  (public Swagger) — enriches the sold sheet with an official parcel photo +
+  sketch).
