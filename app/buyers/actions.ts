@@ -126,9 +126,21 @@ export async function claimAsExistingBuyer(token: string): Promise<void> {
   const buyerId = await currentBuyerId();
   // Session evaporated between render and tap — fall back to the form.
   if (!buyerId) redirect(`/buyers/claim/${token}`);
+  // Same abuse posture as the form path (which is IP-limited).
+  const rl = await rateLimit(`buyerclaim:buyer:${buyerId}`, 10, 3600);
+  if (!rl.ok) redirect("/buyers");
+  // A signed cookie for a deleted buyer row must bounce to login, not FK-500
+  // inside the unlock insert.
+  const [me] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
+  if (!me) redirect("/buyers/login");
   const co = await getDefaultCompany();
-  const claimed = await tryFreeUnlock(buyerId, claim.property_id, co?.name ?? null);
-  await linkCompanyToBuyer(claim.company, buyerId);
+  const claimed = await tryFreeUnlock(buyerId!, claim.property_id, co?.name ?? null);
+  // Journey stitching ONLY when the link plausibly belongs to this buyer — a
+  // forwarded/shared link must not mark someone ELSE's prospect company as
+  // converted (that would silently pull them out of the outreach machines).
+  if (claim.company && companyKeyOf(claim.company) === companyKeyOf(me.company_name)) {
+    await linkCompanyToBuyer(claim.company, buyerId!);
+  }
   redirect(claimed ? "/buyers" : `/buyers?offer=${claim.property_id}`);
 }
 
@@ -320,6 +332,19 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
 
   // No-transaction race guard: roll back if we landed over the cap.
   if (!(await confirmUnlockWithinCap(unlock.id, prop.id))) return false;
+  // Race guard for the PER-BUYER free cap (two concurrent claims on two
+  // DIFFERENT properties both pass the priorFree pre-check): re-read all of
+  // this buyer's free unlocks; only the earliest survives — same rule as
+  // claimFreeLead.
+  const myFree = await db
+    .select()
+    .from(leadUnlock)
+    .where(and(eq(leadUnlock.buyer_id, buyerId), eq(leadUnlock.kind, "free")));
+  myFree.sort((a, b) => a.created_at.getTime() - b.created_at.getTime() || a.id.localeCompare(b.id));
+  if (myFree.length > 1 && myFree[0].id !== unlock.id) {
+    await db.delete(leadUnlock).where(eq(leadUnlock.id, unlock.id));
+    return false;
+  }
   await closeLeadIfDone(prop.id);
   return true;
 }

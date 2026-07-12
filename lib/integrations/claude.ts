@@ -1,7 +1,8 @@
 // Claude integration: drafts SMS replies from the conversation + company
-// context. DRAFT ONLY — nothing here sends; the operator reviews and edits
-// every message before tapping Send (the same human-in-the-loop posture as
-// the text queue). Env: ANTHROPIC_API_KEY.
+// context. Two callers, two blast radii: the inbox ✨ AI-draft button
+// (operator reviews before sending) and the inbound webhook's auto-reply
+// (SENDS UNREVIEWED under the 2026-07-12 standing approval) — prompt changes
+// here go straight to prospects. Env: ANTHROPIC_API_KEY.
 
 import Anthropic from "@anthropic-ai/sdk";
 import { PROGRAM_BRIEF } from "@/lib/sms/ai-context";
@@ -44,7 +45,11 @@ export type SmsDraftContext = {
 export async function draftSmsReply(ctx: SmsDraftContext): Promise<string | null> {
   if (!process.env.ANTHROPIC_API_KEY) return null;
   try {
-    const client = new Anthropic();
+    // Tight budget: the webhook caller has already slept up to 3min of its
+    // 300s maxDuration — the SDK's default 10-minute timeout + 2 retries
+    // would blow past it and Vercel would kill the invocation silently
+    // (losing the reply AND the operator alert).
+    const client = new Anthropic({ timeout: 60_000, maxRetries: 1 });
     const convo = ctx.thread
       .map((m) => `${m.direction === "in" ? "THEM" : "COLE"}: ${m.body}`)
       .join("\n");

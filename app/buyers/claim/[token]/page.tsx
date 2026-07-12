@@ -59,17 +59,29 @@ export default async function ClaimPage({
   const sessionBuyerId = await currentBuyerId();
   const [me] = sessionBuyerId
     ? await db
-        .select({ company_name: buyer.company_name, email: buyer.email })
+        .select({ company_name: buyer.company_name, email: buyer.email, trade: buyer.trade })
         .from(buyer)
         .where(eq(buyer.id, sessionBuyerId))
+        .limit(1)
+    : [];
+  // The one-tap action unlocks on the buyer's OWN trade shelf — the page must
+  // promise from the same shelf, or "Reserved for you" can dead-end at a
+  // price. Their once-ever free claim being spent is checked for the same
+  // reason.
+  const [mySpentFree] = me
+    ? await db
+        .select({ id: leadUnlock.id })
+        .from(leadUnlock)
+        .where(and(eq(leadUnlock.buyer_id, sessionBuyerId!), eq(leadUnlock.kind, "free")))
         .limit(1)
     : [];
   // The hot unconverted signal: this company opened the offer. Best-effort —
   // never blocks the render. (Link-preview bots inflate this slightly; it's
   // a call-list ranking signal, not billing.)
   await recordClaimView(claim.company);
-  // Pre-signup, the trade comes from the outreach link (?trade=).
-  const trade = asTrade(searchParams.trade);
+  // Pre-signup, the trade comes from the outreach link (?trade=). Signed in,
+  // it's the buyer's own trade — that's the shelf the unlock actually runs on.
+  const trade = me ? asTrade(me.trade) : asTrade(searchParams.trade);
   // Sellable = measured OR public-bid (RFPs carry no parcel) — the same rule
   // as the unlock actions. Gating on parcel alone made an RFP claim link
   // falsely claim "all spots went to other companies".
@@ -86,11 +98,12 @@ export default async function ClaimPage({
           .where(and(eq(leadUnlock.property_id, prop.id), eq(leadUnlock.kind, "free")))
       ).filter((u) => u.trade === trade).length >= FREE_MAX_PER_LEAD
     : false;
-  const claimable = !!avail?.open && !freeSpent;
-  // Free spot spent but paid spots remain: say exactly that. Collapsing this
-  // into "filled up" told engaged companies a lead was gone while 2/3 spots
-  // sat open — false scarcity, and it turns away ready buyers.
-  const paidOpen = !!avail?.open && freeSpent;
+  const claimable = !!avail?.open && !freeSpent && !mySpentFree;
+  // Free spot spent (on the lead, or by THIS buyer) but paid spots remain:
+  // say exactly that. Collapsing this into "filled up" told engaged companies
+  // a lead was gone while 2/3 spots sat open — false scarcity, and it turns
+  // away ready buyers.
+  const paidOpen = !!avail?.open && (freeSpent || !!mySpentFree);
   const cap = leadMaxBuyers();
 
   const cost = note(prop?.notes ?? null, /est\. cost (\$[\d,]+)/);
@@ -142,7 +155,11 @@ export default async function ClaimPage({
       {claimable || paidOpen ? (
         <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm sm:p-4">
           <div className="font-medium text-gray-900">
-            {claimable ? "Reserved for you:" : "Still open — the free spot went fast:"}
+            {claimable
+              ? "Reserved for you:"
+              : mySpentFree
+                ? "Still open:"
+                : "Still open — the free spot went fast:"}
           </div>
           <div className="mt-2 grid grid-cols-3 gap-1.5 text-center sm:gap-2">
             {est ? (
@@ -179,6 +196,12 @@ export default async function ClaimPage({
                 Every job is capped at {cap} companies* — ever.
                 {avail!.spotsLeft === 1 ? " This is the last spot." : ""}
               </>
+            ) : mySpentFree ? (
+              <>
+                Your free sheet has already been used, so this one unlocks as a paid sheet —{" "}
+                {avail!.spotsLeft} of {cap} spots {avail!.spotsLeft === 1 ? "is" : "are"} still
+                open*.
+              </>
             ) : (
               <>
                 Another company claimed the free spot, but {avail!.spotsLeft} of {cap} spots on
@@ -191,7 +214,10 @@ export default async function ClaimPage({
         </div>
       ) : (
         <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          {prop ? (
+          {/* "Filled up" is only true when the lead was actually on sale —
+              an unsellable/archived property gets the generic line, not
+              false scarcity. */}
+          {prop && avail && !avail.open ? (
             <>
               <span className="font-semibold">This one filled up</span> — all {cap} spots went to
               other companies. First come, first served is real here.{" "}

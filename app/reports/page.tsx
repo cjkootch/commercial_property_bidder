@@ -209,7 +209,7 @@ export default async function ReportsPage({
         <div className="mt-3 flex items-center gap-3">
           <span className="text-xs text-gray-600">
             <span className="font-semibold tabular-nums">{data.sms.autopilot.sentToday}</span> /{" "}
-            {data.sms.autopilot.cap} openers today
+            {data.sms.autopilot.cap} queue sends today (openers + nudges)
           </span>
           <div className="h-2 flex-1 rounded-full bg-gray-100">
             <div

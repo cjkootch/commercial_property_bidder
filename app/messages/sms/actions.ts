@@ -2,12 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsSend } from "@/lib/db/schema";
 import { sendSms, toE164 } from "@/lib/integrations/twilio";
 import { openerFor, queueSentToday, TEXT_QUEUE_DAILY_CAP } from "@/lib/sms/queue";
 import { draftSmsReply } from "@/lib/integrations/claude";
+import { rateLimit } from "@/lib/ratelimit";
 
 // Reply from the consolidated SMS inbox. The thread is keyed by the
 // counterparty's phone; if that number belongs to a company profile the send
@@ -54,6 +55,24 @@ export async function sendQueuedText(formData: FormData): Promise<void> {
 
   const [p] = await db.select().from(prospectCompany).where(eq(prospectCompany.id, id)).limit(1);
   if (!p?.phone) redirect(`/messages/sms?q=no+phone+on+file`);
+
+  // A stale queue panel (or a double-tap) must not send a second opener —
+  // the "never texted" filter at render time isn't a server-side guarantee.
+  const phoneE164 = toE164(p.phone);
+  if (phoneE164) {
+    const [prior] = await db
+      .select({ id: smsSend.id })
+      .from(smsSend)
+      .where(and(eq(smsSend.phone, phoneE164), eq(smsSend.kind, "text_queue")))
+      .limit(1);
+    if (prior) {
+      redirect(`/messages/sms?t=${encodeURIComponent(phoneE164)}&q=${encodeURIComponent("already opened with this number")}`);
+    }
+  }
+  // Same atomic daily ledger as the cron — the snapshot check above races.
+  if (!(await rateLimit("smsqueue:day", cap, 86_400)).ok) {
+    redirect(`/messages/sms?q=${encodeURIComponent(`daily cap reached (${cap})`)}`);
+  }
 
   const res = await sendSms({
     to: p.phone,

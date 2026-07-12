@@ -16,16 +16,17 @@ import { smsOptOut, smsSend } from "@/lib/db/schema";
 
 export type SmsResult = { ok: true; sid: string } | { ok: false; error: string };
 
-function creds(): { sid: string; token: string; from: string; serviceSid: string | null } | null {
+function creds(): { sid: string; token: string; from: string | null; serviceSid: string | null } | null {
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_FROM; // the purchased number, E.164
+  const from = process.env.TWILIO_FROM || null; // the purchased number, E.164
   // When set, sends go out via the Messaging Service's sender pool (local +
   // toll-free) instead of the single number: Twilio picks the sender, keeps
   // it STICKY per recipient (threads never fracture across numbers), and
   // scales/fails over as volume grows. Unset = single-number behavior.
+  // Either sender source alone is a valid config.
   const serviceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || null;
-  return sid && token && from ? { sid, token, from, serviceSid } : null;
+  return sid && token && (from || serviceSid) ? { sid, token, from, serviceSid } : null;
 }
 
 /** Best-effort US number → E.164. Returns null if it doesn't look like one. */
@@ -60,7 +61,13 @@ export async function sendSms(args: {
   refId?: string | null;
 }): Promise<SmsResult> {
   const c = creds();
-  if (!c) return { ok: false, error: "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM not set" };
+  if (!c) {
+    return {
+      ok: false,
+      error:
+        "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN plus TWILIO_FROM or TWILIO_MESSAGING_SERVICE_SID not set",
+    };
+  }
   const to = toE164(args.to);
   if (!to) return { ok: false, error: `not a valid US number: ${args.to}` };
   const body = args.body.trim().slice(0, 1200); // ~8 segments hard stop
@@ -70,7 +77,7 @@ export async function sendSms(args: {
   const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
   const params = new URLSearchParams({ To: to, Body: body });
   if (c.serviceSid) params.set("MessagingServiceSid", c.serviceSid);
-  else params.set("From", c.from);
+  else params.set("From", c.from!); // creds() guarantees one of the two
   if (base) params.set("StatusCallback", `${base}/api/webhooks/twilio`);
 
   try {

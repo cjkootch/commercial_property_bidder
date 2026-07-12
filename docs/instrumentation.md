@@ -61,9 +61,10 @@ interest, never invent details, polite close on not-interested). The AI
 keeps answering indefinitely — human takeover happens only when the
 prospect asks for a person or a question falls outside the program brief,
 in which case the model defers with the words "Cole will …" and the alert
-email escalates to 🔔 YOUR TURN. A 30-reply-per-thread runaway brake
-guards against loops/abuse; no real conversation reaches it. The operator
-is paged on every exchange regardless. Every
+email escalates to 🔔 YOUR TURN. A runaway brake (30 AI replies per number
+per 24h) guards against loops/abuse; no real conversation reaches it. The
+operator is paged on every inbound — including STOP/START and messages from
+opted-out numbers, which never enter the AI pipeline at all. Every
 exchange still pages the operator — the alert email shows the prospect's
 text AND the AI's answer, with a link to take over the thread. Kill switch:
 `SMS_AI_AUTOREPLY=0`. STOP/opt-outs are never answered.

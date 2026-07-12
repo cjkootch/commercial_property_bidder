@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { guarded } from "@/lib/cron-guard";
 import { sendSms } from "@/lib/integrations/twilio";
+import { rateLimit } from "@/lib/ratelimit";
 import {
   suggestedTexts,
   smsNudgeTargets,
@@ -52,14 +53,21 @@ export async function GET(req: NextRequest) {
     }
 
     // Nudges expire (claim-token life) — when both compete for budget, fresh
-    // openers lead but nudges keep a reserved third so a full queue can never
-    // starve them to death.
+    // openers lead but nudges keep a reserved slot (at least one whenever any
+    // budget exists) so a full queue can never starve them to death.
     const dueNudges = await smsNudgeTargets(budget);
-    const nudgeReserve = Math.min(Math.floor(budget / 3), dueNudges.length);
+    const nudgeReserve = Math.min(Math.max(1, Math.floor(budget / 3)), dueNudges.length, budget);
+
+    // The snapshot check above is advisory (read-then-send races with manual
+    // inbox sends); this atomic per-send reservation is the hard ledger. The
+    // send window (9a-6p CT) never crosses UTC midnight, so the fixed UTC-day
+    // window aligns with the Chicago-day cap.
+    const reserveCapSlot = async () => (await rateLimit("smsqueue:day", cap, 86_400)).ok;
 
     const suggestions = await suggestedTexts(budget - nudgeReserve);
     const sent: Array<{ company: string; phone: string; sid?: string; error?: string }> = [];
     for (const s of suggestions) {
+      if (!(await reserveCapSlot())) break;
       const res = await sendSms({
         to: s.phone,
         body: s.opener,
@@ -80,6 +88,7 @@ export async function GET(req: NextRequest) {
     const nudges = dueNudges.slice(0, budget - sent.filter((r) => r.sid).length);
     const nudged: Array<{ company: string; phone: string; sid?: string; error?: string }> = [];
     for (const n of nudges) {
+      if (!(await reserveCapSlot())) break;
       const res = await sendSms({
         to: n.phone,
         body: n.text,

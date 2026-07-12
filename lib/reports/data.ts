@@ -409,25 +409,32 @@ export async function getReportData(days: number): Promise<ReportData> {
   const smsOutPrev = smsOut.filter((r) => inPrev(r.created_at));
   const smsInCur = smsIn.filter((r) => inWin(r.created_at));
   const smsInPrev = smsIn.filter((r) => inPrev(r.created_at));
-  const deliveredPct = (pool: typeof smsOut) =>
-    pool.length
-      ? Math.round((pool.filter((r) => r.status === "delivered").length / pool.length) * 100)
+  // Delivery rate over SETTLED messages only — a text sent minutes before
+  // this render is still "queued"/"sent" and counting it as a miss turns the
+  // delta red for no reason.
+  const deliveredPct = (pool: typeof smsOut) => {
+    const settled = pool.filter((r) => ["delivered", "undelivered", "failed"].includes(r.status));
+    return settled.length
+      ? Math.round(
+          (settled.filter((r) => r.status === "delivered").length / settled.length) * 100
+        )
       : 0;
+  };
   // Cohort rate like the email KPIs: of numbers we OPENED with in the period
   // (text_queue first touches), how many have replied — ever, so a Friday
   // opener answered Monday still counts for Friday's cohort.
-  const replyRate = (test: (t: Date | null | undefined) => boolean) => {
+  const replyStats = (test: (t: Date | null | undefined) => boolean) => {
     const opened = new Set(
       smsOut.filter((r) => r.kind === "text_queue" && test(r.created_at)).map((r) => r.phone)
     );
-    if (!opened.size) return 0;
+    if (!opened.size) return { rate: 0, cohort: 0 };
     const replied = new Set(smsIn.filter((r) => opened.has(r.phone)).map((r) => r.phone));
-    return Math.round((replied.size / opened.size) * 100);
+    return { rate: Math.round((replied.size / opened.size) * 100), cohort: opened.size };
   };
   const smsDelivCur = deliveredPct(smsOutCur);
   const smsDelivPrev = deliveredPct(smsOutPrev);
-  const smsReplyCur = replyRate(inWin);
-  const smsReplyPrev = replyRate(inPrev);
+  const smsReplyCur = replyStats(inWin);
+  const smsReplyPrev = replyStats(inPrev);
   const smsAiCur = smsOutCur.filter((r) => r.kind === "ai_reply").length;
   const smsAiPrev = smsOutPrev.filter((r) => r.kind === "ai_reply").length;
   const smsOptCur = smsOptOuts.filter((o) => inWin(o.created_at)).length;
@@ -459,9 +466,11 @@ export async function getReportData(days: number): Promise<ReportData> {
       {
         key: "sms_reply_rate",
         label: "Reply rate",
-        value: `${smsReplyCur}%`,
-        delta: smsReplyPrev ? smsReplyCur - smsReplyPrev : null,
-        help: "Of numbers we opened with this period, % that have replied (delta in points)",
+        value: `${smsReplyCur.rate}%`,
+        // Guard on the previous COHORT existing, not its rate — a genuine
+        // 0% → 30% improvement deserves a delta.
+        delta: smsReplyPrev.cohort ? smsReplyCur.rate - smsReplyPrev.rate : null,
+        help: "Of numbers we opened with this period, % that have replied (delta in points). Young cohorts read low — replies keep landing after the window closes.",
       },
       {
         key: "sms_ai",
@@ -537,7 +546,7 @@ export function snapshotMarkdown(d: ReportData): string {
     L.push(`- ${k.label}: ${k.value}${delta}`);
   }
   L.push(
-    `- Autopilot: openers ${d.sms.autopilot.enabled ? "ON" : "OFF"} / AI replies ${d.sms.autopilot.aiEnabled ? "ON" : "OFF"} — ${d.sms.autopilot.sentToday}/${d.sms.autopilot.cap} openers today`
+    `- Autopilot: openers ${d.sms.autopilot.enabled ? "ON" : "OFF"} / AI replies ${d.sms.autopilot.aiEnabled ? "ON" : "OFF"} — ${d.sms.autopilot.sentToday}/${d.sms.autopilot.cap} queue sends today (openers + nudges)`
   );
   L.push("");
   L.push("## Daily engagement (sends / opens / clicks)");
