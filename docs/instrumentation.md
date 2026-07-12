@@ -27,7 +27,10 @@ how the system improves; a path without it can't be judged, only vibed about.
 
 The rule extends to texts: every outbound SMS goes through
 `sendSms()` (`lib/integrations/twilio.ts`), which refuses opted-out numbers
-and logs an `sms_send` row; delivery state updates via the status callback on
+and logs an `sms_send` row. Sender: `TWILIO_MESSAGING_SERVICE_SID` (when
+set) routes through the Messaging Service's pool — local + toll-free, with
+Twilio's sticky sender keeping each prospect on one number — else the
+single `TWILIO_FROM`; delivery state updates via the status callback on
 `app/api/webhooks/twilio/route.ts`, and inbound replies log there too
 (direction `in`) + page the operator. STOP/START keywords maintain
 `sms_opt_out`. The thread renders on the company profile and the /messages/sms

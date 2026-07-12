@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
     return Response.json({
       ai_probe: ai,
       twilio: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM),
+      messaging_service: !!process.env.TWILIO_MESSAGING_SERVICE_SID,
       anthropic: !!process.env.ANTHROPIC_API_KEY,
       sms_autopilot: process.env.SMS_AUTOPILOT !== "0",
       sms_ai_autoreply: process.env.SMS_AI_AUTOREPLY !== "0",
