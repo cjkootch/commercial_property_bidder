@@ -160,13 +160,20 @@ export async function createLeadCheckout(opts: {
   propertyId: string;
   /** "paid" (one shared spot) or "exclusive" (closes the lead) */
   kind: "paid" | "exclusive";
+  /** Set = this is an EXCLUSIVE UPGRADE of an existing unlock (the webhook
+   *  flips its kind instead of inserting a new row). */
+  upgradeUnlockId?: string;
   successUrl: string;
   cancelUrl: string;
 }): Promise<CheckoutResult> {
   const key = getStripeKey();
   if (!key) return { ok: false, error: "Payments not configured (STRIPE_SECRET_KEY)." };
 
-  const label = opts.kind === "exclusive" ? "Exclusive job sheet" : "Job sheet";
+  const label = opts.upgradeUnlockId
+    ? "Exclusive upgrade"
+    : opts.kind === "exclusive"
+      ? "Exclusive job sheet"
+      : "Job sheet";
   const params = new URLSearchParams({
     mode: "payment",
     customer_email: opts.buyerEmail,
@@ -179,6 +186,9 @@ export async function createLeadCheckout(opts: {
     "metadata[buyer_id]": opts.buyerId,
     "metadata[property_id]": opts.propertyId,
     "metadata[kind]": opts.kind,
+    ...(opts.upgradeUnlockId
+      ? { "metadata[type]": "exclusive_upgrade", "metadata[unlock_id]": opts.upgradeUnlockId }
+      : {}),
     // 3h expiry (Stripe default is 24h) so the checkout.session.expired
     // webhook can send the "still available" recovery nudge the same day.
     expires_at: String(Math.floor(Date.now() / 1000) + 3 * 3600),
