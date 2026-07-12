@@ -17,6 +17,10 @@ export type Market = {
   key: string;
   /** "Houston metro" — display. */
   label: string;
+  /** Two-letter state postal code. Absent = "TX" (all the original metros);
+   *  set explicitly once a non-Texas metro exists, so geocoding and copy can
+   *  stop assuming Texas. */
+  state?: string;
   /** Apollo location string for the metro-wide candidate pool. */
   metroSearch: string;
   /** Lowercased anchor city — the "already metro-wide" widen guard. */
@@ -196,6 +200,26 @@ export const MARKETS: Record<string, Market> = {
     tabcCounties: ["Jefferson"],
     // No Bonfire portals found under any probed slug (city/county/ISDs/port)
     // — same situation as Waco. Empty list = the RFP cron no-ops.
+    bonfirePortals: [],
+  },
+  // First non-Texas metro (2026-07-12, re-picked over Tampa per OpenClaw round 7
+  // — Tampa's permit/code legs are dead in open data, Orlando's are Houston-grade).
+  // Orange County, FL. The TX feed slots below are intentionally empty: Orlando
+  // sources from FL-specific adapters (Socrata permits `ryhf-m453` + code
+  // `k6e8-nw6w`, DBPR contractors CO_NO=58, RealAuction tax-deeds, FDOR parcels,
+  // Tyler ssweb deeds) that plug in per leg — see
+  // docs/market-research/orlando-build-plan.md. Bbox = Orange County extent
+  // (City-of-Orlando launch; unincorporated county is a later expansion). No
+  // overlap with any TX bbox.
+  orlando: {
+    key: "orlando",
+    label: "Orlando metro",
+    state: "FL",
+    metroSearch: "Orlando, Florida",
+    metroCity: "orlando",
+    bbox: [-81.66, 28.34, -80.86, 28.79],
+    taxSaleCounties: [],
+    tabcCounties: [],
     bonfirePortals: [],
   },
 };
