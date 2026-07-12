@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { sendSms } from "@/lib/integrations/twilio";
+import { draftSmsReply } from "@/lib/integrations/claude";
 
 // Operator smoke test for the Twilio pipeline: sends one SMS to ?to= and
 // returns the SID. CRON_SECRET-gated like every /api/cron route (middleware
@@ -17,7 +18,24 @@ export async function GET(req: NextRequest) {
   // only, never values — the fastest way to catch an env var that didn't make
   // it to production.)
   if (!to) {
+    // ?ai=1 additionally exercises the real Claude call the auto-reply uses,
+    // so billing/key problems surface here instead of in a prospect thread.
+    let ai: string | null = null;
+    if (req.nextUrl.searchParams.get("ai") === "1") {
+      const draft = await draftSmsReply({
+        companyName: "Probe Test Co",
+        city: "Houston",
+        trade: "landscaping",
+        claimUrl: null,
+        thread: [
+          { direction: "out", body: "Hi, is this Probe Test Co in Houston?\n\nThanks,\n-Cole" },
+          { direction: "in", body: "Yes. Who is this?" },
+        ],
+      });
+      ai = draft ?? "FAILED (see function logs)";
+    }
     return Response.json({
+      ai_probe: ai,
       twilio: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM),
       anthropic: !!process.env.ANTHROPIC_API_KEY,
       sms_autopilot: process.env.SMS_AUTOPILOT !== "0",
