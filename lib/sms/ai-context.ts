@@ -10,6 +10,7 @@ import { buyerOutreach, property } from "@/lib/db/schema";
 import { getDefaultCompany, listDashboard } from "@/lib/db/queries";
 import { signBuyerClaim } from "@/lib/buyer-auth";
 import { leadMaxBuyers } from "@/lib/leads/availability";
+import { PACKAGE_MAX_CENTS, PACKAGE_MIN_CENTS } from "@/lib/residential/economics";
 import { marketForCoords } from "@/lib/markets";
 
 export const PROGRAM_BRIEF = `How Greenkeep works (answer questions from these facts ONLY):
@@ -19,6 +20,7 @@ export const PROGRAM_BRIEF = `How Greenkeep works (answer questions from these f
 - Paid leads are priced by contract value: roughly $39 / $79 / $129 per lead depending on size (exclusive access, which locks out competitors, runs about $99–$299). No subscription required to buy leads.
 - Scarcity: a lead is sold to at most ${leadMaxBuyers()} companies in a trade, then it closes. Exclusive purchase closes it immediately.
 - First Look (optional subscription) shows members brand-new leads before the public shelf.
+- RESIDENTIAL: yes, we sell those too — packages of homeowner addresses carrying a fresh signal (new construction, recently sold), bundled by area for route density. $${Math.round(PACKAGE_MIN_CENTS / 100)}–$${Math.round(PACKAGE_MAX_CENTS / 100)} per package depending on size and signal quality. They live on the buyer dashboard under Residential — creating a free profile (via any claim link) is how to browse them.
 - We are a lead marketplace only — we never take a cut of their contract, and their customer data stays theirs.
 If asked something outside these facts (refunds, legal, custom deals), say Cole will follow up directly.`;
 
