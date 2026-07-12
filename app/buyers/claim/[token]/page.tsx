@@ -256,12 +256,19 @@ export default async function ClaimPage({
             placeholder="Company name"
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
           />
+          {/* Email OR mobile — SMS-sourced prospects often have no email;
+              demanding one walled off exactly the people we texted. */}
           <input
             type="email"
             name="email"
-            required
             autoFocus={!!claim.company}
             placeholder="you@yourcompany.com"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+          />
+          <input
+            type="tel"
+            name="phone"
+            placeholder="Mobile number (works instead of email)"
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
           />
           <input
@@ -271,7 +278,9 @@ export default async function ClaimPage({
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
           />
           {searchParams.error ? (
-            <p className="text-sm text-red-600">Please enter your company name and a valid email.</p>
+            <p className="text-sm text-red-600">
+              Please enter your company name and an email or mobile number.
+            </p>
           ) : null}
           <button
             type="submit"

@@ -1,16 +1,18 @@
 import Link from "next/link";
-import { requestBuyerLink } from "../actions";
+import { requestBuyerLink, requestBuyerSmsLink } from "../actions";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { Logo } from "@/components/Logo";
 
-// Public: buyers request a passwordless magic link. Anti-enumeration — always
-// the same "check your inbox" regardless of whether the email exists.
+// Public: buyers request a passwordless magic link by email OR text message
+// (phone-only profiles from the SMS channel have no real mailbox).
+// Anti-enumeration — always "check your inbox/phone" regardless of whether
+// the identifier exists.
 export const dynamic = "force-dynamic";
 
 export default async function BuyerLogin({
   searchParams,
 }: {
-  searchParams: { sent?: string; error?: string; expired?: string; exists?: string };
+  searchParams: { sent?: string; error?: string; expired?: string; exists?: string; sms?: string };
 }) {
   const co = await getDefaultCompany();
   return (
@@ -38,26 +40,51 @@ export default async function BuyerLogin({
             Check your inbox — if your email is on file, a sign-in link is on its way (expires in
             30 minutes).
           </p>
+        ) : searchParams.sms ? (
+          <p className="mt-4 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+            Check your phone — if your number is on file, a sign-in link is on its way (expires in
+            30 minutes).
+          </p>
         ) : (
-          <form action={requestBuyerLink} className="mt-6 space-y-3">
-            <input
-              type="email"
-              name="email"
-              required
-              autoFocus
-              placeholder="you@yourcompany.com"
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
-            />
-            {searchParams.error ? (
-              <p className="text-sm text-red-600">Please enter a valid email.</p>
-            ) : null}
-            <button
-              type="submit"
-              className="w-full rounded-md bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark"
-            >
-              Email me a sign-in link
-            </button>
-          </form>
+          <>
+            <form action={requestBuyerLink} className="mt-6 space-y-3">
+              <input
+                type="email"
+                name="email"
+                required
+                autoFocus
+                placeholder="you@yourcompany.com"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+              />
+              {searchParams.error ? (
+                <p className="text-sm text-red-600">Please enter a valid email or mobile number.</p>
+              ) : null}
+              <button
+                type="submit"
+                className="w-full rounded-md bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-dark"
+              >
+                Email me a sign-in link
+              </button>
+            </form>
+            <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wide text-gray-300">
+              <span className="h-px flex-1 bg-gray-200" /> or <span className="h-px flex-1 bg-gray-200" />
+            </div>
+            <form action={requestBuyerSmsLink} className="space-y-3">
+              <input
+                type="tel"
+                name="phone"
+                required
+                placeholder="Mobile number on your profile"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+              />
+              <button
+                type="submit"
+                className="w-full rounded-md border border-brand bg-white px-3 py-2 text-sm font-medium text-brand hover:bg-brand-light"
+              >
+                Text me a sign-in link
+              </button>
+            </form>
+          </>
         )}
 
         <p className="mt-6 text-center text-xs text-gray-400">
