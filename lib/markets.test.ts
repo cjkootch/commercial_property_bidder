@@ -6,6 +6,7 @@ describe("markets registry", () => {
     expect(marketForCoords(29.76, -95.36).key).toBe("houston"); // downtown Houston
     expect(marketForCoords(32.78, -96.8).key).toBe("dallas"); // downtown Dallas
     expect(marketForCoords(32.75, -97.33).key).toBe("dallas"); // downtown Fort Worth
+    expect(marketForCoords(28.54, -81.38).key).toBe("orlando"); // downtown Orlando, FL
     // Outside every bbox (or unknown) -> the deployment default.
     expect(marketForCoords(40.7, -74.0).key).toBe("houston");
     expect(marketForCoords(null, null).key).toBe("houston");
@@ -20,8 +21,15 @@ describe("markets registry", () => {
 
   it("every market carries the fields the feeds read", () => {
     for (const m of Object.values(MARKETS)) {
-      expect(m.taxSaleCounties.length).toBeGreaterThan(0);
-      expect(m.tabcCounties.length).toBeGreaterThan(0);
+      // LGBS tax-sale + TABC are TEXAS feeds — Texas metros must name their
+      // counties; non-Texas metros (e.g. Orlando) source from their own state
+      // feeds, so the arrays exist but are legitimately empty.
+      expect(Array.isArray(m.taxSaleCounties)).toBe(true);
+      expect(Array.isArray(m.tabcCounties)).toBe(true);
+      if ((m.state ?? "TX") === "TX") {
+        expect(m.taxSaleCounties.length).toBeGreaterThan(0);
+        expect(m.tabcCounties.length).toBeGreaterThan(0);
+      }
       // Portals may legitimately be EMPTY (Waco: no area agency runs Bonfire
       // — verified live 2026-07-10; the RFP cron no-ops). The field must
       // still exist so the feed can iterate it.
