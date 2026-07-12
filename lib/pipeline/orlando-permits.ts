@@ -62,16 +62,19 @@ export async function runOrlandoPermitSourcing(opts?: {
   const have = new Set(existing.map((r) => r.name.trim().toLowerCase()));
 
   const since = new Date(Date.now() - sinceDays * 86400_000).toISOString().slice(0, 10);
-  const params = new URLSearchParams({
-    $where: `issue_permit_date >= '${since}' AND plan_review_type = 'Commercial' AND estimated_cost > ${minCost}`,
-    $select:
-      "permit_number,worktype,plan_review_type,estimated_cost,issue_permit_date,permit_address,property_owner_name,project_name",
-    $order: "estimated_cost DESC",
-    $limit: "200",
-  });
-  // Orlando's Socrata WAF 403s the default runtime fetch UA (unlike
-  // data.texas.gov); send an explicit identifying User-Agent.
-  const res = await fetch(`${SODA_URL}?${params.toString()}`, {
+  const where = `issue_permit_date >= '${since}' AND plan_review_type = 'Commercial' AND estimated_cost > ${minCost}`;
+  const select =
+    "permit_number,worktype,plan_review_type,estimated_cost,issue_permit_date,permit_address,property_owner_name,project_name";
+  // Encode with %20 (encodeURIComponent), NOT URLSearchParams (which encodes
+  // spaces as '+'): data.cityoforlando.net sits behind an Akamai WAF that 403s
+  // a '+'-spaced $where as SQL-injection. %20 form passes; verified live
+  // 2026-07-12 (the '+' form 403'd both the sandbox and the prod cron).
+  const q =
+    `$where=${encodeURIComponent(where)}` +
+    `&$select=${encodeURIComponent(select)}` +
+    `&$order=${encodeURIComponent("estimated_cost DESC")}` +
+    `&$limit=200`;
+  const res = await fetch(`${SODA_URL}?${q}`, {
     headers: { "User-Agent": "Greenkeep/1.0 (+https://greenkeep.us)" },
   });
   if (!res.ok) {
