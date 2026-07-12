@@ -4,7 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyer, prospect } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
-import { Logo } from "@/components/Logo";
+import { BuyerHeader } from "@/components/buyers/BuyerHeader";
 import { ChatWidget } from "@/components/ChatWidget";
 import { loadBuyerChat } from "@/lib/buyer-chat";
 import { currentBuyerId, sendChatMessage } from "../actions";
@@ -52,14 +52,7 @@ export default async function ProspectsPage({
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3.5">
-          <Logo name={brand} />
-          <Link href="/buyers" className="text-sm text-gray-500 hover:text-gray-800">
-            ← Dashboard
-          </Link>
-        </div>
-      </header>
+      <BuyerHeader brand={brand} />
 
       <main className="mx-auto max-w-5xl px-6 py-10">
         <h1 className="text-2xl font-bold tracking-tight">Your prospects</h1>
