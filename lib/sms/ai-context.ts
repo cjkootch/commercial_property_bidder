@@ -36,7 +36,8 @@ export type InventoryItem = {
  *  the SMS AI (offers alternatives) and the claim page (the "more
  *  opportunities" carousel). */
 export async function openInventoryFor(args: {
-  companyName: string;
+  /** Null for unmatched senders — the claim page asks them to fill it in. */
+  companyName: string | null;
   trade: string;
   lat: number | null;
   lng: number | null;
@@ -73,7 +74,7 @@ export async function openInventoryFor(args: {
         valueLo: r.teaser_lo,
         valueHi: r.teaser_hi,
         reasons: r.lead_reasons.slice(0, 2),
-        claimUrl: `${base}/buyers/claim/${signBuyerClaim(r.id, args.companyName)}?trade=${args.trade}`,
+        claimUrl: `${base}/buyers/claim/${signBuyerClaim(r.id, args.companyName || null)}?trade=${args.trade}`,
       }));
   } catch (e) {
     console.error("openInventoryFor failed:", e);
@@ -83,7 +84,7 @@ export async function openInventoryFor(args: {
 
 /** The inventory as a compact text block for the SMS model, or null. */
 export async function inventoryContextFor(args: {
-  companyName: string;
+  companyName: string | null;
   trade: string;
   lat: number | null;
   lng: number | null;

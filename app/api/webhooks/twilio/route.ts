@@ -195,7 +195,6 @@ async function deferredAiReply(args: {
       if (!aiCapped && !superseded) {
         let claimUrl: string | null = null;
         let offeredPropertyId: string | null = null;
-        let inventory: string | null = null;
         let currentOpportunity: string | null = null;
         if (match) {
           const offers = await db
@@ -207,17 +206,19 @@ async function deferredAiReply(args: {
           const withClaim = offers.find((o) => o.claim_url);
           claimUrl = withClaim?.claim_url ?? null;
           offeredPropertyId = withClaim?.property_id ?? null;
-          [currentOpportunity, inventory] = await Promise.all([
-            currentOpportunityFor(match.key),
-            inventoryContextFor({
-              companyName: match.name,
-              trade: match.trade,
-              lat: match.office_lat,
-              lng: match.office_lng,
-              excludePropertyId: offeredPropertyId,
-            }),
-          ]);
+          currentOpportunity = await currentOpportunityFor(match.key);
         }
+        // Inventory loads for EVERY sender — unmatched numbers get links
+        // minted with a blank company (the claim page asks them to fill it
+        // in) scoped to the default metro. The AI can always answer "send me
+        // something" with a real link.
+        const inventory = await inventoryContextFor({
+          companyName: match?.name ?? null,
+          trade: match?.trade ?? "landscaping",
+          lat: match?.office_lat ?? null,
+          lng: match?.office_lng ?? null,
+          excludePropertyId: offeredPropertyId,
+        });
         const draft = await draftSmsReply({
           companyName: match?.name ?? null,
           city: match?.office_city ?? null,
