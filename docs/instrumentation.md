@@ -30,8 +30,18 @@ The rule extends to texts: every outbound SMS goes through
 and logs an `sms_send` row; delivery state updates via the status callback on
 `app/api/webhooks/twilio/route.ts`, and inbound replies log there too
 (direction `in`) + page the operator. STOP/START keywords maintain
-`sms_opt_out`. The thread renders on the company profile. Never build bulk
-cold texting — TCPA treats SMS like calls, not email.
+`sms_opt_out`. The thread renders on the company profile and the /messages/sms
+inbox.
+
+First-touch openers are automated under the operator's standing approval
+(2026-07-12, "blanket auth" — same env-var pattern as the demand engine):
+`/api/cron/sms-queue` sends the two-step opener to the top of the text queue,
+capped at TEXT_QUEUE_DAILY_CAP/day shared with manual sends, weekday
+business hours on Texas wall clock only (`withinSmsSendWindow`, enforced in
+the route, not just the schedule), targeted stored numbers only (engaged or
+phone-only prospects holding a live claim link — never generated lists),
+kill switch `SMS_AUTOPILOT=0`. Conversations are never automated: replies
+land in the inbox for a human, with Claude drafts to review.
 
 ## Exemptions
 

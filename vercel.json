@@ -59,6 +59,14 @@
     {
       "path": "/api/cron/residential?want=200",
       "schedule": "17 13 * * 1"
+    },
+    {
+      "path": "/api/cron/sms-queue",
+      "schedule": "37 15 * * 1-5"
+    },
+    {
+      "path": "/api/cron/sms-queue",
+      "schedule": "7 19 * * 1-5"
     }
   ]
 }
