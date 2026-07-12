@@ -27,7 +27,7 @@ export const maxDuration = 120;
 
 const PER_RUN = () => {
   const n = Number(process.env.SMS_QUEUE_PER_RUN);
-  return Number.isFinite(n) && n > 0 ? n : 6;
+  return Number.isFinite(n) && n > 0 ? n : 15;
 };
 
 export async function GET(req: NextRequest) {
@@ -50,7 +50,13 @@ export async function GET(req: NextRequest) {
       return Response.json({ skipped: `daily cap reached (${used}/${cap})` });
     }
 
-    const suggestions = await suggestedTexts(budget);
+    // Nudges expire (claim-token life) — when both compete for budget, fresh
+    // openers lead but nudges keep a reserved third so a full queue can never
+    // starve them to death.
+    const dueNudges = await smsNudgeTargets(budget);
+    const nudgeReserve = Math.min(Math.floor(budget / 3), dueNudges.length);
+
+    const suggestions = await suggestedTexts(budget - nudgeReserve);
     const sent: Array<{ company: string; phone: string; sid?: string; error?: string }> = [];
     for (const s of suggestions) {
       const res = await sendSms({
@@ -67,10 +73,10 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Leftover budget goes to the no-reply follow-up (the SMS mirror of the
+    // Remaining budget goes to the no-reply follow-up (the SMS mirror of the
     // email 48h nudge): silent openers get the pitch + claim link once, then
-    // quiet forever. Fresh openers outrank nudges when budget is tight.
-    const nudges = await smsNudgeTargets(budget - sent.filter((r) => r.sid).length);
+    // quiet forever.
+    const nudges = dueNudges.slice(0, budget - sent.filter((r) => r.sid).length);
     const nudged: Array<{ company: string; phone: string; sid?: string; error?: string }> = [];
     for (const n of nudges) {
       const res = await sendSms({

@@ -23,8 +23,11 @@ export const maxDuration = 300; // the deferred AI reply sleeps 45s-3min before 
 const STOP_WORDS = new Set(["stop", "stopall", "unsubscribe", "cancel", "end", "quit", "revoke", "optout"]);
 const START_WORDS = new Set(["start", "unstop", "yes"]);
 /** After this many AI replies in one conversation, the machine goes quiet
- *  and the human takes over (the alert email flags it). */
-const AI_REPLY_CAP = 4;
+ *  and the human takes over (the alert email flags it). Raised from 4 after
+ *  a live thread hit the cap mid-conversation and the prospect got ghosted —
+ *  every exchange still pages the operator, so the cap is a runaway brake,
+ *  not the handoff point. */
+const AI_REPLY_CAP = 10;
 
 export async function POST(req: NextRequest) {
   const form = await req.formData();

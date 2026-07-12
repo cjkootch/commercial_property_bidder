@@ -55,7 +55,8 @@ instead.
 Conversations are AI-answered (same standing approval): the inbound webhook
 has Claude reply under the draft-button rules (deliver the claim link on
 interest, never invent details, polite close on not-interested), capped at
-4 AI replies per thread before going quiet for human takeover. Every
+10 AI replies per thread before going quiet for human takeover (a runaway
+brake, not the handoff — the operator is paged on every exchange). Every
 exchange still pages the operator — the alert email shows the prospect's
 text AND the AI's answer, with a link to take over the thread. Kill switch:
 `SMS_AI_AUTOREPLY=0`. STOP/opt-outs are never answered.

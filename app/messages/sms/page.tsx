@@ -124,13 +124,14 @@ export default async function SmsInbox({
       ) : null}
 
       {/* The text queue: suggested first touches for hot, phone-eligible
-          prospects. Nothing sends itself — every message is one operator tap. */}
+          prospects. The autopilot cron works the same ranked list on the same
+          shared daily cap; manual taps here just get there first. */}
       {queue.length > 0 ? (
         <details className="mt-5 rounded-xl border border-amber-200 bg-amber-50/60" open>
           <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-amber-900">
             📱 Text queue — {queue.length} suggested first touches
             <span className="ml-2 font-normal text-amber-700">
-              ({queueUsed}/{queueCap} sent today · you tap Send, nothing sends itself)
+              ({queueUsed}/{queueCap} sent today · shared with the autopilot)
             </span>
           </summary>
           <div className="divide-y divide-amber-100 border-t border-amber-100">
