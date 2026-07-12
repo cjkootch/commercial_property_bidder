@@ -3,18 +3,20 @@
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { alertOperatorOfSignup } from "@/lib/email/operator-alerts";
 import { buyer, chatMessage, leadActivity, leadUnlock, property, suppression } from "@/lib/db/schema";
 import {
   BUYER_COOKIE,
   BUYER_SESSION_MAX_AGE,
+  phonePlaceholderEmail,
   signBuyerLogin,
   signBuyerSession,
   verifyBuyerClaim,
   verifyBuyerSession,
 } from "@/lib/buyer-auth";
+import { sendSms, toE164 } from "@/lib/integrations/twilio";
 import { buildDossier } from "@/lib/leads/dossier";
 import { FREE_MAX_PER_LEAD } from "@/lib/leads/allocation";
 import { freeVerdict, leadKind, loadMarketLeads, marketFreeContext } from "@/lib/leads/market";
@@ -56,11 +58,17 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
   const claim = verifyBuyerClaim(token);
   if (!claim) redirect("/buyers/login?expired=1");
 
-  const email = ((formData.get("email") as string) || "").trim().toLowerCase();
+  const emailRaw = ((formData.get("email") as string) || "").trim().toLowerCase();
+  const phone = toE164((formData.get("phone") as string) || "");
   const company = ((formData.get("company") as string) || "").trim();
   const city = ((formData.get("city") as string) || "").trim();
   const trade = asTrade(formData.get("trade"));
-  if (!email.includes("@") || !company) redirect(`/buyers/claim/${token}?error=1`);
+  // Email OR mobile — the SMS channel deliberately targets companies with no
+  // email address, so the claim form can't demand one. Phone-only profiles
+  // store a deterministic internal placeholder (same phone → same row on
+  // re-claim) and sign in via SMS magic link.
+  if (!company || (!emailRaw.includes("@") && !phone)) redirect(`/buyers/claim/${token}?error=1`);
+  const email = emailRaw.includes("@") ? emailRaw : phonePlaceholderEmail(phone!);
 
   // Abuse cap on account creation.
   const rl = await rateLimit(`buyerclaim:ip:${clientIp()}`, 10, 3600);
@@ -79,12 +87,18 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
           company_name: company,
           trade,
           email,
+          phone: phone ?? null,
           city: city || null,
           lng: coords?.[0] ?? null,
           lat: coords?.[1] ?? null,
         })
         .returning()
     )[0];
+  // A returning claimer who added their mobile this time keeps it on file
+  // (it's the sheet-letter placeholder AND the SMS-login key).
+  if (existing && phone && !existing.phone) {
+    await db.update(buyer).set({ phone }).where(eq(buyer.id, existing.id));
+  }
 
   if (!existing) {
     alertOperatorOfSignup({ company, email, trade, city: city || null, via: "claim" }).catch(() => {});
@@ -347,6 +361,35 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
   }
   await closeLeadIfDone(prop.id);
   return true;
+}
+
+/** Returning buyers without a (real) email: text a magic link. The signed
+ *  token carries the buyer's stored email (placeholder or real), so the
+ *  existing /buyers/verify flow handles it unchanged. Anti-enumeration: the
+ *  page always says "check your phone". */
+export async function requestBuyerSmsLink(formData: FormData): Promise<void> {
+  const phone = toE164((formData.get("phone") as string) || "");
+  if (!phone) redirect("/buyers/login?error=1");
+  const rl = await rateLimit(`buyerlogin:ip:${clientIp()}`, 10, 3600);
+  if (rl.ok) {
+    const [row] = await db
+      .select()
+      .from(buyer)
+      .where(or(eq(buyer.phone, phone!), eq(buyer.email, phonePlaceholderEmail(phone!))))
+      .limit(1);
+    if (row) {
+      const co = await getDefaultCompany();
+      const link = `${baseUrl()}/buyers/verify?token=${encodeURIComponent(signBuyerLogin(row.email))}`;
+      const res = await sendSms({
+        to: phone!,
+        body: `Your ${co?.name ?? "Greenkeep"} sign-in link (expires in 30 min): ${link}`,
+        kind: "login_link",
+        buyerId: row.id,
+      });
+      if (!res.ok) console.error(`buyer SMS login link FAILED for ${phone}: ${res.error}`);
+    }
+  }
+  redirect("/buyers/login?sms=1");
 }
 
 /** Returning buyers: email a magic link. Never reveals whether an email exists. */

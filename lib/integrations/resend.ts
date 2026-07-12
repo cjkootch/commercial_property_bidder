@@ -6,6 +6,7 @@
 // (build spec section 9: no sends without approval).
 
 import crypto from "node:crypto";
+import { isPlaceholderEmail } from "../buyer-auth";
 
 export function getResendKey(): string | null {
   return process.env.RESEND_API_KEY ?? null;
@@ -50,6 +51,12 @@ export async function sendEmail(args: {
   const from = getResendFrom();
   if (!key) return { ok: false, error: "RESEND_API_KEY not set" };
   if (!from) return { ok: false, error: "RESEND_FROM not set (verified domain sender)" };
+  // Phone-only buyers carry an internal placeholder address (lib/buyer-auth)
+  // that is not a mailbox — mailing it would hard-bounce and burn domain
+  // reputation. Central refusal so no caller has to remember.
+  if (isPlaceholderEmail(args.to)) {
+    return { ok: false, error: "placeholder address (phone-only buyer) — reach them by SMS" };
+  }
 
   try {
     const res = await fetch("https://api.resend.com/emails", {

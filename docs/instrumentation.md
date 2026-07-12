@@ -69,6 +69,17 @@ exchange still pages the operator — the alert email shows the prospect's
 text AND the AI's answer, with a link to take over the thread. Kill switch:
 `SMS_AI_AUTOREPLY=0`. STOP/opt-outs are never answered.
 
+## The day-7 outcome loop
+
+A week after any lead unlock, the buyer gets ONE check-in email (kind
+`outcome_check`, deduped per unlock via `email_send.ref_id`, sent by the
+nudges cron): did the contact pan out, reply "refresh" to re-verify, link to
+the shelf. Replies route to the operator (reply-to) — they are the product
+feedback loop and the raw material for testimonials. Phone-only buyers
+(placeholder emails, `lib/buyer-auth.isPlaceholderEmail`) are skipped;
+`sendEmail()` also refuses placeholder addresses centrally so nothing ever
+hard-bounces off `members.greenkeep.us`.
+
 ## Exemptions
 
 - Transactional mail the buyer asked for this second (magic links, receipts,

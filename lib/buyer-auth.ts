@@ -70,6 +70,21 @@ export function verifyBuyerClaim(token: string | null | undefined): { property_i
   return p?.kind === "claim" ? { property_id: p.property_id, company: p.company } : null;
 }
 
+// --- phone-only buyers ------------------------------------------------------
+// buyer.email is NOT NULL UNIQUE, but the SMS channel deliberately targets
+// companies with no email — the exact people who hit an email wall on the
+// claim form. Phone-only signups store a DETERMINISTIC internal placeholder
+// (same phone → same address → same buyer row on re-claim). It is never a
+// real mailbox: sendEmail() refuses the domain centrally, and sign-in happens
+// via SMS magic link instead.
+export const PLACEHOLDER_EMAIL_DOMAIN = "members.greenkeep.us";
+export function phonePlaceholderEmail(phoneE164: string): string {
+  return `p${phoneE164.replace(/\D/g, "")}@${PLACEHOLDER_EMAIL_DOMAIN}`;
+}
+export function isPlaceholderEmail(email: string | null | undefined): boolean {
+  return !!email && email.toLowerCase().endsWith(`@${PLACEHOLDER_EMAIL_DOMAIN}`);
+}
+
 export function signBuyerLogin(email: string): string {
   return sign({ kind: "login", email: email.toLowerCase().trim(), exp: nowSec() + LOGIN_TTL });
 }
