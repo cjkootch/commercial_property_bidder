@@ -31,6 +31,10 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
+_None open — round 7 cleared 2026-07-11 (see Done). Round 8 TBD._
+
+<!-- Round-7 briefs preserved below for reference; all delivered.
+
 ### 16. PublicSearch WebSocket pre-build verification — no-browser feasibility
 
 Round 6 found the real transport: same-origin WebSocket carrying Kofile
@@ -100,6 +104,8 @@ build-order recommendation and a KEEP-TAMPA / RE-PICK verdict.
 
 _Priority: 16 first (last blocker before the deed-fetcher build), then 17
 (Tampa can't launch without buyers to sell to), then 18._
+
+-->
 
 <!-- Round-6 briefs preserved below for reference; all delivered.
 
@@ -498,3 +504,35 @@ Flag anything gated; do not bypass. Deliverable:
   round-1's 1.3-2x). First Look subs: Yelp $150-270/mo, Houzz $499, Nextdoor
   $32-150/ZIP; a $99-249/mo tier sits in-band. Gap: no CURRENT official
   per-trade card exists publicly).
+- 2026-07-11 — PublicSearch WebSocket no-browser verification →
+  `docs/market-research/publicsearch-ws-verify-2026-07-11.md` (**no-browser
+  fetcher FEASIBLE** — plain Python websocket-client pulled live RP rows from
+  all 7 tenants, no headless needed. Round-6 correction: the gate is NOT
+  `__ort` alone but the **signed cookie pair `authToken` + `authToken.sig`**
+  set by the SSR homepage GET — keep a cookie jar, forward both to the socket,
+  and each frame's authToken must match. Server does NOT enforce Origin; any
+  UA accepted. Socket drops after ~90s idle → 30s PING keepalive. Token/session
+  survives pagination to offset ≥500-1000. No 401/403/429 at ≥10s pacing.
+  **FLAG for human before any sustained pull: county terms-of-use + high-volume
+  throttling untested** — deliberately light probe).
+- 2026-07-11 — Tampa buyer-side prospect sourcing →
+  `docs/market-research/tampa-buyer-sourcing-2026-07-11.md` (best mechanical
+  feed = **Sunbiz bulk SFTP** (free public creds, daily new-registration
+  fixed-width file, every trade by name substring incl. unlicensed); DBPR
+  weekly CSVs #2 (county-code col); FDACS authoritative for pest/lawn-&-
+  ornamental; Hillsborough/City BTR + Sunbiz for unlicensed landscaping-
+  maintenance + janitorial. **CRITICAL: NO public FL roll publishes email;
+  phone absent/redacted** — pipeline MUST budget a downstream email/phone
+  enrichment stage. FDACS + Hillsborough bulk are records-request (FLAG);
+  Sunbiz/Hillsborough HTML 403 non-browser → use Sunbiz SFTP, not scrape).
+- 2026-07-11 — Florida permit/311 rescue sweep (Pinellas/Orlando/Broward/Jax)
+  → `docs/market-research/fl-permit-311-sweep-2026-07-11.md` (**VERDICT:
+  RE-PICK — Orlando / Orange County as FL metro #1.** Orange is DOUBLE BUILD:
+  Socrata permits `ryhf-m453` (estimated_cost + comm/res, daily, max
+  2026-07-10) + code `k6e8-nw6w` (nuisance buckets, daily, max 2026-07-11) —
+  Houston-grade both legs; statewide legs (DBPR/FDOR/RealAuction) still apply.
+  Pinellas does NOT rescue Tampa Bay (permits Accela, only code layer frozen
+  2022; note Tampa bbox already covers Pinellas but no data behind it).
+  Broward permits stale + ESTCOST 100% empty; Duval firewalled — both
+  NO-BUILD. Decision for operator: re-pick Orlando, or keep Tampa and accept
+  a permits-less launch).
