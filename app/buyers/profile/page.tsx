@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { BuyerHeader } from "@/components/buyers/BuyerHeader";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -7,7 +7,6 @@ import { getDefaultCompany } from "@/lib/db/queries";
 import { profileComplete } from "@/lib/leads/personalize";
 import { zoomForRadius } from "@/lib/geo/radius";
 import { currentBuyerId, sendChatMessage, updateBuyerProfile, uploadBuyerLogo } from "../actions";
-import { Logo } from "@/components/Logo";
 import { ServiceRadiusMap } from "@/components/ServiceRadiusMap";
 import { ChatWidget } from "@/components/ChatWidget";
 import { loadBuyerChat } from "@/lib/buyer-chat";
@@ -48,14 +47,7 @@ export default async function BuyerProfile({
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-3.5">
-          <Logo name={brand} />
-          <Link href="/buyers" className="text-sm text-gray-500 hover:text-gray-800">
-            ← Dashboard
-          </Link>
-        </div>
-      </header>
+      <BuyerHeader brand={brand} />
 
       <main className="mx-auto max-w-2xl px-6 py-10">
         <h1 className="text-2xl font-bold tracking-tight">Your company profile</h1>

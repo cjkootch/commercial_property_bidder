@@ -34,7 +34,6 @@ import {
 } from "@/lib/leads/subscription";
 import { haversineMiles } from "@/lib/sourcing/criteria";
 import {
-  buyerLogout,
   claimFreeLead,
   currentBuyerId,
   markAlertsSeen,
@@ -43,7 +42,7 @@ import {
   startFirstLookCheckout,
   toggleNotifications,
 } from "./actions";
-import { Logo } from "@/components/Logo";
+import { BuyerHeader } from "@/components/buyers/BuyerHeader";
 import { ChatWidget, type ChatMsg } from "@/components/ChatWidget";
 import { profileComplete } from "@/lib/leads/personalize";
 
@@ -317,25 +316,7 @@ export default async function BuyerDashboard({
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3.5">
-          <Logo name={brand} />
-          <div className="flex items-center gap-5 text-sm font-medium">
-            <Link href="/buyers/prospects" className="text-gray-600 hover:text-gray-900">
-              My prospects
-            </Link>
-            <Link href="/buyers/residential" className="text-gray-600 hover:text-gray-900">
-              Residential
-            </Link>
-            <Link href="/buyers/profile" className="text-gray-600 hover:text-gray-900">
-              Profile
-            </Link>
-            <form action={buyerLogout}>
-              <button className="text-gray-600 hover:text-gray-900">Sign out</button>
-            </form>
-          </div>
-        </div>
-      </header>
+      <BuyerHeader brand={brand} />
 
       <main className="mx-auto grid max-w-5xl gap-6 px-6 py-8 lg:grid-cols-[300px_1fr]">
         {/* ---- Left rail: LinkedIn-style profile card ---- */}

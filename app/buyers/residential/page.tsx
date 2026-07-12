@@ -6,7 +6,7 @@ import { buyer, residentialPackage, residentialUnlock } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { currentBuyerId } from "@/app/buyers/actions";
 import { startResidentialPackageCheckout } from "./actions";
-import { Logo } from "@/components/Logo";
+import { BuyerHeader } from "@/components/buyers/BuyerHeader";
 import type { PackageTeaser } from "@/lib/residential/teaser";
 import { usd } from "@/lib/format";
 
@@ -47,18 +47,7 @@ export default async function ResidentialMarketplace({
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Logo name={brand} />
-            <span className="text-gray-300">/</span>
-            <span className="text-sm font-medium text-gray-600">Residential Leads</span>
-          </div>
-          <Link href="/buyers" className="text-sm text-gray-500 hover:text-gray-800">
-            Back to dashboard
-          </Link>
-        </div>
-      </header>
+      <BuyerHeader brand={brand} />
 
       <main className="mx-auto max-w-4xl px-6 py-10">
         <div className="mb-8">
