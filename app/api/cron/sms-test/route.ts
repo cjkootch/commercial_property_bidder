@@ -13,6 +13,29 @@ export async function GET(req: NextRequest) {
   if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
     return new Response("Unauthorized", { status: 401 });
   }
+  // ?sid=SM… → fetch that message from Twilio and return its routing facts
+  // (which pool number sent it, exact error). The fastest way to debug
+  // Messaging Service / A2P misconfiguration without console access.
+  const sid = req.nextUrl.searchParams.get("sid") ?? "";
+  if (sid) {
+    const acct = process.env.TWILIO_ACCOUNT_SID ?? "";
+    const token = process.env.TWILIO_AUTH_TOKEN ?? "";
+    const res = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${acct}/Messages/${encodeURIComponent(sid)}.json`,
+      { headers: { Authorization: `Basic ${Buffer.from(`${acct}:${token}`).toString("base64")}` } }
+    );
+    const data = (await res.json()) as Record<string, unknown>;
+    return Response.json({
+      sid: data.sid ?? null,
+      from: data.from ?? null,
+      to: data.to ?? null,
+      status: data.status ?? null,
+      error_code: data.error_code ?? null,
+      error_message: data.error_message ?? null,
+      messaging_service_sid: data.messaging_service_sid ?? null,
+    });
+  }
+
   const to = req.nextUrl.searchParams.get("to") ?? "";
   // No target → config probe: which secrets can THIS deployment see? (Presence
   // only, never values — the fastest way to catch an env var that didn't make
