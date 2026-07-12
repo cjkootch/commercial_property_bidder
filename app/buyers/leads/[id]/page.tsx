@@ -6,6 +6,8 @@ import { buyer, leadUnlock, property } from "@/lib/db/schema";
 import { loadBuyerChat } from "@/lib/buyer-chat";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { leadMaxBuyers } from "@/lib/leads/availability";
+import { leadKind } from "@/lib/leads/market";
+import { contactHref, playbookFor } from "@/lib/leads/playbook";
 import type { Metadata } from "next";
 import type { Dossier } from "@/lib/leads/dossier";
 import { personalizeLetter, profileComplete } from "@/lib/leads/personalize";
@@ -423,14 +425,33 @@ export default async function LeadSheet({
                       No published contacts — use the playbook to reach the owner.
                     </p>
                   ) : (
-                    <dl className="space-y-2.5">
-                      {d.contacts.map((c, i) => (
-                        <div key={i} className="flex gap-3 text-sm">
-                          <dt className="w-36 shrink-0 text-gray-500">{c.role}</dt>
-                          <dd className="font-medium text-gray-900">{c.value}</dd>
-                        </div>
-                      ))}
-                    </dl>
+                    <>
+                      <dl className="space-y-2.5">
+                        {d.contacts.map((c, i) => {
+                          const href = contactHref(c.role, c.value, `Re: ${d.name}`, letter);
+                          return (
+                            <div key={i} className="flex gap-3 text-sm">
+                              <dt className="w-36 shrink-0 text-gray-500">{c.role}</dt>
+                              <dd className="font-medium text-gray-900 [overflow-wrap:anywhere]">
+                                {href ? (
+                                  <a
+                                    href={href}
+                                    className="underline decoration-gray-300 underline-offset-2 hover:text-brand"
+                                  >
+                                    {c.value}
+                                  </a>
+                                ) : (
+                                  c.value
+                                )}
+                              </dd>
+                            </div>
+                          );
+                        })}
+                      </dl>
+                      <p className="mt-3 text-xs text-gray-400 print:hidden">
+                        Tap to call or email — emails open with your intro letter pre-filled.
+                      </p>
+                    </>
                   )}
                 </Card>
 
@@ -452,6 +473,24 @@ export default async function LeadSheet({
               <div className="space-y-6">
                 <Card title="How to win it">
                   <p className="text-sm leading-relaxed text-gray-700">{d.guidance}</p>
+                  {(() => {
+                    const pb = playbookFor(leadKind(prop.name), unlock.trade);
+                    return (
+                      <div className="mt-4 rounded-xl border border-gray-100 bg-white p-4">
+                        <p className="text-sm font-semibold text-gray-800">{pb.angle}</p>
+                        <ol className="mt-3 space-y-2 text-sm leading-relaxed text-gray-700">
+                          {pb.steps.map((s, i) => (
+                            <li key={i} className="flex gap-2.5">
+                              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-light text-[11px] font-bold text-brand">
+                                {i + 1}
+                              </span>
+                              {s}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    );
+                  })()}
                   <div className="mt-4 rounded-xl bg-gray-50 p-4 text-sm leading-relaxed text-gray-700">
                     <span className="font-semibold">Route intelligence:</span> {d.route_intel}
                   </div>

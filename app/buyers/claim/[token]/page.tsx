@@ -231,6 +231,13 @@ export default async function ClaimPage({
         </p>
       )}
 
+      <p className="mt-3 text-center text-xs text-gray-500">
+        Want to see what unlocks first?{" "}
+        <a href="/sample-sheet" target="_blank" rel="noreferrer" className="font-semibold text-brand underline">
+          View a sample sheet →
+        </a>
+      </p>
+
       {me ? (
         <form action={claimAsExistingBuyer.bind(null, params.token)} className="mt-5 space-y-3">
           <button
