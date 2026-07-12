@@ -158,6 +158,74 @@ export default async function ReportsPage({
         </section>
       </div>
 
+      {/* SMS channel. */}
+      <section className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-gray-700">SMS</h2>
+          <div className="flex items-center gap-2 text-xs">
+            <span
+              className={`rounded-full px-2.5 py-1 font-semibold ${
+                data.sms.autopilot.enabled ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+              }`}
+            >
+              Openers {data.sms.autopilot.enabled ? "on" : "off"}
+            </span>
+            <span
+              className={`rounded-full px-2.5 py-1 font-semibold ${
+                data.sms.autopilot.aiEnabled ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+              }`}
+            >
+              AI replies {data.sms.autopilot.aiEnabled ? "on" : "off"}
+            </span>
+            <Link href="/messages/sms" className="font-semibold text-brand hover:underline">
+              Open inbox →
+            </Link>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {data.sms.kpis.map((k) => {
+            // Opt-outs going up is the one delta where green/red flip.
+            const good = k.key === "sms_optouts" ? (k.delta ?? 0) < 0 : (k.delta ?? 0) > 0;
+            return (
+              <div key={k.key} className="rounded-lg border border-gray-100 bg-gray-50 p-3" title={k.help}>
+                <div className="text-xs uppercase tracking-wide text-gray-500">{k.label}</div>
+                <div className="mt-1 text-xl font-semibold text-gray-900">{k.value}</div>
+                {k.delta != null ? (
+                  <div
+                    className={`mt-0.5 text-xs font-medium ${
+                      k.delta === 0 ? "text-gray-400" : good ? "text-green-700" : "text-red-700"
+                    }`}
+                  >
+                    {k.delta > 0 ? "▲" : k.delta < 0 ? "▼" : "—"} {Math.abs(k.delta)}
+                    {k.key.endsWith("rate") ? "pt" : "%"} vs prev
+                  </div>
+                ) : (
+                  <div className="mt-0.5 text-xs text-gray-300">no baseline</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-3 flex items-center gap-3">
+          <span className="text-xs text-gray-600">
+            <span className="font-semibold tabular-nums">{data.sms.autopilot.sentToday}</span> /{" "}
+            {data.sms.autopilot.cap} openers today
+          </span>
+          <div className="h-2 flex-1 rounded-full bg-gray-100">
+            <div
+              className="h-2 rounded-full bg-brand"
+              style={{
+                width: `${Math.min(100, (data.sms.autopilot.sentToday / data.sms.autopilot.cap) * 100)}%`,
+              }}
+            />
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-gray-400">
+          First-touch openers go out weekday business hours (Texas time), capped per day across cron +
+          manual sends. Kill switches: SMS_AUTOPILOT=0, SMS_AI_AUTOREPLY=0 in Vercel.
+        </p>
+      </section>
+
       {/* Autopilot + milestones. */}
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-lg border border-gray-200 bg-white p-4">

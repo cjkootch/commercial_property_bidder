@@ -10,8 +10,11 @@ import {
   property,
   prospectCompany,
   residentialUnlock,
+  smsOptOut,
+  smsSend,
   usageCounter,
 } from "@/lib/db/schema";
+import { TEXT_QUEUE_DAILY_CAP } from "@/lib/sms/queue";
 import { marketForCoords } from "@/lib/markets";
 import { TRADES, asTrade, type Trade } from "@/lib/leads/trades";
 
@@ -42,6 +45,13 @@ export type TradeRow = {
 export type MetroRow = { key: string; label: string; sends: number; opens: number; clicks: number };
 export type TimelineEvent = { date: string; text: string };
 
+export type SmsReport = {
+  /** Same tile shape as the email KPIs so the page renders them identically. */
+  kpis: Kpi[];
+  /** The first-touch opener cron (shares its daily cap with manual queue sends). */
+  autopilot: { enabled: boolean; aiEnabled: boolean; sentToday: number; cap: number };
+};
+
 export type ReportData = {
   days: number;
   generatedAt: string;
@@ -54,6 +64,7 @@ export type ReportData = {
   byMetro: MetroRow[];
   timeline: TimelineEvent[];
   autopilot: { enabled: boolean; sentToday: number; cap: number };
+  sms: SmsReport;
 };
 
 const DAY_MS = 86_400_000;
@@ -82,7 +93,7 @@ export async function getReportData(days: number): Promise<ReportData> {
   const inPrev = (t: Date | null | undefined) =>
     !!t && t.getTime() >= prevStart && t.getTime() < winStart;
 
-  const [bo, ow, es, companies, buyers, unlocks, resUnlocks, cards, props, counters] =
+  const [bo, ow, es, companies, buyers, unlocks, resUnlocks, cards, props, counters, sms, smsOptOuts] =
     await Promise.all([
       db
         .select({
@@ -141,6 +152,16 @@ export async function getReportData(days: number): Promise<ReportData> {
         .select({ key: usageCounter.key, count: usageCounter.count })
         .from(usageCounter)
         .where(eq(usageCounter.key, `demand_sent:${new Date().toISOString().slice(0, 10)}`)),
+      db
+        .select({
+          direction: smsSend.direction,
+          kind: smsSend.kind,
+          phone: smsSend.phone,
+          status: smsSend.status,
+          created_at: smsSend.created_at,
+        })
+        .from(smsSend),
+      db.select({ created_at: smsOptOut.created_at }).from(smsOptOut),
     ]);
 
   // --- daily/weekly engagement buckets --------------------------------------
@@ -381,6 +402,92 @@ export async function getReportData(days: number): Promise<ReportData> {
     cap: Number.isFinite(capEnv) && capEnv > 0 ? capEnv : 45,
   };
 
+  // --- SMS channel (texts sent/delivered, replies, AI activity, opt-outs) ----
+  const smsOut = sms.filter((r) => r.direction === "out");
+  const smsIn = sms.filter((r) => r.direction === "in");
+  const smsOutCur = smsOut.filter((r) => inWin(r.created_at));
+  const smsOutPrev = smsOut.filter((r) => inPrev(r.created_at));
+  const smsInCur = smsIn.filter((r) => inWin(r.created_at));
+  const smsInPrev = smsIn.filter((r) => inPrev(r.created_at));
+  const deliveredPct = (pool: typeof smsOut) =>
+    pool.length
+      ? Math.round((pool.filter((r) => r.status === "delivered").length / pool.length) * 100)
+      : 0;
+  // Cohort rate like the email KPIs: of numbers we OPENED with in the period
+  // (text_queue first touches), how many have replied — ever, so a Friday
+  // opener answered Monday still counts for Friday's cohort.
+  const replyRate = (test: (t: Date | null | undefined) => boolean) => {
+    const opened = new Set(
+      smsOut.filter((r) => r.kind === "text_queue" && test(r.created_at)).map((r) => r.phone)
+    );
+    if (!opened.size) return 0;
+    const replied = new Set(smsIn.filter((r) => opened.has(r.phone)).map((r) => r.phone));
+    return Math.round((replied.size / opened.size) * 100);
+  };
+  const smsDelivCur = deliveredPct(smsOutCur);
+  const smsDelivPrev = deliveredPct(smsOutPrev);
+  const smsReplyCur = replyRate(inWin);
+  const smsReplyPrev = replyRate(inPrev);
+  const smsAiCur = smsOutCur.filter((r) => r.kind === "ai_reply").length;
+  const smsAiPrev = smsOutPrev.filter((r) => r.kind === "ai_reply").length;
+  const smsOptCur = smsOptOuts.filter((o) => inWin(o.created_at)).length;
+  const smsOptPrev = smsOptOuts.filter((o) => inPrev(o.created_at)).length;
+  const today = chicagoDay(new Date());
+  const smsReport: SmsReport = {
+    kpis: [
+      {
+        key: "sms_sends",
+        label: "Texts sent",
+        value: smsOutCur.length.toLocaleString(),
+        delta: pctDelta(smsOutCur.length, smsOutPrev.length),
+        help: "All outbound SMS: queue openers, manual replies, AI replies",
+      },
+      {
+        key: "sms_delivery_rate",
+        label: "Delivered",
+        value: `${smsDelivCur}%`,
+        delta: smsOutPrev.length ? smsDelivCur - smsDelivPrev : null,
+        help: "Of texts sent this period, confirmed delivered by the carrier (delta in points)",
+      },
+      {
+        key: "sms_replies",
+        label: "Replies",
+        value: smsInCur.length.toLocaleString(),
+        delta: pctDelta(smsInCur.length, smsInPrev.length),
+        help: "Inbound texts this period (includes STOPs)",
+      },
+      {
+        key: "sms_reply_rate",
+        label: "Reply rate",
+        value: `${smsReplyCur}%`,
+        delta: smsReplyPrev ? smsReplyCur - smsReplyPrev : null,
+        help: "Of numbers we opened with this period, % that have replied (delta in points)",
+      },
+      {
+        key: "sms_ai",
+        label: "AI replies",
+        value: smsAiCur.toLocaleString(),
+        delta: pctDelta(smsAiCur, smsAiPrev),
+        help: "Conversations the AI answered for you this period",
+      },
+      {
+        key: "sms_optouts",
+        label: "Opt-outs",
+        value: smsOptCur.toLocaleString(),
+        delta: pctDelta(smsOptCur, smsOptPrev),
+        help: "STOP replies this period — rising means the opener or targeting needs work",
+      },
+    ],
+    autopilot: {
+      enabled: process.env.SMS_AUTOPILOT !== "0",
+      aiEnabled: process.env.SMS_AI_AUTOREPLY !== "0",
+      sentToday: smsOut.filter(
+        (r) => r.kind === "text_queue" && chicagoDay(r.created_at) === today
+      ).length,
+      cap: TEXT_QUEUE_DAILY_CAP(),
+    },
+  };
+
   return {
     days,
     generatedAt: new Date().toISOString(),
@@ -392,6 +499,7 @@ export async function getReportData(days: number): Promise<ReportData> {
     byMetro,
     timeline,
     autopilot,
+    sms: smsReport,
   };
 }
 
@@ -419,6 +527,15 @@ export function snapshotMarkdown(d: ReportData): string {
   L.push("");
   L.push(
     `## Autopilot: ${d.autopilot.enabled ? "ON" : "OFF"} — ${d.autopilot.sentToday}/${d.autopilot.cap} sent today`
+  );
+  L.push("");
+  L.push("## SMS (vs previous period)");
+  for (const k of d.sms.kpis) {
+    const delta = k.delta == null ? "" : ` (${k.delta > 0 ? "+" : ""}${k.delta}${k.key.endsWith("rate") ? "pt" : "%"})`;
+    L.push(`- ${k.label}: ${k.value}${delta}`);
+  }
+  L.push(
+    `- Autopilot: openers ${d.sms.autopilot.enabled ? "ON" : "OFF"} / AI replies ${d.sms.autopilot.aiEnabled ? "ON" : "OFF"} — ${d.sms.autopilot.sentToday}/${d.sms.autopilot.cap} openers today`
   );
   L.push("");
   L.push("## Daily engagement (sends / opens / clicks)");
