@@ -16,18 +16,19 @@ import {
 // replies land in the inbox with AI drafts, never auto-answered.
 //
 // Guardrails compiled in, not configurable away:
-//  - Daily cap shared with manual sends (TEXT_QUEUE_DAILY_CAP, default 15)
+//  - Daily cap shared with manual sends (TEXT_QUEUE_DAILY_CAP, default 200 —
+//    sized for the two-number Messaging Service pool; tune via env)
 //  - Business hours on Texas wall clock + weekdays only (withinSmsSendWindow),
 //    enforced here regardless of how the cron schedule is edited
 //  - Queue eligibility: engaged/phone-only prospects with a live claim link;
 //    never texted before, never opted out/blocked/converted
 //  - Kill switch: SMS_AUTOPILOT=0 turns every run into a no-op
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 300; // up to 60 sequential sends per run
 
 const PER_RUN = () => {
   const n = Number(process.env.SMS_QUEUE_PER_RUN);
-  return Number.isFinite(n) && n > 0 ? n : 15;
+  return Number.isFinite(n) && n > 0 ? n : 60;
 };
 
 export async function GET(req: NextRequest) {

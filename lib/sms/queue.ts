@@ -12,7 +12,7 @@ import { toE164 } from "@/lib/integrations/twilio";
 
 export const TEXT_QUEUE_DAILY_CAP = () => {
   const n = Number(process.env.TEXT_QUEUE_DAILY_CAP);
-  return Number.isFinite(n) && n > 0 ? n : 50;
+  return Number.isFinite(n) && n > 0 ? n : 200;
 };
 
 /** Automated sends only go out when a human plausibly would: weekdays,
