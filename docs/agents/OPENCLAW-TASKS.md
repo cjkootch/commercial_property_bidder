@@ -31,7 +31,46 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
-_None open — round 9 cleared 2026-07-12 (see Done). Round 10 TBD._
+Round 10 — unblock the last Orlando lead leg. Permits, code enforcement, and
+FDOR parcels are LIVE in production (2026-07-12); buyers flow via the existing
+Apollo demand engine; the deed leg is dropped (reCAPTCHA-gated). The only
+remaining signal is **RealAuction tax-deed / foreclosure (distress)**, and its
+data doesn't come back in a plain fetch like Socrata — it's a stateful
+ColdFusion AJAX app. Characterize the exact request handshake so Claude can
+build a clean `fetch`-based adapter (no headless browser). Read-only, ≥10s
+paced, public endpoints only; anything gated gets FLAGGED, never worked around.
+
+### 25. RealAuction request handshake — the last Orlando leg
+
+Host: **`orange.realtaxdeed.com`** (Grant Street Group / RealAuction, ColdFusion).
+Claude's re-probe (2026-07-12) found the auction JS (`/CORE/System/JS/auction.js`)
+loads the parcel list via `index.cfm?zaction=AUCTION&ZMETHOD=UPDATE&FNC=LOAD&AREA=…`
+but the static preview HTML carries no parcel rows — the call is stateful. Nail
+down, from a paced read-only client (capture real requests/responses):
+
+- **Session establishment**: what cookies must be set first (JSESSIONID / CFID /
+  CFTOKEN?), and via which GET (the `…Zmethod=PREVIEW&AUCTIONDATE=MM/DD/YYYY`
+  page, or a separate init call)?
+- **The `FNC=LOAD` request**: the full URL + params — especially how **`AREA`**
+  is derived (is it in the preview HTML/JS, a fixed value, a per-date token?) —
+  plus `FROM`/`TO` pagination and any `X-Requested-With` header requirement.
+- **Response shape**: is `FNC=LOAD` JSON or an HTML fragment? Capture ONE real
+  row's fields (Auction Type, Case #, Certificate #, Opening Bid, **Parcel ID**,
+  **Property Address**, Assessed Value, sale datetime) with a copy-pasteable
+  example.
+- **Enumerating sale dates**: from the calendar
+  (`index.cfm?zaction=USER&zmethod=CALENDAR`, sale days = CSS `CALSELT` +
+  `dayid="MM/DD/YYYY"`) — confirm how to list upcoming auction dates.
+- **Parity check — foreclosure**: does **`orange.realforeclose.com`** (mortgage
+  foreclosure, same GSG platform) use the SAME handshake? If yes, it's a second
+  distress signal for the same adapter — note any differences.
+- Throttle posture at ≥10s pacing; STOP on 401/403/429.
+
+Deliverable: `docs/market-research/orange-realauction-handshake-<date>.md` with
+the copy-pasteable request sequence (session GET → `FNC=LOAD` → sample row). If
+it proves un-fetchable without a headless browser, say so plainly — Claude will
+then decide whether the distress leg is worth that (it's the least-core signal;
+Orlando is already live on permits + code + parcels + Apollo buyers).
 
 <!-- Round-9 briefs preserved below for reference; all delivered.
 
