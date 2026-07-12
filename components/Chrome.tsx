@@ -16,6 +16,7 @@ import { Logo } from "@/components/Logo";
 const OPERATOR_PREFIXES = [
   "/dashboard",
   "/reports",
+  "/opportunities",
   "/queue",
   "/leads",
   "/campaigns",
@@ -50,6 +51,7 @@ const NAV: NavSection[] = [
   {
     label: "Inventory",
     items: [
+      { href: "/opportunities", label: "Opportunities", icon: "grid" },
       { href: "/leads", label: "Leads", icon: "tag" },
       { href: "/queue", label: "Queue", icon: "list" },
       { href: "/properties/new", label: "Add property", icon: "plus", exact: true },
@@ -180,6 +182,7 @@ export function Chrome({ children }: { children: React.ReactNode }) {
 type IconName =
   | "home"
   | "chart"
+  | "grid"
   | "megaphone"
   | "building"
   | "inbox"
@@ -194,6 +197,7 @@ type IconName =
 const ICON_PATHS: Record<IconName, string> = {
   home: "M3 8.5 10 3l7 5.5V17h-5v-4.5H8V17H3V8.5Z",
   chart: "M3 17V9m4.5 8V4M12 17v-6.5m4.5 6.5V7",
+  grid: "M3 3h6v6H3V3Zm8 0h6v6h-6V3ZM3 11h6v6H3v-6Zm8 0h6v6h-6v-6Z",
   megaphone: "M3 8v4h3l6 4V4L6 8H3Zm12.5-1a4 4 0 0 1 0 6",
   building: "M4 17V4h8v13M7 7h2m-2 3h2m3-3h2v10M2.5 17h15",
   inbox: "M3 11l2-7h10l2 7v6H3v-6Zm0 0h4.5a2.5 2.5 0 0 0 5 0H17",
