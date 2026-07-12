@@ -603,7 +603,7 @@ export async function runBuyerProspecting(opts?: {
     // even though the deployment default is Houston.
     const mkt = marketForCoords(lead.lat, lead.lng);
     candidates = await searchLandscapers(
-      lead.city ? `${lead.city}, Texas` : mkt.metroSearch,
+      lead.city ? `${lead.city}, ${mkt.metroSearch.split(", ")[1] ?? "Texas"}` : mkt.metroSearch,
       CANDIDATE_POOL,
       TRADES[trade].prospectKeywords
     );
@@ -625,6 +625,9 @@ export async function runBuyerProspecting(opts?: {
   if (candidates.length) log.push(`${candidates.length} candidate companies`);
 
   // ---- 5. Qualify one by one until the list is full (bounded attempts).
+  // Fall back to the LEAD's metro state (not always Texas) when a candidate's
+  // own state is blank, so a stateless "Winter Park" geocodes in Florida.
+  const leadState = marketForCoords(lead.lat, lead.lng).state ?? "TX";
   let attempts = Math.min(candidates.length, want * 3);
   for (const c of candidates) {
     if (qualified.filter((q) => q.email).length >= want || attempts <= 0) break;
@@ -670,7 +673,7 @@ export async function runBuyerProspecting(opts?: {
     }
 
     // Geographic coverage: office (often city-level) within range of the lead.
-    const officeArea = c.city ? `${c.city}${c.state ? `, ${c.state}` : ", TX"}` : null;
+    const officeArea = c.city ? `${c.city}, ${c.state ?? leadState}` : null;
     const coords = officeArea ? await geocodeAddress(officeArea, "place,address,poi") : null;
     const distance = coords ? haversineMiles([coords[0], coords[1]], [lead.lng, lead.lat]) : null;
     if (distance != null && distance > MAX_DISTANCE_MI) continue;

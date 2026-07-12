@@ -11,6 +11,7 @@ import { sizeLead, type LeadSizing } from "../leads/sizing";
 import { searchLandscapers, type BuyerCandidate } from "../integrations/apollo";
 import { scrapeBusinessContact } from "../integrations/contact";
 import { geocodeAddress } from "../integrations/geocoding";
+import { marketForCoords } from "../markets";
 import { signBuyerClaim } from "../buyer-auth";
 import { haversineMiles } from "../sourcing/criteria";
 import type { ParcelResult } from "../geo/types";
@@ -169,12 +170,14 @@ export async function buildRecipients(opts: {
   });
   buyers = buyers.slice(0, max);
 
+  // Blank candidate state falls back to the campaign's metro (from the first
+  // lead's coords), not always Texas — so a stateless office in an FL metro
+  // geocodes in Florida.
+  const leadState = leads[0] ? marketForCoords(leads[0].lat, leads[0].lng).state ?? "TX" : "TX";
   const out: BuiltRecipient[] = [];
   for (const b of buyers) {
-    const officeArea = b.city ? `${b.city}${b.state ? `, ${b.state}` : ""}` : null;
-    const coords = officeArea
-      ? await geocodeAddress(`${officeArea}${b.state ? "" : ", TX"}`, "place,address,poi")
-      : null;
+    const officeArea = b.city ? `${b.city}, ${b.state ?? leadState}` : null;
+    const coords = officeArea ? await geocodeAddress(officeArea, "place,address,poi") : null;
 
     let lead = leads[0];
     let dist: number | null = null;

@@ -182,7 +182,7 @@ export async function runResidentialDemandGen(opts: {
   const mkt = marketForCoords(centroid[1], centroid[0]);
   const anchorCity = teaser?.cities?.[0];
   let candidates: BuyerCandidate[] = await searchLandscapers(
-    anchorCity ? `${anchorCity}, Texas` : mkt.metroSearch,
+    anchorCity ? `${anchorCity}, ${mkt.metroSearch.split(", ")[1] ?? "Texas"}` : mkt.metroSearch,
     CANDIDATE_POOL,
     TRADES[trade].prospectKeywords
   );
@@ -234,7 +234,7 @@ export async function runResidentialDemandGen(opts: {
       continue;
     }
 
-    const officeArea = c.city ? `${c.city}${c.state ? `, ${c.state}` : ", TX"}` : null;
+    const officeArea = c.city ? `${c.city}, ${c.state ?? mkt.state ?? "TX"}` : null;
     const coords = officeArea ? await geocodeAddress(officeArea, "place,address,poi") : null;
     const distance = coords ? haversineMiles([coords[0], coords[1]], centroid) : null;
     if (distance != null && distance > MAX_DISTANCE_MI) continue;
