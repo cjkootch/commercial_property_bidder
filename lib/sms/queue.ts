@@ -151,7 +151,9 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
   return out.slice(0, limit);
 }
 
-/** Queue sends already made today (Chicago wall clock), for the daily cap. */
+/** Queue sends already made today (Chicago wall clock), for the daily cap.
+ *  Openers and no-reply nudges share one budget — the cap bounds how many
+ *  cold-ish texts leave the building per day, whatever step they are. */
 export async function queueSentToday(): Promise<number> {
   const rows = await db
     .select({ kind: smsSend.kind, created_at: smsSend.created_at })
@@ -163,5 +165,139 @@ export async function queueSentToday(): Promise<number> {
     day: "2-digit",
   });
   const today = fmt.format(new Date());
-  return rows.filter((r) => r.kind === "text_queue" && fmt.format(r.created_at) === today).length;
+  return rows.filter(
+    (r) =>
+      (r.kind === "text_queue" || r.kind === "text_nudge") && fmt.format(r.created_at) === today
+  ).length;
+}
+
+// --- the no-reply follow-up (SMS mirror of the email 48h nudge) -------------
+// Email nudges the ENGAGED (opened but never claimed). SMS inverts: a reply
+// already starts the AI conversation, so the gap is the SILENT — step 2 is
+// reply-gated, meaning a prospect who ignores "Hi, is this X?" never hears
+// the actual pitch. The nudge delivers step 2 anyway, once, then goes quiet.
+
+/** How long an unanswered opener sits before the (single) follow-up. Same
+ *  window as the email nudge (lib/pipeline/nudges.NUDGE_AFTER_HOURS). */
+export const SMS_NUDGE_AFTER_HOURS = 48;
+/** Claim tokens live 30 days — same margin rule as the email nudge. */
+export const SMS_NUDGE_MAX_AGE_DAYS = 25;
+
+/** The follow-up text: delivers the pitch + link the silent opener never
+ *  earned, identifies the business (CTIA), carries the casual opt-out. */
+export function nudgeTextFor(name: string, claimUrl: string): string {
+  return (
+    `Didn't hear back, so I'll just send it over — we found a commercial ` +
+    `opportunity near you that looks like a fit for ${name}. Free to view: ${claimUrl}\n\n` +
+    `${OPT_OUT_LINE}\n\n-Cole, Greenkeep`
+  );
+}
+
+/** Pure selector (mirrors lib/pipeline/nudges.selectNudgeTargets): phones we
+ *  opened with that never replied, never nudged, 48h–25d old, not opted out.
+ *  Returns phone → opener time. */
+export function selectSmsNudges(args: {
+  now: Date;
+  sends: Array<{ direction: string; kind: string; phone: string; created_at: Date }>;
+  optedOut: Set<string>;
+}): Map<string, Date> {
+  const cutoff = args.now.getTime() - SMS_NUDGE_AFTER_HOURS * 3600_000;
+  const oldest = args.now.getTime() - SMS_NUDGE_MAX_AGE_DAYS * 86400_000;
+  // Any inbound = they replied (the conversation path owns them now).
+  // Any prior nudge = they had their one follow-up.
+  const done = new Set<string>();
+  for (const s of args.sends) {
+    if (s.direction === "in" || s.kind === "text_nudge") done.add(s.phone);
+  }
+  const openers = new Map<string, number>();
+  for (const s of args.sends) {
+    if (s.direction !== "out" || s.kind !== "text_queue") continue;
+    const t = s.created_at.getTime();
+    const prev = openers.get(s.phone);
+    if (prev == null || t < prev) openers.set(s.phone, t);
+  }
+  const out = new Map<string, Date>();
+  for (const [phone, t] of openers) {
+    if (done.has(phone) || args.optedOut.has(phone)) continue;
+    if (t <= cutoff && t >= oldest) out.set(phone, new Date(t));
+  }
+  return out;
+}
+
+export type SmsNudgeTarget = {
+  companyId: string;
+  companyKey: string;
+  name: string;
+  phone: string;
+  text: string;
+};
+
+/** Load-and-match wrapper around selectSmsNudges: attach each silent phone
+ *  back to its company (for the name + the freshest claim link) and drop any
+ *  that converted or got blocked since the opener. */
+export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> {
+  if (limit <= 0) return [];
+  const [sends, optOuts, companies, outreach] = await Promise.all([
+    db
+      .select({
+        direction: smsSend.direction,
+        kind: smsSend.kind,
+        phone: smsSend.phone,
+        created_at: smsSend.created_at,
+      })
+      .from(smsSend),
+    db.select({ phone: smsOptOut.phone }).from(smsOptOut),
+    db
+      .select({
+        id: prospectCompany.id,
+        key: prospectCompany.key,
+        name: prospectCompany.name,
+        phone: prospectCompany.phone,
+        blocked_at: prospectCompany.blocked_at,
+        buyer_id: prospectCompany.buyer_id,
+      })
+      .from(prospectCompany)
+      .where(isNotNull(prospectCompany.phone)),
+    db
+      .select({
+        company_key: buyerOutreach.company_key,
+        claim_url: buyerOutreach.claim_url,
+        sent_at: buyerOutreach.sent_at,
+      })
+      .from(buyerOutreach)
+      .where(isNotNull(buyerOutreach.claim_url)),
+  ]);
+
+  const due = selectSmsNudges({
+    now: new Date(),
+    sends,
+    optedOut: new Set(optOuts.map((o) => o.phone)),
+  });
+  if (due.size === 0) return [];
+
+  const claimByKey = new Map<string, { url: string; at: number }>();
+  for (const o of outreach) {
+    const at = o.sent_at?.getTime() ?? 0;
+    const prev = claimByKey.get(o.company_key);
+    if (!prev || at >= prev.at) claimByKey.set(o.company_key, { url: o.claim_url!, at });
+  }
+
+  const out: SmsNudgeTarget[] = [];
+  for (const c of companies) {
+    const phone = toE164(c.phone);
+    if (!phone || !due.has(phone)) continue;
+    if (c.blocked_at || c.buyer_id) continue; // converted/blocked since the opener
+    const claim = claimByKey.get(c.key);
+    if (!claim) continue; // nothing to deliver
+    out.push({
+      companyId: c.id,
+      companyKey: c.key,
+      name: c.name,
+      phone,
+      text: nudgeTextFor(c.name, claim.url),
+    });
+  }
+  // Oldest opener first — they've waited longest and their tokens expire first.
+  out.sort((a, b) => (due.get(a.phone)?.getTime() ?? 0) - (due.get(b.phone)?.getTime() ?? 0));
+  return out.slice(0, limit);
 }
