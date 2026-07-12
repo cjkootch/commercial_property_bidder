@@ -69,6 +69,23 @@ exchange still pages the operator — the alert email shows the prospect's
 text AND the AI's answer, with a link to take over the thread. Kill switch:
 `SMS_AI_AUTOREPLY=0`. STOP/opt-outs are never answered.
 
+## Scarcity + growth loops (2026-07-12)
+
+- **Last-spot alerts** (kind `spot_alert`): after every successful unlock,
+  `alertLastSpot` (lib/leads/scarcity.ts, via waitUntil) emails ENGAGED,
+  unconverted companies that were offered the property when their trade
+  drops to its final shared spot — once ever per company+property
+  (email_send ref dedupe), suppression-checked, max 10 per event. True
+  urgency only: it literally fires at spots==1.
+- **Exclusive upgrades** (Stripe metadata `exclusive_upgrade`): a sole-holder
+  buyer flips their unlock to exclusive; the webhook re-checks sole-holder
+  before flipping (conflict → account credit). Upsell renders on /buyers
+  after any claim (?claimed=).
+- **Buyer SMS lead alerts** (kind `lead_alert`): daily weekday cron
+  /api/cron/buyer-alerts texts each opted-in buyer at most ONE fresh in-radius
+  job per day (one per buyer+property ever), business-hours window, kill
+  switch BUYER_SMS_ALERTS=0.
+
 ## The day-7 outcome loop
 
 A week after any lead unlock, the buyer gets ONE check-in email (kind

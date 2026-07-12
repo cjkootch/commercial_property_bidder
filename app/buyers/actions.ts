@@ -17,9 +17,11 @@ import {
   verifyBuyerSession,
 } from "@/lib/buyer-auth";
 import { sendSms, toE164 } from "@/lib/integrations/twilio";
+import { waitUntil } from "@vercel/functions";
+import { alertLastSpot } from "@/lib/leads/scarcity";
 import { buildDossier } from "@/lib/leads/dossier";
 import { FREE_MAX_PER_LEAD } from "@/lib/leads/allocation";
-import { freeVerdict, leadKind, loadMarketLeads, marketFreeContext } from "@/lib/leads/market";
+import { displayName, freeVerdict, leadKind, loadMarketLeads, marketFreeContext } from "@/lib/leads/market";
 import {
   closeLeadIfDone,
   confirmUnlockWithinCap,
@@ -125,7 +127,7 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
   // view: "that one went to other companies — here's the next best near you,"
   // with their free sheet still claimable where policy allows. Never a silent
   // plain dashboard after a scarcity promise.
-  redirect(claimed ? "/buyers" : `/buyers?offer=${claim.property_id}`);
+  redirect(claimed ? `/buyers?claimed=${claim.property_id}` : `/buyers?offer=${claim.property_id}`);
 }
 
 /**
@@ -155,7 +157,7 @@ export async function claimAsExistingBuyer(token: string): Promise<void> {
   if (claim.company && companyKeyOf(claim.company) === companyKeyOf(me.company_name)) {
     await linkCompanyToBuyer(claim.company, buyerId!);
   }
-  redirect(claimed ? "/buyers" : `/buyers?offer=${claim.property_id}`);
+  redirect(claimed ? `/buyers?claimed=${claim.property_id}` : `/buyers?offer=${claim.property_id}`);
 }
 
 /**
@@ -283,7 +285,9 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
     fail("Your free sheet has been used — this one would be a paid unlock.");
   }
   await closeLeadIfDone(prop!.id);
-  redirect("/buyers");
+  waitUntil(alertLastSpot(prop!.id));
+  // ?claimed= triggers the exclusive-upgrade upsell at peak-belief moment.
+  redirect(`/buyers?claimed=${prop!.id}`);
 }
 
 /**
@@ -360,6 +364,7 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
     return false;
   }
   await closeLeadIfDone(prop.id);
+  waitUntil(alertLastSpot(prop.id));
   return true;
 }
 
@@ -516,6 +521,59 @@ export async function startFirstLookCheckout(): Promise<void> {
 }
 
 /**
+ * Exclusive UPGRADE: a buyer who already holds a lead (free or paid) and is
+ * still its ONLY holder in their trade pays the exclusive premium (minus what
+ * they already paid) to close it to competitors. Fulfilled by the Stripe
+ * webhook flipping their existing unlock's kind — with a sole-holder re-check
+ * there, since someone can join between checkout and payment (credit on
+ * conflict, the standing no-refund pattern). "Yours alone" stays honest:
+ * upgrading is only offered while no other company ever held the sheet.
+ */
+export async function startExclusiveUpgrade(propertyId: string): Promise<void> {
+  const buyerId = await currentBuyerId();
+  if (!buyerId) redirect("/buyers/login");
+  const [row] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
+  if (!row) redirect("/buyers/login");
+  const fail = (msg: string): never => redirect(`/buyers?err=${encodeURIComponent(msg)}`);
+
+  const rl = await rateLimit(`buyercheckout:ip:${clientIp()}`, 20, 3600);
+  if (!rl.ok) fail("Too many attempts — try again in a bit.");
+
+  const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
+  if (!prop || prop!.archived_at) fail("Lead not found.");
+
+  const all = (
+    await db.select().from(leadUnlock).where(eq(leadUnlock.property_id, propertyId))
+  ).filter((u) => u.trade === asTrade(row!.trade));
+  const mine = all.find((u) => u.buyer_id === row!.id);
+  if (!mine) fail("You don't hold this lead.");
+  if (mine!.kind === "exclusive") fail("This job is already exclusively yours.");
+  if (all.length > 1)
+    fail("Another company already shares this lead, so the exclusive option is gone.");
+
+  const kindOfLead = leadKind(prop!.name);
+  const est = TRADES[asTrade(row!.trade)].estimateValue(tradeValueInput(prop!, kindOfLead));
+  const tier = leadTierFor(est?.annualHi ?? null, kindOfLead);
+  // Credit what they already paid toward the exclusive price.
+  const amount = Math.max(tier.exclusive_cents - (mine!.kind === "paid" ? tier.price_cents : 0), 500);
+
+  const base = baseUrl();
+  const res = await createLeadCheckout({
+    amountCents: amount,
+    leadName: `exclusive upgrade — ${kindOfLead} lead`,
+    buyerEmail: row!.email,
+    buyerId: row!.id,
+    propertyId,
+    kind: "exclusive",
+    upgradeUnlockId: mine!.id,
+    successUrl: `${base}/buyers?unlocked=1`,
+    cancelUrl: `${base}/buyers?claimed=${propertyId}`,
+  });
+  if (!res.ok) fail(res.error);
+  redirect((res as { ok: true; url: string }).url);
+}
+
+/**
  * Stripe unlock: pay -> webhook reveals the lead. `kind` "paid" buys one of
  * the shared spots; "exclusive" (premium) closes the lead — only offered while
  * nobody else has it. Errors land as a dashboard banner.
@@ -591,6 +649,7 @@ export async function startCheckout(propertyId: string, kind: "paid" | "exclusiv
         fail("The last spot just went to another company — your credit is untouched.");
       }
       await closeLeadIfDone(propertyId);
+      waitUntil(alertLastSpot(propertyId));
       redirect("/buyers?unlocked=1");
     }
   }

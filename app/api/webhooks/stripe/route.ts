@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { and, eq, sql } from "drizzle-orm";
+import { alertLastSpot } from "@/lib/leads/scarcity";
 import { db } from "@/lib/db";
 import { alertOperatorOfSale } from "@/lib/email/operator-alerts";
 import {
@@ -166,6 +168,48 @@ export async function POST(req: NextRequest) {
       })
       .where(eq(buyer.id, buyerId));
     return NextResponse.json({ received: true, first_look: "active" });
+  }
+
+  // Exclusive UPGRADE of an existing unlock: flip its kind after a sole-holder
+  // re-check (another company can join between checkout and payment — that
+  // conflict becomes account credit, the standing no-refund pattern).
+  if (session.metadata?.type === "exclusive_upgrade") {
+    const unlockId = session.metadata?.unlock_id;
+    const [b] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
+    if (!unlockId || !propertyId || !b) {
+      const refunded = await refundPayment(session.payment_intent);
+      if (!refunded)
+        console.error(`[stripe] exclusive upgrade unmatched, refund failed — ${session.id}`);
+      return NextResponse.json({ received: true, refunded, reason: "unmatched upgrade" });
+    }
+    const rows = await db.select().from(leadUnlock).where(eq(leadUnlock.property_id, propertyId));
+    const mine = rows.find((r) => r.id === unlockId && r.buyer_id === buyerId);
+    if (!mine) {
+      return creditAndNotify(session, b, "the lead you upgraded is no longer on your account");
+    }
+    if (mine.kind === "exclusive") {
+      return NextResponse.json({ received: true, skipped: "duplicate upgrade delivery" });
+    }
+    const rivals = rows.filter((r) => r.trade === mine.trade && r.id !== mine.id);
+    if (rivals.length > 0) {
+      return creditAndNotify(
+        session,
+        b,
+        "another company joined this lead before your exclusive upgrade completed"
+      );
+    }
+    await db
+      .update(leadUnlock)
+      .set({ kind: "exclusive", price_cents: mine.price_cents + (session.amount_total ?? 0) })
+      .where(eq(leadUnlock.id, mine.id));
+    await closeLeadIfDone(propertyId);
+    await sendEmail({
+      to: b.email,
+      subject: "It's exclusively yours",
+      html: `<p>${b.company_name} — your exclusive upgrade is confirmed. We will never sell this job to another company in your trade, this cycle or any future one.</p><p><a href="${appUrl()}/buyers/leads/${mine.id}">Open your sheet</a></p>`,
+      tags: { kind: "exclusive_upgrade" },
+    }).catch(() => null);
+    return NextResponse.json({ received: true, exclusive_upgrade: mine.id });
   }
 
   // Postcard purchase (not a lead unlock) — fulfill via Lob.
@@ -343,6 +387,7 @@ export async function POST(req: NextRequest) {
     return creditAndNotify(session, b, "the last spot on this job went to another company moments before your payment");
   }
   await closeLeadIfDone(prop.id);
+  waitUntil(alertLastSpot(prop.id));
 
   const link = `${appUrl()}/buyers/leads/${unlock.id}`;
   const facility = prop.name.replace(/ \((TABS|HCAD|STP|H311|TABC|TAX|RFP) [^)]+\)$/, "");

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { and, asc, desc, eq } from "drizzle-orm";
+import { ExclusiveUpsell } from "./ExclusiveUpsell";
+import { RenewalRadar } from "./RenewalRadar";
 import { db } from "@/lib/db";
 import { buyer, chatMessage, leadUnlock, postcard, property, prospect } from "@/lib/db/schema";
 import { getDefaultCompany } from "@/lib/db/queries";
@@ -77,7 +79,7 @@ const STATUS_STYLE: Record<string, string> = {
 export default async function BuyerDashboard({
   searchParams,
 }: {
-  searchParams: { unlocked?: string; canceled?: string; err?: string; offer?: string; firstlook?: string };
+  searchParams: { unlocked?: string; canceled?: string; err?: string; offer?: string; firstlook?: string; claimed?: string };
 }) {
   const buyerId = await currentBuyerId();
   if (!buyerId) redirect("/buyers/login");
@@ -488,6 +490,15 @@ export default async function BuyerDashboard({
               {searchParams.err}
             </p>
           ) : null}
+
+          {/* Post-claim peak-belief moment: while they're the sole holder,
+              one tap locks out every competitor. Renders nothing otherwise. */}
+          {searchParams.claimed ? (
+            <ExclusiveUpsell buyerId={me.id} propertyId={searchParams.claimed} />
+          ) : null}
+
+          {/* Contract-anniversary radar — the First Look second pillar. */}
+          <RenewalRadar me={me} />
 
         {/* ---- Offer landing: pinned if open, honest + next-best if filled -- */}
         {offerItem ? (
