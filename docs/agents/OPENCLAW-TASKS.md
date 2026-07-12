@@ -31,6 +31,10 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
+_None open — round 8 cleared 2026-07-12 (see Done). Round 9 TBD._
+
+<!-- Round-8 briefs preserved below for reference; all delivered.
+
 Round 8 — Orlando / Orange County pre-build verification. Round 7 RE-PICKED
 Orlando as Florida metro #1 (Tampa's permit + code legs are dead in open data;
 Orlando's are both Houston-grade and daily-fresh). Before the build starts,
@@ -102,6 +106,8 @@ Deliverable: `docs/market-research/orange-county-unincorporated-<date>.md`.
 _Priority: 19 first (it decides whether the deed fetcher ports — the single
 biggest Texas→Florida assumption), then 20 (verify the legs we assumed), then
 21 (scope city-only vs county-wide)._
+
+-->
 
 <!-- Round-7 briefs preserved below for reference; all delivered.
 
@@ -606,3 +612,39 @@ Flag anything gated; do not bypass. Deliverable:
   Broward permits stale + ESTCOST 100% empty; Duval firewalled — both
   NO-BUILD. Decision for operator: re-pick Orlando, or keep Tampa and accept
   a permits-less launch).
+- 2026-07-12 — Orange County (FL) deed-recording transport →
+  `docs/market-research/orange-deed-transport-2026-07-12.md` (**VERDICT: TX
+  fetcher does NOT port — Orange needs its own deed adapter.** Orange County
+  Comptroller runs **Tyler "Self Service Web"** at `selfservice.or.occompt.com/
+  ssweb/`, NOT PublicSearch/Kofile (no `__ort`, no signed-cookie WS). Transport
+  = server-rendered HTML + AJAX form-POST over a stateful JSESSIONID:
+  disclaimer-accept → `POST /ssweb/searchPost/DOCSEARCH2950S1`; a date-range-
+  only query returned rows live (07/10/2026 = 20 pages; sample Doc# 20260385183
+  Mortgage). FL uses a generic "Deed" facet (360/day; no WD/SWD split, differs
+  from TX); Mortgage/Lien/Lis Pendens in same search; tax deeds separate.
+  **STRONG FLAG for human: a `/ssweb/checkHuman` bot endpoint + per-session
+  hold-harmless disclaimer POST + unknown rate limits — legal/ToS sign-off
+  needed before building.**).
+- 2026-07-12 — Orlando statewide-legs verification →
+  `docs/market-research/orlando-statewide-legs-2026-07-12.md` (**all 3 legs
+  GO for Orange.** DBPR contractors: Orange county code = **58** (NOT 48 — the
+  Hillsborough-style guess was wrong), 11,820 rows / 4,646 active, names+
+  addresses, max issue 2026-07-10. RealAuction `orange.realtaxdeed.com` live
+  (needs browser UA, read-only, no login) — Aug 2026 has 4 sale dates, 08/06
+  preview = 25 parcels w/ Case#/Parcel/Bid/Address/Assessed Value. Parcels:
+  FDOR Cadastral 2025 (services9.arcgis.com) — Mall at Millenia point-query
+  confirmed (JV $349M, DOR_UC 015, ASMNT_YR 2025), CO_NO 58. Flags: numeric
+  CO_NO WHERE 400s → spatial-envelope workaround; FDOT parcels token-gated
+  (use FDOR); OCPA API behind Azure APIM key).
+- 2026-07-12 — Unincorporated Orange County sourcing →
+  `docs/market-research/orange-county-unincorporated-2026-07-12.md` (**county
+  permits NO-BUILD** — no public record-level valuation-bearing feed (permit
+  lookup is an external Accela-style portal); **county code enforcement
+  NO-BUILD now, re-probe later** — the right schema EXISTS on the live
+  successor `ocgis4.ocfl.net` ("EPD Violation All": type/status/inspection
+  date/address/parcel/coords) but its public `/query` is broken today
+  (where=1=1 times out, objectIds=1 → HTTP 500; control query on a static
+  layer worked, so it's the CE view not the server) — freshness UNVERIFIED,
+  no row extractable. Round-7's `ocgis1.ocfl.net` is dead → successor is
+  `ocgis4`. **Launch scope = CITY-OF-ORLANDO-ONLY**, unincorporated county as
+  later expansion; re-probe the ocgis4 CE /query to promote it to BUILD).
