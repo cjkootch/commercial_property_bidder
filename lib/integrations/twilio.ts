@@ -16,11 +16,16 @@ import { smsOptOut, smsSend } from "@/lib/db/schema";
 
 export type SmsResult = { ok: true; sid: string } | { ok: false; error: string };
 
-function creds(): { sid: string; token: string; from: string } | null {
+function creds(): { sid: string; token: string; from: string; serviceSid: string | null } | null {
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM; // the purchased number, E.164
-  return sid && token && from ? { sid, token, from } : null;
+  // When set, sends go out via the Messaging Service's sender pool (local +
+  // toll-free) instead of the single number: Twilio picks the sender, keeps
+  // it STICKY per recipient (threads never fracture across numbers), and
+  // scales/fails over as volume grows. Unset = single-number behavior.
+  const serviceSid = process.env.TWILIO_MESSAGING_SERVICE_SID || null;
+  return sid && token && from ? { sid, token, from, serviceSid } : null;
 }
 
 /** Best-effort US number → E.164. Returns null if it doesn't look like one. */
@@ -63,7 +68,9 @@ export async function sendSms(args: {
   if (await isSmsOptedOut(to)) return { ok: false, error: "number has opted out (STOP)" };
 
   const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
-  const params = new URLSearchParams({ To: to, From: c.from, Body: body });
+  const params = new URLSearchParams({ To: to, Body: body });
+  if (c.serviceSid) params.set("MessagingServiceSid", c.serviceSid);
+  else params.set("From", c.from);
   if (base) params.set("StatusCallback", `${base}/api/webhooks/twilio`);
 
   try {
