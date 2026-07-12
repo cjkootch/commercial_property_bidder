@@ -25,6 +25,10 @@ export type Market = {
   metroSearch: string;
   /** Lowercased anchor city — the "already metro-wide" widen guard. */
   metroCity: string;
+  /** IANA timezone for the metro's local wall clock (SMS send window, etc.).
+   *  Absent = America/Chicago (Central) — every original Texas metro except
+   *  El Paso, which is Mountain. */
+  tz?: string;
   /** [west, south, east, north] — assigns a lead to its market by coords. */
   bbox: [number, number, number, number];
   /** LGBS tax-sale county parameters (one fetch per county). */
@@ -126,6 +130,7 @@ export const MARKETS: Record<string, Market> = {
     label: "El Paso metro",
     metroSearch: "El Paso, Texas",
     metroCity: "el paso",
+    tz: "America/Denver", // El Paso is Mountain, not Central like the rest of TX.
     bbox: [-106.7, 31.4, -105.9, 32.1],
     // Verified live 2026-07-10: 55 parcels in the LGBS pipeline, 28 TABC
     // pending applications.
@@ -217,6 +222,7 @@ export const MARKETS: Record<string, Market> = {
     state: "FL",
     metroSearch: "Orlando, Florida",
     metroCity: "orlando",
+    tz: "America/New_York", // Eastern.
     bbox: [-81.66, 28.34, -80.86, 28.79],
     taxSaleCounties: [],
     tabcCounties: [],
@@ -245,4 +251,19 @@ export function marketForCoords(lat: number | null | undefined, lng: number | nu
     }
   }
   return currentMarket();
+}
+
+/** Default metro timezone — Central, where a market's tz is unset. */
+export const DEFAULT_TZ = "America/Chicago";
+
+/** IANA timezone for the market a coordinate falls in (default Central). Used
+ *  so automated SMS goes out on the RECIPIENT's local clock, not Texas time. */
+export function marketTz(lat: number | null | undefined, lng: number | null | undefined): string {
+  return marketForCoords(lat, lng).tz ?? DEFAULT_TZ;
+}
+
+/** The distinct timezones across all markets — the coarse gate for a run
+ *  serving multiple metros; per-recipient checks use their own tz. */
+export function marketTimezones(): string[] {
+  return [...new Set(Object.values(MARKETS).map((m) => m.tz ?? DEFAULT_TZ))];
 }
