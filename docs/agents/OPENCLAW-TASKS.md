@@ -31,7 +31,75 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
-_None open — round 6 cleared 2026-07-11 (see Done). Round 7 TBD._
+### 16. PublicSearch WebSocket pre-build verification — no-browser feasibility
+
+Round 6 found the real transport: same-origin WebSocket carrying Kofile
+`@kofile/FETCH_DOCUMENTS` frames, gated only by an `authToken` (`window.__ort`,
+a per-page-load UUID in the tenant's SSR HTML). Before we build the fetcher,
+prove the whole handshake works from a PLAIN HTTP CLIENT (no browser):
+
+- GET each tenant's page with a generic HTTP client; confirm `__ort` is
+  extractable from the raw HTML (regex + one sample per tenant, all 7).
+- Open the `wss://<tenant>.tx.publicsearch.us/ws` socket from a non-browser
+  client: which headers matter (Origin? User-Agent? cookies?), does the
+  server enforce an Origin check, and does the round-6 date-range query
+  (`searchValue:""`) still return rows this way?
+- Token lifetime: does one `__ort` survive multiple queries / minutes /
+  pagination to offset 500? What error shape comes back when it expires?
+- Note any per-IP throttling on the socket at ≥10s pacing (report, don't
+  push through).
+
+Deliverable: `docs/market-research/publicsearch-ws-verify-<date>.md` with
+copy-pasteable request/handshake examples per tenant. This is the last recon
+before the 7-county deed fetcher gets built in-house.
+
+### 17. Tampa buyer-side prospect sourcing — who do we SELL to in Florida?
+
+Every Texas metro launch leaned on our existing prospect-company pipeline;
+Florida needs its own supply of service companies (with contactable emails/
+phones) before Tampa outreach can start. Map the public rolls:
+
+- **FDACS pest control licensing** (Florida pest is state-licensed):
+  machine-readable roll? Business name/address/county fields, download vs
+  search-only, freshness.
+- **DBPR contractor rolls** (the same extracts system as the alcohol leg):
+  which license types map to our trades (landscaping has no FL state
+  license — what's the closest proxy? irrigation? commercial applicators?),
+  county filters, contact fields present (email? phone?).
+- **Hillsborough local business tax receipts** (occupational licenses):
+  public roll with NAICS-ish classifications? That's often the best
+  landscaping/cleaning directory a county has.
+- **Sunbiz (FL Division of Corporations)**: bulk/daily corporate filings —
+  can we filter new registrations by name keyword ("landscap", "lawn",
+  "pest", "clean") as a company-discovery feed?
+- For each source: sample 3 rows, note whether email/phone appear, and
+  FLAG anything requiring a records request or paid extract.
+
+Deliverable: `docs/market-research/tampa-buyer-sourcing-<date>.md` with a
+recommended stack ranked by contact-data quality.
+
+### 18. Florida permit/311 rescue sweep — Pinellas, Orlando, Broward, Jax
+
+Round 6's Tampa permit/311 legs came back NO-BUILD on open data (Accela
+SPAs, frozen mirrors). Before we accept a permits-less Tampa launch, sweep
+the neighbors — same shape as the round-4 Texas permit sweep:
+
+- **Pinellas County / St. Petersburg / Clearwater** (Tampa Bay's other
+  half): if Pinellas has Houston-grade open permits + code enforcement,
+  the Tampa-bay MARKET gets its permit leg from across the bay — check
+  whether our proposed bbox already covers it.
+- **Orlando / Orange County**, **Broward / Fort Lauderdale**,
+  **Jacksonville / Duval**: permits (valuation field, commercial
+  discriminator, cadence) + code-enforcement vocabulary. If one of these
+  clearly beats Tampa on the two missing legs while matching the other
+  five (DBPR/FDOR/RealAuction are statewide), say so — it's a case for
+  re-picking FL metro #1, and the memo should make the call explicitly.
+
+Deliverable: `docs/market-research/fl-permit-311-sweep-<date>.md` with a
+build-order recommendation and a KEEP-TAMPA / RE-PICK verdict.
+
+_Priority: 16 first (last blocker before the deed-fetcher build), then 17
+(Tampa can't launch without buyers to sell to), then 18._
 
 <!-- Round-6 briefs preserved below for reference; all delivered.
 
