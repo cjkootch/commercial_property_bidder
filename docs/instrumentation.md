@@ -40,8 +40,15 @@ capped at TEXT_QUEUE_DAILY_CAP/day shared with manual sends, weekday
 business hours on Texas wall clock only (`withinSmsSendWindow`, enforced in
 the route, not just the schedule), targeted stored numbers only (engaged or
 phone-only prospects holding a live claim link — never generated lists),
-kill switch `SMS_AUTOPILOT=0`. Conversations are never automated: replies
-land in the inbox for a human, with Claude drafts to review.
+kill switch `SMS_AUTOPILOT=0`.
+
+Conversations are AI-answered (same standing approval): the inbound webhook
+has Claude reply under the draft-button rules (deliver the claim link on
+interest, never invent details, polite close on not-interested), capped at
+4 AI replies per thread before going quiet for human takeover. Every
+exchange still pages the operator — the alert email shows the prospect's
+text AND the AI's answer, with a link to take over the thread. Kill switch:
+`SMS_AI_AUTOREPLY=0`. STOP/opt-outs are never answered.
 
 ## Exemptions
 
