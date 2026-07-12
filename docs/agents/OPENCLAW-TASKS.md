@@ -31,6 +31,10 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
+_None open — round 10 cleared 2026-07-12 (see Done). Round 11 TBD._
+
+<!-- Round-10 briefs preserved below for reference; all delivered.
+
 Round 10 — unblock the last Orlando lead leg. Permits, code enforcement, and
 FDOR parcels are LIVE in production (2026-07-12); buyers flow via the existing
 Apollo demand engine; the deed leg is dropped (reCAPTCHA-gated). The only
@@ -71,6 +75,8 @@ the copy-pasteable request sequence (session GET → `FNC=LOAD` → sample row).
 it proves un-fetchable without a headless browser, say so plainly — Claude will
 then decide whether the distress leg is worth that (it's the least-core signal;
 Orlando is already live on permits + code + parcels + Apollo buyers).
+
+-->
 
 <!-- Round-9 briefs preserved below for reference; all delivered.
 
@@ -812,3 +818,19 @@ Flag anything gated; do not bypass. Deliverable:
   bldgNum=1` (building sketch) are anonymously callable, no auth/referer/key
   (public Swagger) — enriches the sold sheet with an official parcel photo +
   sketch).
+- 2026-07-12 — RealAuction request handshake (last Orlando leg) →
+  `docs/market-research/orange-realauction-handshake-2026-07-12.md`
+  (**fetch-based adapter BUILDABLE — no headless browser**. Stateful 3-call
+  handshake: CALENDAR (list `dayid` sale days) → `Zmethod=PREVIEW&AUCTIONDATE=
+  MM/DD/YYYY` (seeds cfid/cftoken + binds date to CF session) → `zaction=
+  AUCTION&ZMETHOD=UPDATE&FNC=LOAD&AREA=W` on same cookie jar → JSON
+  `{retHTML}`. Cold LOAD w/o the PREVIEW seed returns 0 rows (seed mandatory);
+  `X-Requested-With` NOT required. **AREA is a fixed constant** (R=running,
+  C=closed, W=waiting/upcoming — pull W), pagination via `bypassPage`
+  (count=`maxWA`), no FROM/TO. retHTML = token-compressed HTML (`@A…@L` table
+  documented). Sample row: Case# 2019-225, Opening Bid $1,474.71, Parcel
+  212027278400080, MOUNT DORA FL 32757. **`orange.realforeclose.com` = IDENTICAL
+  handshake** → one adapter, two distress signals (foreclosure fields differ:
+  Final Judgment / Plaintiff Max Bid, div-float layout — parse by `AD_LBL`
+  label, not column order). No CAPTCHA/auth/429 hit at ≥10s; bidding/login
+  paths gated, not touched).
