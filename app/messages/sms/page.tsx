@@ -209,9 +209,10 @@ export default async function SmsInbox({
             ))}
           </div>
 
-          {/* Active thread */}
+          {/* Active thread. min-w-0 lets the 1fr grid column shrink — without
+              it an unbroken claim URL widens the pane and clips the bubbles. */}
           {active ? (
-            <div className="flex max-h-[70vh] flex-col">
+            <div className="flex max-h-[70vh] min-w-0 flex-col">
               <div className="flex items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
                 <div className="min-w-0">
                   <Link href="/messages/sms" className="mr-2 text-sm text-gray-400 hover:text-gray-600 md:hidden">
@@ -238,7 +239,7 @@ export default async function SmsInbox({
                 {activeMsgs.map((m) => (
                   <div key={m.id} className={`flex ${m.direction === "in" ? "justify-start" : "justify-end"}`}>
                     <div
-                      className={`max-w-[75%] rounded-2xl px-3 py-1.5 text-sm ${
+                      className={`max-w-[75%] whitespace-pre-wrap rounded-2xl px-3 py-1.5 text-sm [overflow-wrap:anywhere] ${
                         m.direction === "in"
                           ? "rounded-bl-sm bg-gray-100 text-gray-800"
                           : "rounded-br-sm bg-brand text-white"
