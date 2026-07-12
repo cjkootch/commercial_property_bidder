@@ -24,6 +24,7 @@ const PUBLIC_PREFIXES = [
   "/robots.txt",
   "/residential",
   "/commercial",
+  "/sample-sheet", // public redacted job sheet — the "see before you trust us" page
   "/bids", // owner-side bid requests (public form)
   "/quote",
   "/proposals",

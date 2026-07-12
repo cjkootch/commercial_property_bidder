@@ -268,7 +268,17 @@ export default async function Home() {
               </span>
             </div>
           </div>
-          <MockSheet accent={accent} />
+          <div>
+            <MockSheet accent={accent} />
+            <p className="mt-4 text-center text-sm">
+              <Link
+                href="/sample-sheet"
+                className="font-semibold text-white underline decoration-white/40 underline-offset-4 hover:decoration-white"
+              >
+                See a real sheet, un-mocked →
+              </Link>
+            </p>
+          </div>
         </div>
 
         {/* Live, factual numbers */}

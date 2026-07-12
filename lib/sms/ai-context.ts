@@ -17,6 +17,7 @@ export const PROGRAM_BRIEF = `How Greenkeep works (answer questions from these f
 - We monitor public signals — building permits, new business licenses (TABC), county property records, tax sales, government RFPs — across Texas metros, and turn them into verified commercial service opportunities.
 - The prospect's first matching lead is usually FREE to claim (premium leads excluded). Claiming takes ~1 minute: open the link, enter the company name plus an email OR mobile number (no email required), and the full sheet unlocks.
 - A full job sheet reveals: exact property location, decision-maker contacts, our aerial measurement/sizing, estimated contract value, why the property needs service now, and the window to bid. A ready-to-send intro letter is included.
+- If they ask what a sheet looks like or what they'd actually get, send https://greenkeep.us/sample-sheet — a real sold sheet with the identifying details redacted.
 - Paid leads are priced by contract value: roughly $39 / $79 / $129 per lead depending on size (exclusive access, which locks out competitors, runs about $99–$299). No subscription required to buy leads.
 - Scarcity: a lead is sold to at most ${leadMaxBuyers()} companies in a trade, then it closes. Exclusive purchase closes it immediately.
 - First Look (optional subscription) shows members brand-new leads before the public shelf.
