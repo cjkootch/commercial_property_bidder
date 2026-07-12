@@ -31,7 +31,86 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
-_None open — round 8 cleared 2026-07-12 (see Done). Round 9 TBD._
+Round 9 — de-risk the Orlando legs Claude has NOT already re-probed while
+building in-house. (Permits `ryhf-m453` + FDOR parcels are built and live as of
+2026-07-12; the Socrata `$where` must be `%20`-encoded, not `+` — Orlando's
+Akamai WAF 403s the `+` form as SQLi. Code enforcement `k6e8-nw6w` is next and
+Claude will re-probe it directly, so it is NOT a round-9 task.) Read-only,
+public endpoints only; measure shape + freshness (max record date, never a
+metadata "modified"), include the exact query/request and sample rows; findings
+UNVERIFIED. Everything gated (registration, payment, CAPTCHA, bot-check) gets
+FLAGGED, never worked around.
+
+### 22. Tyler ssweb deed request-shape characterization — de-risk the hardest leg
+
+Round 8 verified Orange County records deeds on **Tyler "Self Service Web"**
+(`selfservice.or.occompt.com/ssweb/`, HTML form-POST over a stateful
+JSESSIONID, per-session hold-harmless disclaimer, a `/ssweb/checkHuman`
+bot-check). The operator has signed off on building a **polite,
+disclaimer-accepting, ≥10s-paced, read-only** adapter — and on a **HARD STOP at
+`/ssweb/checkHuman` (never defeated, spoofed, or worked around)**. Characterize
+the request shape so the adapter is buildable, staying inside those rails:
+
+- The exact **`POST /ssweb/searchPost/DOCSEARCH2950S1` body params** — the field
+  names for the recorded-date range and the doc-type filter (capture from ONE
+  paced, human-like form submission after accepting the public disclaimer).
+- **Pagination mechanics**: how pages 2..N are requested (form re-POST? a GET
+  with an offset/page param?), and the page size.
+- **Freshness**: the true max recorded date over the most recent business days
+  (a `Deed`-facet, date-range query).
+- Whether the **document-detail page** (`/ssweb/document/…`) exposes the deed
+  **sub-type** (warranty vs quitclaim) and the full legal description, for
+  owner/property matching.
+- If `checkHuman` triggers under this paced, disclaimer-accepting access: STOP,
+  and report exactly what tripped it — that is the finding.
+
+Deliverable: `docs/market-research/orange-ssweb-deed-shape-<date>.md` with the
+copy-pasteable request(s). If the leg proves un-buildable within the rails, say
+so plainly so Claude ships the other five legs and drops deeds.
+
+### 23. Florida buyer-roll extract formats — de-risk "who do we sell to"
+
+Before Claude builds the FL buyer import (the DBPR contractor + Sunbiz path
+round 7/8 named), pin down the machine-readable extract formats:
+
+- **DBPR contractor extract** (`CONSTRUCTIONLICENSE_1.csv` and siblings under
+  `www2.myfloridalicense.com/sto/file_download/extracts/`): exact columns, the
+  county-code column (Orange = **58**, confirmed), and **which license-type
+  codes map to our trades** — landscaping is NOT state-licensed in FL, so answer
+  the landscaping-proxy question explicitly (lawn-&-ornamental via FDACS? tree
+  work? or unlicensed-by-name only). Irrigation, electrical, HVAC/AC, roofing,
+  plumbing, fire — map each to its DBPR board/license type.
+- **FDACS** pest + lawn-&-ornamental roll: machine-readable? columns, county
+  filter, freshness.
+- **Sunbiz** new-registration bulk file (SFTP or the daily download): the
+  fixed-width/CSV layout, the fields that carry business name + address + a
+  filing date, and how to keyword-filter to our trades.
+- For each: does it publish **email or phone**, or is a downstream enrichment
+  stage required (round 7 said none do — confirm per source).
+
+Deliverable: `docs/market-research/fl-buyer-rolls-<date>.md` — per-source column
+list + trade mapping + freshness, ranked by contact-data quality.
+
+### 24. Unincorporated Orange re-probe + OCPA imagery — county-wide scope
+
+Round 8 found the county code-enforcement view (`ocgis4.ocfl.net`, "EPD
+Violation All") had the right schema but a broken public `/query` (500/timeout).
+Re-probe:
+
+- Is `ocgis4.ocfl.net` EPD-Violation `/query` back up? If so: shape + **freshness
+  (max inspection/case date)** + comm/res discriminator, same bar as the City
+  `k6e8-nw6w` feed. This decides whether county-wide code enforcement is a BUILD.
+- Any **county building-permit** record-level feed (re-check the Property
+  Appraiser + county GIS hub for anything Accela-free).
+- OCPA parcel **image endpoints** (`ocpaimages.ocpafl.org/api/Image/GetPIDImage?pid=`
+  and the sketch/photo routes) — are they callable read-only? These would enrich
+  a sold sheet with an official parcel sketch.
+
+Deliverable: `docs/market-research/orange-unincorporated-r2-<date>.md`.
+
+_Priority: 22 first (the deed leg is the last and hardest, and the go/no-go
+gates the whole signal mix), then 23 (buyers gate launch — can't sell without
+companies), then 24 (county-wide scope)._
 
 <!-- Round-8 briefs preserved below for reference; all delivered.
 
