@@ -4,6 +4,7 @@
 // the text queue). Env: ANTHROPIC_API_KEY.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { PROGRAM_BRIEF } from "@/lib/sms/ai-context";
 
 const SYSTEM = `You draft SMS replies for Cole, the founder of Greenkeep (greenkeep.us) — a marketplace that finds commercial service opportunities (landscaping, pest control, HVAC, roofing, and other trades) from public signals like permits and licenses, and sells those leads to local service companies.
 
@@ -18,13 +19,19 @@ Rules:
 - Be honest. Only reference facts given in the context. Never invent details about the opportunity, never promise pricing, exclusivity, or outcomes. If they ask something the context can't answer, say Cole will get back to them with specifics.
 - If they're annoyed, say stop, or say they're not interested, draft a one-line polite close confirming they won't hear from us again — nothing else.
 
-Output ONLY the SMS text to send — no quotes, no preamble, no explanation.`;
+Output ONLY the SMS text to send — no quotes, no preamble, no explanation.
+
+${PROGRAM_BRIEF}`;
 
 export type SmsDraftContext = {
   companyName: string | null;
   city: string | null;
   trade: string | null;
   claimUrl: string | null;
+  /** One-liner grounding what "it" refers to (the lead already offered). */
+  currentOpportunity?: string | null;
+  /** Other open inventory the AI may offer (from inventoryContextFor). */
+  inventory?: string | null;
   /** Oldest → newest. */
   thread: Array<{ direction: string; body: string }>;
 };
@@ -50,6 +57,8 @@ export async function draftSmsReply(ctx: SmsDraftContext): Promise<string | null
             (ctx.city ? ` (${ctx.city})` : "") +
             (ctx.trade ? `\nTrade: ${ctx.trade}` : "") +
             (ctx.claimUrl ? `\nClaim link for their opportunity: ${ctx.claimUrl}` : "\nNo claim link available.") +
+            (ctx.currentOpportunity ? `\n\n${ctx.currentOpportunity}` : "") +
+            (ctx.inventory ? `\n\n${ctx.inventory}` : "") +
             `\n\nConversation so far:\n${convo}\n\nDraft Cole's next text.`,
         },
       ],

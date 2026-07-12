@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
 import { sendSms, smsStatusRank, verifyTwilioSignature } from "@/lib/integrations/twilio";
 import { draftSmsReply } from "@/lib/integrations/claude";
+import { currentOpportunityFor, inventoryContextFor } from "@/lib/sms/ai-context";
 import { sendEmail } from "@/lib/integrations/resend";
 
 // Twilio webhook, two shapes on one URL (both form-encoded POSTs):
@@ -112,6 +113,8 @@ export async function POST(req: NextRequest) {
       phone: prospectCompany.phone,
       trade: prospectCompany.trade,
       office_city: prospectCompany.office_city,
+      office_lat: prospectCompany.office_lat,
+      office_lng: prospectCompany.office_lng,
     })
     .from(prospectCompany);
   const match = companies.find((c) => (c.phone ?? "").replace(/\D/g, "").replace(/^1/, "") === digits);
@@ -144,20 +147,37 @@ export async function POST(req: NextRequest) {
     aiCapped = aiCount >= AI_REPLY_CAP;
     if (!aiCapped) {
       let claimUrl: string | null = null;
+      let offeredPropertyId: string | null = null;
+      let inventory: string | null = null;
+      let currentOpportunity: string | null = null;
       if (match) {
         const offers = await db
-          .select({ claim_url: buyerOutreach.claim_url })
+          .select({ claim_url: buyerOutreach.claim_url, property_id: buyerOutreach.property_id })
           .from(buyerOutreach)
           .where(eq(buyerOutreach.company_key, match.key))
           .orderBy(desc(buyerOutreach.sent_at))
           .limit(10);
-        claimUrl = offers.find((o) => o.claim_url)?.claim_url ?? null;
+        const withClaim = offers.find((o) => o.claim_url);
+        claimUrl = withClaim?.claim_url ?? null;
+        offeredPropertyId = withClaim?.property_id ?? null;
+        [currentOpportunity, inventory] = await Promise.all([
+          currentOpportunityFor(match.key),
+          inventoryContextFor({
+            companyName: match.name,
+            trade: match.trade,
+            lat: match.office_lat,
+            lng: match.office_lng,
+            excludePropertyId: offeredPropertyId,
+          }),
+        ]);
       }
       const draft = await draftSmsReply({
         companyName: match?.name ?? null,
         city: match?.office_city ?? null,
         trade: match?.trade ?? null,
         claimUrl,
+        currentOpportunity,
+        inventory,
         thread,
       });
       if (draft) {
