@@ -31,7 +31,77 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
-_None open — round 7 cleared 2026-07-11 (see Done). Round 8 TBD._
+Round 8 — Orlando / Orange County pre-build verification. Round 7 RE-PICKED
+Orlando as Florida metro #1 (Tampa's permit + code legs are dead in open data;
+Orlando's are both Houston-grade and daily-fresh). Before the build starts,
+close the three unknowns round 7 left open. Read-only public endpoints only;
+measure shape + freshness (max record date, never a metadata "modified"),
+include the exact query and sample rows; findings are UNVERIFIED.
+
+### 19. Orange County deed-recording transport — does the round-6/7 fetcher port?
+
+**Highest priority — this decides whether the verified WebSocket transport
+ports to Florida at all.** Rounds 6–7 proved the deed transport against
+**Texas** PublicSearch/Kofile tenants (`<tenant>.tx.publicsearch.us`, signed
+`authToken`+`authToken.sig` cookie pair, empty-searchValue + date-range query).
+Florida counties often record on a DIFFERENT clerk-of-court system. Answer:
+
+- Does the **Orange County (FL) Comptroller / Clerk of Court** official-records
+  search run on PublicSearch/Kofile (look for a `*.fl.publicsearch.us` or
+  Kofile-branded tenant), or a different platform (e.g. a county-hosted
+  official-records portal)? Identify the actual live search host.
+- If PublicSearch: confirm the SAME handshake ports (SSR `__ort` + signed
+  cookie pair, WS frames, empty-searchValue date-range query returns rows) —
+  one live sample. If a DIFFERENT system: characterize its record-level
+  transport (REST? SOAP? SPA-only?), whether deeds are pullable read-only with
+  a date filter, daily volume, and freshness.
+- Same for the deed-adjacent signals we key on (mortgages, lis pendens,
+  tax deeds) if visible in the same system.
+
+Deliverable: `docs/market-research/orange-deed-transport-<date>.md` — the
+verdict is "fetcher PORTS unchanged" vs "Orange needs its own deed adapter (here
+is the source + transport)." Flag terms-of-use / throttling before any sustained
+pull, same as round 7.
+
+### 20. Orlando statewide-legs verification — do the assumed feeds cover Orange?
+
+Round 7 *assumed* the statewide legs (DBPR contractor rolls, FDOR/FL Dept of
+Revenue, RealAuction tax-deed) "apply unchanged" to Orlando but did not verify
+they actually return Orange County records with usable shape. Verify each:
+
+- **DBPR** contractor/business rolls: filter to Orange County (county-code
+  column from task 17), confirm nonzero rows, business name/address fields,
+  freshness.
+- **RealAuction** (FL tax-deed/foreclosure auctions): is Orange County on
+  RealAuction, what's the live host/slug, does it expose upcoming-sale parcels
+  read-only, freshness.
+- **FDOR** or the Orange County Property Appraiser (`ocpafl.org`) for the
+  parcel/valuation layer that stands in for Houston's HCAD — record-level query,
+  shape, freshness.
+
+Deliverable: `docs/market-research/orlando-statewide-legs-<date>.md` — per-leg
+BUILD / NO-BUILD with the query + sample rows + max record date.
+
+### 21. Unincorporated Orange County sourcing — the coverage gap round 7 named
+
+Round 7's permit/code BUILD (`ryhf-m453`, `k6e8-nw6w`) is **City of Orlando
+limits only**; unincorporated Orange County (the majority of the metro's
+commercial footprint) needs its own source. Round 7 noted `ocgis1.ocfl.net` did
+not respond — re-probe:
+
+- Orange County's own open-data / ArcGIS / Socrata for a **county** building-
+  permit and code-enforcement feed (record-level, valuation-bearing, fresh).
+  Try the Property Appraiser, the county GIS hub, and any Socrata under
+  `ocfl.net` / `orangecountyfl.net`.
+- If a county permit/code feed exists: shape + freshness + comm/res
+  discriminator, same bar as the City feed. If not: say so plainly (City-only
+  launch, county as later expansion) so the build scopes correctly.
+
+Deliverable: `docs/market-research/orange-county-unincorporated-<date>.md`.
+
+_Priority: 19 first (it decides whether the deed fetcher ports — the single
+biggest Texas→Florida assumption), then 20 (verify the legs we assumed), then
+21 (scope city-only vs county-wide)._
 
 <!-- Round-7 briefs preserved below for reference; all delivered.
 
