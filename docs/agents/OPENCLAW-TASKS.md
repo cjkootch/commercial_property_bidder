@@ -31,6 +31,10 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
+_None open — round 6 cleared 2026-07-11 (see Done). Round 7 TBD._
+
+<!-- Round-6 briefs preserved below for reference; all delivered.
+
 ### 13. PublicSearch underlying JSON API recon — unblock the 7-county deed fetcher
 
 Your round-5 DOM map came with a build-blocking correction: a date-range-only
@@ -101,6 +105,8 @@ with the three tables; keep the [EST]/[ANECDOTE] discipline.
 
 _Priority: 13 first (unblocks the queued 7-county deed build), then 14,
 then 15._
+
+-->
 
 <!-- Round-5 briefs preserved below for reference; all delivered.
 
@@ -391,3 +397,36 @@ Flag anything gated; do not bypass. Deliverable:
   no vendor publishes a clean per-trade card; CraftJack domain now
   301s to Angi (winding down) — its numbers are stale secondary. Only
   Networx ranges + Networx/Thumbtack models are OFFICIAL; rest [EST]).
+- 2026-07-11 — PublicSearch underlying JSON API recon →
+  `docs/market-research/publicsearch-api-recon-2026-07-11.md` (**fetcher CAN
+  skip DOM**. Transport is NOT REST — results travel over a same-origin
+  **WebSocket** `wss://<tenant>.tx.publicsearch.us/ws` as Kofile
+  `@kofile/FETCH_DOCUMENTS` JSON (why the earlier "no reachable API host").
+  **Empty searchValue = YES**: a date-range-only query with `searchValue:""`
+  returned real deed rows (Bexar 830/day, Dallas 1129, Cameron 408) — UI
+  refuses, backend doesn't. Params in `payload.query` (recordedDateRange,
+  limit, offset, department); response has grantor/grantee arrays, docType,
+  recordedDate, instrumentNumber, legalDescription + `meta.numRecords` +
+  doc-type facets. Page cap ~250; offset 500 OK. ONE gate: each WS msg needs
+  `authToken=window.__ort`, a per-page-load UUID scraped from tenant SSR HTML
+  (same-origin, not login/CAPTCHA). Fallback = round-5 DOM scrape).
+- 2026-07-11 — Tampa permit + code-enforcement signals →
+  `docs/market-research/tampa-permit-311-2026-07-11.md` (**NO-BUILD both legs**
+  — Tampa/Hillsborough run Accela SPAs with no record-level open-data mirror:
+  City of Tampa CKAN exposes only aggregate KPIs; Hillsborough's self-hosted
+  ArcGIS PermitsPlus has the ideal Houston-shaped schema but is FROZEN at Oct
+  2023; no public code-enforcement nuisance vocabulary anywhere. Tampa keeps
+  FL metro #1 on its other 5 legs, but permits + code/311 are data-request
+  legs (FLAG for human), not build-now — Tampa does NOT reach Houston parity
+  on these signals via open data).
+- 2026-07-11 — Lead-pricing evidence round 2 →
+  `docs/market-research/lead-pricing-benchmark-round2-2026-07-11.md` (firmest
+  anchor = CraftJack "FairPrice" per-trade card archived on Wayback (2014 +
+  2021) w/ real $ (e.g. HVAC install $65→$76res/$114comm; commercial ~1.5x
+  residential — relevant to our commercial focus). HomeAdvisor/Angi never
+  published a public per-trade card (archives = signup funnels, FLAGGED). 23
+  practitioner [ANECDOTE] rows (cleaning/roofing strongest; HVAC + pest
+  thinnest; standout $125 Angi EXCLUSIVE pest lead → exclusive multiple >>
+  round-1's 1.3-2x). First Look subs: Yelp $150-270/mo, Houzz $499, Nextdoor
+  $32-150/ZIP; a $99-249/mo tier sits in-band. Gap: no CURRENT official
+  per-trade card exists publicly).
