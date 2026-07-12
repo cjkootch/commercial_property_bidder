@@ -31,7 +31,76 @@ survives verification, and queues the next round.
 
 ## Open tasks
 
-_None open — round 5 cleared 2026-07-11 (see Done). Round 6 TBD._
+### 13. PublicSearch underlying JSON API recon — unblock the 7-county deed fetcher
+
+Your round-5 DOM map came with a build-blocking correction: a date-range-only
+deep link does NOT render — the UI demands a `searchValue`. Before we scrape
+DOM at all, find out what the SPA itself calls. Open one tenant (Bexar), watch
+the network panel, and map the XHR/JSON search API behind the React app:
+
+- The search request: method, path, params/body — how do date range, doc
+  type, page size, and offset encode? Critically: does the **API** accept a
+  date-range query with an empty/wildcard search value even though the UI
+  won't? (If yes, the fetcher skips DOM entirely and the col-N mapping
+  problem evaporates.)
+- The response schema: field names for grantor/grantee/doc type/recorded
+  date/doc number/legal — one sanitized sample object.
+- Confirm the same API shape on 2–3 more tenants (Dallas — the "Town" column
+  outlier — plus Cameron or Hidalgo). Note any tenant-specific headers,
+  tokens, or cookies the requests carry (session-scoped? expiring?).
+- Pagination limits: max page size the API honors, and whether deep offsets
+  (500+) work or degrade.
+- Same politeness rules as round 5: shape only, ≥10s pacing, no bulk pulls;
+  report any 401/403/429 posture, don't push through it.
+
+Deliverable: `docs/market-research/publicsearch-api-recon-<date>.md`.
+
+### 14. Tampa permit + code-enforcement signals — complete the Houston parity check
+
+Round 5 greenlit Tampa on licenses/parcels/tax-deeds/recorder/procurement —
+but our densest Texas signals are building permits and 311/code enforcement,
+and the state scout never probed those for Tampa. Same shape as your round-4
+permit-311 sweep, for: **City of Tampa**, **unincorporated Hillsborough
+County**, and (briefly) Temple Terrace/Plant City:
+
+- **Building permits**: open-data endpoint (Tampa runs Accela — is there a
+  Socrata/ArcGIS mirror, or only the Accela citizen portal?). Dataset id/URL,
+  update cadence, valuation/cost field, commercial-vs-residential
+  discriminator, issue date, address/coords quality, 3 sample rows. Say
+  whether our Houston filter (`commercial + minCost + recency`) is
+  expressible.
+- **Code enforcement / 311**: case-type vocabulary (which types imply forced
+  grounds/property maintenance: overgrowth, debris, dangerous structure,
+  stagnant water), status fields, freshness, address quality, 3 sample rows.
+- Note API-key/app-token requirements — FLAG for human signup, don't create
+  accounts.
+
+Deliverable: `docs/market-research/tampa-permit-311-<date>.md` with a
+build/no-build call per leg.
+
+### 15. Lead-pricing evidence, round 2 — archived rate cards + practitioner invoices
+
+Round 5's caveat: no vendor publishes a clean per-trade card, and CraftJack's
+numbers are stale secondary. Close the evidence gap from two public angles:
+
+- **Archived rate cards**: Wayback Machine captures of Angi Leads /
+  HomeAdvisor per-lead fee schedules and help-center pricing pages (they
+  published more before 2024) — capture date, trade, price, shared/exclusive,
+  citation URL per row.
+- **Practitioner-quoted invoices**: public forum threads (r/landscaping,
+  r/PestControlIndustry, r/HVAC, LawnSite — public pages only) where pros
+  quote the actual per-lead price they were billed, by trade and year. These
+  are anecdotes — mark each [ANECDOTE] with date + link; 5+ per trade where
+  possible.
+- **Subscription comps** for our First Look tier: current public pricing of
+  Thumbtack promote/Angi Ads-style monthly plans — what does "priority
+  access to leads" cost per month in the trades we sell?
+
+Deliverable: `docs/market-research/lead-pricing-benchmark-round2-<date>.md`
+with the three tables; keep the [EST]/[ANECDOTE] discipline.
+
+_Priority: 13 first (unblocks the queued 7-county deed build), then 14,
+then 15._
 
 <!-- Round-5 briefs preserved below for reference; all delivered.
 
