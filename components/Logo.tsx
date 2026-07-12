@@ -43,7 +43,7 @@ export function Logo({
   accent = "#2f7d4f",
   name = "Greenkeep",
   className,
-  wordmarkClassName = "text-gray-900",
+  wordmarkClassName,
 }: {
   size?: number;
   accent?: string;
@@ -51,25 +51,19 @@ export function Logo({
   className?: string;
   wordmarkClassName?: string;
 }) {
-  // The Greenkeep brand uses the uploaded circuit-leaf mark (public/brand/).
-  // White-label tenants keep the accent-themed SVG badge.
+  // The Greenkeep brand is a bare green wordmark — no icon (the G-circle mark
+  // lives on the favicon only). White-label tenants keep the accent badge.
   const isGreenkeep = name === "Greenkeep";
   return (
     <span className={`inline-flex items-center gap-2 ${className ?? ""}`}>
-      {isGreenkeep ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src="/brand/greenkeep-mark.png"
-          alt=""
-          width={size}
-          height={size}
-          className="object-contain"
-          style={{ width: size, height: size }}
-        />
-      ) : (
-        <LogoMark size={size} color={accent} />
-      )}
-      <span className={`text-xl font-semibold tracking-tight ${wordmarkClassName}`}>{name}</span>
+      {!isGreenkeep ? <LogoMark size={size} color={accent} /> : null}
+      <span
+        className={`text-xl font-semibold tracking-tight ${
+          wordmarkClassName ?? (isGreenkeep ? "text-brand" : "text-gray-900")
+        }`}
+      >
+        {name}
+      </span>
     </span>
   );
 }
