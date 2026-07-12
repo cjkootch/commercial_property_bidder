@@ -31,7 +31,9 @@ and logs an `sms_send` row; delivery state updates via the status callback on
 `app/api/webhooks/twilio/route.ts`, and inbound replies log there too
 (direction `in`) + page the operator. STOP/START keywords maintain
 `sms_opt_out`. The thread renders on the company profile and the /messages/sms
-inbox.
+inbox, and the channel's numbers (sends, delivery rate, replies, opener reply
+rate, AI replies, opt-outs, cap usage) roll up on /reports and in the
+snapshot markdown.
 
 First-touch openers are automated under the operator's standing approval
 (2026-07-12, "blanket auth" — same env-var pattern as the demand engine):
