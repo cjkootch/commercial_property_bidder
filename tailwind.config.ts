@@ -8,7 +8,7 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Roboto Flex"', "ui-sans-serif", "system-ui", "sans-serif"],
+        sans: ['"Google Sans"', "ui-sans-serif", "system-ui", "sans-serif"],
       },
       colors: {
         brand: {
