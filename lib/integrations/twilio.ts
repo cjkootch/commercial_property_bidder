@@ -66,12 +66,15 @@ export function toE164(raw: string | null | undefined): string | null {
  *  mobile + voip, skip landline + toll-free (owner cells are often VoIP). */
 export type LineType = string;
 
-/** Twilio Lookup line types we DON'T text: a landline or toll-free number is
+/** Twilio Lookup line types we DON'T text. A landline or toll-free number is
  *  a business main line — it won't reach the owner's cell and SMS to it is
- *  unreliable/rejected, burning a cap slot. Everything else is textable: VoIP
- *  is kept because many small-biz owners carry a VoIP cell, and unknown/
- *  unscreened fails OPEN (a lookup outage must never silence the queue). */
-const NON_TEXTABLE_LINE_TYPES = new Set(["landline", "tollFree"]);
+ *  rejected, burning a cap slot. fixedVoip is added from the 2026-07-13 launch
+ *  batch: every fixedVoip number we texted bounced with carrier error 30006 —
+ *  fixedVoip is location-bound office phone systems (RingCentral/8x8/PBX) that
+ *  don't accept consumer A2P SMS. nonFixedVoip (Google Voice / TextNow, i.e. an
+ *  owner's VoIP cell) stays textable, as does mobile; unknown/unscreened fails
+ *  OPEN (a lookup outage must never silence the queue). */
+const NON_TEXTABLE_LINE_TYPES = new Set(["landline", "tollFree", "fixedVoip"]);
 export function isTextableLineType(lineType: string | null | undefined): boolean {
   return !lineType || !NON_TEXTABLE_LINE_TYPES.has(lineType);
 }
