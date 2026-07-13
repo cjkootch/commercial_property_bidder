@@ -65,10 +65,9 @@ export const OPT_OUT_LINE = "Just let me know if you're not interested.";
  *  card") — one ask, not a stack. Identifies the business (CTIA) + opt-out. */
 export function step2For(name: string, claimUrl: string): string {
   return (
-    `Not selling anything — I run Greenkeep. We spot local businesses that need ` +
-    `work and hand each lead to one nearby company. One just came up that fits ` +
-    `${name}.\n\n` +
-    `It's yours to see free, no card: ${claimUrl}\n\n` +
+    `Not selling anything — I run Greenkeep. Each lead goes to one company. ` +
+    `Open this one and it's held for ${name} for 24h — if you don't claim it, ` +
+    `it goes to the next company. Free, no card: ${claimUrl}\n\n` +
     `${OPT_OUT_LINE}\n-Cole, Greenkeep`
   );
 }

@@ -596,6 +596,33 @@ export const claimEvent = pgTable(
   (t) => [index("claim_event_created_idx").on(t.created_at)]
 );
 
+// --- lead_hold -----------------------------------------------------------
+// Loss-aversion reservation (Godin, "This Is Marketing"): when a pitched
+// company opens their claim link, the single free spot on that lead+trade is
+// HELD for them for 24h. Others see it as taken; if they don't claim in time it
+// releases to the next company. This makes "held for you, or it goes to someone
+// else" literally true instead of a manufactured urgency. One free spot per
+// lead+trade (FREE_MAX_PER_LEAD = 1), so the hold is unique on (property, trade)
+// — first opener wins it. Expiry is lazy: a row with expires_at in the past is
+// simply not "live". company is the prospect_company key (holders aren't buyers
+// yet at pitch time).
+export const leadHold = pgTable(
+  "lead_hold",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    property_id: uuid("property_id").notNull(),
+    trade: text("trade").notNull(),
+    company: text("company").notNull(), // companyKey() of the pitched company
+    expires_at: timestamp("expires_at", { withTimezone: true }).notNull(),
+    created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One free spot per lead+trade → one holder. First opener wins via
+    // onConflictDoNothing; expired rows are cleared before a fresh insert.
+    unique("lead_hold_slot_uq").on(t.property_id, t.trade),
+  ]
+);
+
 // --- suppression ---------------------------------------------------------
 // Checked before every send (build spec section 9). Email is unique.
 

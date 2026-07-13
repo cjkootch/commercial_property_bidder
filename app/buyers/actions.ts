@@ -30,6 +30,7 @@ import {
 import { createFirstLookCheckout, createLeadCheckout } from "@/lib/integrations/stripe";
 import { firstLookPriceCents } from "@/lib/leads/subscription";
 import { companyKey as companyKeyOf, linkCompanyToBuyer } from "@/lib/leads/companies";
+import { liveHold, heldByOther, releaseHold } from "@/lib/leads/holds";
 import { leadTierFor } from "@/lib/leads/pricing-tiers";
 import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
 import { geocodeAddress, geocodeWithZip } from "@/lib/integrations/geocoding";
@@ -118,7 +119,7 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
     alertOperatorOfSignup({ company, email, trade, city: city || null, via: "claim" }).catch(() => {});
   }
 
-  const claimed = await tryFreeUnlock(row.id, claim.property_id, co?.name ?? null);
+  const claimed = await tryFreeUnlock(row.id, claim.property_id, co?.name ?? null, claim.company);
   // Funnel step 2: they submitted the profile form (the drop we couldn't see
   // before). `submit_unlocked` = the free lead was theirs; `submit_offer` = they
   // signed up but the specific lead was already gone (waterfall to next). Best-
@@ -174,7 +175,7 @@ export async function claimAsExistingBuyer(token: string): Promise<void> {
   const [me] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
   if (!me) redirect("/buyers/login");
   const co = await getDefaultCompany();
-  const claimed = await tryFreeUnlock(buyerId!, claim.property_id, co?.name ?? null);
+  const claimed = await tryFreeUnlock(buyerId!, claim.property_id, co?.name ?? null, claim.company);
   // Journey stitching ONLY when the link plausibly belongs to this buyer — a
   // forwarded/shared link must not mark someone ELSE's prospect company as
   // converted (that would silently pull them out of the outreach machines).
@@ -320,7 +321,12 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
  * crashing the signup. Failures are silent — the buyer still gets their
  * profile and dashboard.
  */
-async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string | null): Promise<boolean> {
+async function tryFreeUnlock(
+  buyerId: string,
+  propertyId: string,
+  brand: string | null,
+  claimCompany?: string | null
+): Promise<boolean> {
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
   if (!prop || (!prop.parcel_geojson && leadKind(prop.name) !== "rfp")) return false;
   const [buyerRow] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
@@ -351,6 +357,13 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
       .where(and(eq(leadUnlock.property_id, propertyId), eq(leadUnlock.kind, "free")))
   ).filter((u) => u.trade === myTrade);
   if (freeOnLead.length >= FREE_MAX_PER_LEAD) return false;
+
+  // The free spot may be HELD for another company (24h loss-aversion hold).
+  // The intended holder is the claim token's company (the one we pitched) —
+  // the same key the hold was placed under — so their own claim always passes;
+  // a DIFFERENT company can't take a spot reserved for someone else.
+  const holderKey = claimCompany ? companyKeyOf(claimCompany) : null;
+  if (heldByOther(await liveHold(propertyId, myTrade), holderKey)) return false;
 
   // "Your first sheet is free" — once per company, not once per campaign email.
   const [priorFree] = await db
@@ -387,6 +400,8 @@ async function tryFreeUnlock(buyerId: string, propertyId: string, brand: string 
     await db.delete(leadUnlock).where(eq(leadUnlock.id, unlock.id));
     return false;
   }
+  // They claimed it — the hold has done its job; release it.
+  await releaseHold(propertyId, myTrade);
   await closeLeadIfDone(prop.id);
   waitUntil(alertLastSpot(prop.id));
   return true;
