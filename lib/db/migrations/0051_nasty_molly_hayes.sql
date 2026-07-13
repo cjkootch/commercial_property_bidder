@@ -1,0 +1,1 @@
+ALTER TABLE "sms_send" ADD COLUMN "read_at" timestamp with time zone;

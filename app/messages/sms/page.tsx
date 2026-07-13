@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
 import { step2For, suggestedTexts, queueSentToday, TEXT_QUEUE_DAILY_CAP } from "@/lib/sms/queue";
 import { draftAiReply, replyInboxSms, sendQueuedText } from "./actions";
+import { InboxAutoRefresh } from "./InboxAutoRefresh";
 
 // Consolidated SMS inbox — every text conversation in one place (iPhone
 // style): thread list on the left, active conversation + reply box on the
@@ -61,13 +62,21 @@ export default async function SmsInbox({
     t.push(r);
     threads.set(r.phone, t);
   }
+  const activePhone = searchParams.t;
   const list = [...threads.entries()].map(([phone, msgs]) => {
     const co = companyFor(phone, msgs.find((m) => m.company_key)?.company_key ?? null);
+    // Unread = an inbound reply the operator hasn't opened yet. Opening the
+    // thread (it's the active one) marks it read below, so the dot clears.
+    const hasUnread =
+      phone !== activePhone && msgs.some((m) => m.direction === "in" && !m.read_at);
     return {
       phone,
       msgs,
       last: msgs[0],
-      needsReply: msgs[0].direction === "in",
+      unread: hasUnread,
+      // Their message is the most recent one — drives the step-2 prefill below.
+      // Distinct from `unread` (which clears once the thread is opened).
+      lastInbound: msgs[0].direction === "in",
       name: co?.name ?? phone,
       companyId: co?.id ?? null,
     };
@@ -75,14 +84,30 @@ export default async function SmsInbox({
   // Newest activity first (rows were global-desc, so per-thread [0] is latest).
   list.sort((a, b) => b.last.created_at.getTime() - a.last.created_at.getTime());
 
-  const active = searchParams.t ? list.find((t) => t.phone === searchParams.t) : undefined;
+  const active = activePhone ? list.find((t) => t.phone === activePhone) : undefined;
   const activeMsgs = active ? [...active.msgs].reverse() : []; // oldest → newest for display
+
+  // Opening a thread marks its inbound replies read (clears the blue dot). Only
+  // write when there's genuinely something unread, so the 7s auto-refresh polls
+  // are no-ops in steady state.
+  if (active && active.msgs.some((m) => m.direction === "in" && !m.read_at)) {
+    await db
+      .update(smsSend)
+      .set({ read_at: new Date() })
+      .where(
+        and(
+          eq(smsSend.phone, active.phone),
+          eq(smsSend.direction, "in"),
+          isNull(smsSend.read_at)
+        )
+      );
+  }
 
   // Compose-box prefill, in priority order: an AI draft passed back via the
   // URL, else the deterministic step-2 script when they replied to a queue
   // opener and we have their claim link to deliver.
   let prefill = searchParams.draft ?? "";
-  if (!prefill && active?.companyId && active.needsReply) {
+  if (!prefill && active?.companyId && active.lastInbound) {
     const openerSent = active.msgs.some((m) => m.kind === "text_queue");
     // "Step 2 already happened" = a claim link actually went out. Detecting
     // it by the opt-out phrase false-positived on AI replies (which carry the
@@ -107,6 +132,9 @@ export default async function SmsInbox({
 
   return (
     <div>
+      {/* Live-refreshes the inbox every few seconds — new replies + delivery
+          status appear without a manual reload. */}
+      <InboxAutoRefresh />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Messages</h1>
         <div className="flex overflow-hidden rounded-md border border-gray-300 text-xs font-semibold">
@@ -126,53 +154,6 @@ export default async function SmsInbox({
         </p>
       ) : null}
 
-      {/* The text queue: suggested first touches for hot, phone-eligible
-          prospects. The autopilot cron works the same ranked list on the same
-          shared daily cap; manual taps here just get there first. */}
-      {queue.length > 0 ? (
-        <details className="mt-5 rounded-xl border border-amber-200 bg-amber-50/60" open>
-          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-amber-900">
-            📱 Text queue — {queue.length} suggested first touches
-            <span className="ml-2 font-normal text-amber-700">
-              ({queueUsed}/{queueCap} sent today · shared with the autopilot)
-            </span>
-          </summary>
-          <div className="divide-y divide-amber-100 border-t border-amber-100">
-            {queue.map((s) => (
-              <div key={s.companyId} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <Link
-                    href={`/companies/${s.companyId}`}
-                    className="font-medium text-gray-900 hover:text-brand hover:underline"
-                  >
-                    {s.name}
-                  </Link>
-                  <span className="ml-2 text-xs text-gray-500">
-                    {s.city ?? ""}
-                    {s.claimViews ? ` · ${s.claimViews} claim views` : ""}
-                    {s.opens ? ` · ${s.opens} opens` : ""}
-                    {s.clicks ? ` · ${s.clicks} clicks` : ""}
-                    {!s.hasEmail ? " · no email (SMS-only)" : ""}
-                  </span>
-                  <div className="mt-1 whitespace-pre-line rounded-md bg-white px-2.5 py-1.5 text-xs text-gray-600">
-                    {s.opener}
-                  </div>
-                </div>
-                <form action={sendQueuedText}>
-                  <input type="hidden" name="companyId" value={s.companyId} />
-                  <button
-                    className="rounded-lg bg-brand px-3.5 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-40"
-                    disabled={queueUsed >= queueCap}
-                  >
-                    Send
-                  </button>
-                </form>
-              </div>
-            ))}
-          </div>
-        </details>
-      ) : null}
-
       {list.length === 0 ? (
         <p className="mt-8 rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
           No text conversations yet. Send one from a company profile.
@@ -189,21 +170,37 @@ export default async function SmsInbox({
               <Link
                 key={t.phone}
                 href={`/messages/sms?t=${encodeURIComponent(t.phone)}`}
-                className={`block px-4 py-3 hover:bg-gray-50 ${
+                className={`flex items-start gap-2.5 px-4 py-3 hover:bg-gray-50 ${
                   active?.phone === t.phone ? "bg-brand/5" : ""
                 }`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate font-medium text-gray-900">{t.name}</span>
-                  <span className="shrink-0 text-[11px] text-gray-400">
-                    {fmtTime(t.last.created_at)}
-                  </span>
-                </div>
-                <div className="mt-0.5 flex items-center gap-2">
-                  {t.needsReply ? (
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-brand" title="Awaiting your reply" />
-                  ) : null}
-                  <span className="truncate text-sm text-gray-500">
+                {/* iPhone-style unread dot: filled blue when this thread has an
+                    inbound reply you haven't opened; transparent otherwise so
+                    row text stays aligned. */}
+                <span
+                  className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${
+                    t.unread ? "bg-blue-500" : "bg-transparent"
+                  }`}
+                  title={t.unread ? "Unread reply" : undefined}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={`truncate text-gray-900 ${
+                        t.unread ? "font-semibold" : "font-medium"
+                      }`}
+                    >
+                      {t.name}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-gray-400">
+                      {fmtTime(t.last.created_at)}
+                    </span>
+                  </div>
+                  <span
+                    className={`mt-0.5 block truncate text-sm ${
+                      t.unread ? "font-medium text-gray-700" : "text-gray-500"
+                    }`}
+                  >
                     {t.last.direction === "out" ? "You: " : ""}
                     {t.last.body}
                   </span>
@@ -316,6 +313,58 @@ export default async function SmsInbox({
           )}
         </div>
       )}
+
+      {/* Text queue — demoted BELOW the inbox: these are optional. The autopilot
+          cron already texts this exact ranked list on the shared daily cap, so
+          the operator never has to. Manual Send just personally jumps ahead on a
+          specific prospect. Collapsed by default so conversations lead. */}
+      {queue.length > 0 ? (
+        <details className="mt-8 rounded-xl border border-amber-200 bg-amber-50/60">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-amber-900">
+            📱 Text queue — {queue.length} suggested first touches
+            <span className="ml-2 font-normal text-amber-700">
+              ({queueUsed}/{queueCap} sent today · autopilot works this list for you)
+            </span>
+          </summary>
+          <p className="px-4 pb-2 text-xs text-amber-800">
+            Optional — the autopilot already texts these warm prospects on the shared
+            daily cap. Tap Send only to personally get ahead on a specific one.
+          </p>
+          <div className="divide-y divide-amber-100 border-t border-amber-100">
+            {queue.map((s) => (
+              <div key={s.companyId} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={`/companies/${s.companyId}`}
+                    className="font-medium text-gray-900 hover:text-brand hover:underline"
+                  >
+                    {s.name}
+                  </Link>
+                  <span className="ml-2 text-xs text-gray-500">
+                    {s.city ?? ""}
+                    {s.claimViews ? ` · ${s.claimViews} claim views` : ""}
+                    {s.opens ? ` · ${s.opens} opens` : ""}
+                    {s.clicks ? ` · ${s.clicks} clicks` : ""}
+                    {!s.hasEmail ? " · no email (SMS-only)" : ""}
+                  </span>
+                  <div className="mt-1 whitespace-pre-line rounded-md bg-white px-2.5 py-1.5 text-xs text-gray-600">
+                    {s.opener}
+                  </div>
+                </div>
+                <form action={sendQueuedText}>
+                  <input type="hidden" name="companyId" value={s.companyId} />
+                  <button
+                    className="rounded-lg bg-brand px-3.5 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-40"
+                    disabled={queueUsed >= queueCap}
+                  >
+                    Send
+                  </button>
+                </form>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }
