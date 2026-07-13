@@ -97,6 +97,10 @@
       "schedule": "37 21 * * 1-5"
     },
     {
+      "path": "/api/cron/sms-flush",
+      "schedule": "7 12-15 * * *"
+    },
+    {
       "path": "/api/cron/buyer-alerts",
       "schedule": "7 17 * * 1-5"
     }

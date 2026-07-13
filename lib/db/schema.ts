@@ -573,6 +573,26 @@ export const smsOptOut = pgTable("sms_opt_out", {
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// --- pending_sms ---------------------------------------------------------
+// TCPA quiet-hours defer queue. An inbound at 11pm can't get an 11pm marketing
+// auto-reply (8am–9pm recipient-local rule), but the warm hand-raiser must not
+// be dropped either — so the drafted reply is parked here and the sms-flush cron
+// sends it the moment the recipient's window opens. Unique on phone: a fresh
+// overnight draft REPLACES the parked one (no double-send in the morning). `tz`
+// is the recipient's market timezone so the flush can gate per-recipient
+// without DST math. sent_at stamps the send (kept for audit, not deleted).
+export const pendingSms = pgTable("pending_sms", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  phone: text("phone").notNull().unique(), // E.164 recipient
+  body: text("body").notNull(),
+  kind: text("kind").notNull().default("ai_reply"),
+  company_key: text("company_key"),
+  ref_id: text("ref_id"),
+  tz: text("tz").notNull(),
+  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  sent_at: timestamp("sent_at", { withTimezone: true }),
+});
+
 // --- claim_event ---------------------------------------------------------
 // Claim-page conversion funnel. We know page views (claim_views) and unlocks
 // (lead_unlock), but not the CRUCIAL middle: what offer state a clicker was

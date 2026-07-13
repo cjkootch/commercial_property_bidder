@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyerOutreach, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
+import { buyerOutreach, pendingSms, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
 import { sendSms, smsStatusRank, verifyTwilioSignature } from "@/lib/integrations/twilio";
 import { draftSmsReply } from "@/lib/integrations/claude";
 import { inventoryContextFor } from "@/lib/sms/ai-context";
@@ -253,6 +253,7 @@ async function deferredAiReply(args: {
   let aiReply: string | null = null;
   let aiIntent: SmsIntent | null = null;
   let aiCapped = false;
+  let aiDeferred = false; // drafted but held for TCPA quiet hours (sms-flush sends it)
   // Every inbound text the AI hasn't answered yet — the alert quotes them all,
   // so a rapid-fire prospect's earlier messages aren't invisible to the
   // operator when only the newest invocation survives the supersede check.
@@ -348,9 +349,10 @@ async function deferredAiReply(args: {
         });
         if (draft) {
           // TCPA quiet hours: never auto-text a prospect outside 8am–9pm on
-          // THEIR local clock, even in reply to an inbound. An 11pm "hey" must
-          // not trigger an 11pm marketing auto-reply — the operator alert below
-          // still fires, so Cole picks it up from the inbox in the morning.
+          // THEIR local clock, even in reply to an inbound. Inside the window we
+          // send now; outside it we PARK the drafted reply and the sms-flush
+          // cron sends it the moment their window opens — the warm hand-raiser
+          // isn't dropped overnight, and the 11pm marketing text never goes.
           const tz = marketTz(match?.office_lat ?? null, match?.office_lng ?? null);
           if (withinTcpaHours(new Date(), tz)) {
             const res = await sendSms({
@@ -364,6 +366,34 @@ async function deferredAiReply(args: {
               aiReply = draft.text;
               aiIntent = draft.intent;
             }
+          } else {
+            // Unique on phone → a fresh overnight draft replaces the parked one,
+            // so the morning send is single + latest (never a double-text).
+            await db
+              .insert(pendingSms)
+              .values({
+                phone: from,
+                body: draft.text,
+                kind: "ai_reply",
+                company_key: match?.key ?? null,
+                ref_id: match?.id ?? null,
+                tz,
+              })
+              .onConflictDoUpdate({
+                target: pendingSms.phone,
+                set: {
+                  body: draft.text,
+                  company_key: match?.key ?? null,
+                  ref_id: match?.id ?? null,
+                  tz,
+                  created_at: new Date(),
+                  sent_at: null,
+                },
+              })
+              .catch((e) => console.error("pending_sms upsert failed:", e));
+            aiReply = draft.text;
+            aiIntent = draft.intent;
+            aiDeferred = true;
           }
         }
       }
@@ -395,7 +425,7 @@ async function deferredAiReply(args: {
           )
           .join("") +
         (aiReply
-          ? `<p>🤖 AI answered:</p><blockquote style="border-left:3px solid #2563eb;margin:8px 0;padding:4px 12px;">${esc(aiReply)}</blockquote>` +
+          ? `<p>${aiDeferred ? "🌙 AI drafted this — <strong>queued to auto-send at 8am</strong> (their local quiet hours):" : "🤖 AI answered:"}</p><blockquote style="border-left:3px solid #2563eb;margin:8px 0;padding:4px 12px;">${esc(aiReply)}</blockquote>` +
             (needsHuman
               ? `<p>🔔 The AI promised <strong>you'd</strong> follow up personally — that promise is now yours to keep.</p>`
               : "")
