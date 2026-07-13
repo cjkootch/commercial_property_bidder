@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyer, claimEvent, leadUnlock, property } from "@/lib/db/schema";
@@ -10,6 +11,7 @@ import { leadKind } from "@/lib/leads/market";
 import { claimAsExistingBuyer, createBuyerProfile, currentBuyerId } from "../../actions";
 import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
 import { recordClaimView, companyKey } from "@/lib/leads/companies";
+import { isPreviewBot } from "@/lib/user-agent";
 import { reserveHold, liveHold, heldForMe, heldByOther } from "@/lib/leads/holds";
 import { cityClaimCount, cityScarcityLine } from "@/lib/leads/activity";
 import { Logo } from "@/components/Logo";
@@ -36,9 +38,14 @@ export default async function ClaimPage({
   const claim = verifyBuyerClaim(params.token);
   const co = await getDefaultCompany();
   const brand = co?.name ?? "Greenkeep";
+  // A link-preview fetch (iMessage/WhatsApp/corporate filter) hits this page the
+  // instant the text is delivered. Those GETs must not start the 24h hold clock
+  // or pollute the funnel — only a real human tap counts. Same lesson as the
+  // round-1 export-on-GET bug: no functional state change on a bot GET.
+  const isHuman = !isPreviewBot(headers().get("user-agent"));
 
   if (!claim) {
-    db.insert(claimEvent).values({ event: "view_expired" }).catch(() => {});
+    if (isHuman) db.insert(claimEvent).values({ event: "view_expired" }).catch(() => {});
     return (
       <Shell brand={brand}>
         <h1 className="mt-4 text-xl font-semibold">This link has expired</h1>
@@ -79,9 +86,9 @@ export default async function ClaimPage({
         .limit(1)
     : [];
   // The hot unconverted signal: this company opened the offer. Best-effort —
-  // never blocks the render. (Link-preview bots inflate this slightly; it's
-  // a call-list ranking signal, not billing.)
-  await recordClaimView(claim.company);
+  // never blocks the render. Skipped for preview bots so heat isn't inflated by
+  // the delivery-time fetch.
+  if (isHuman) await recordClaimView(claim.company);
   // Pre-signup, the trade comes from the outreach link (?trade=). Signed in,
   // it's the buyer's own trade — that's the shelf the unlock actually runs on.
   const trade = me ? asTrade(me.trade) : asTrade(searchParams.trade);
@@ -106,7 +113,7 @@ export default async function ClaimPage({
   // they claim — so "held for you, or it goes to the next company" is literally
   // true. Best-effort; the reserve/read never block the render.
   const myKey = claim.company ? companyKey(claim.company) : null;
-  if (prop && sellable && trade && avail?.open && !freeSpent) {
+  if (isHuman && prop && sellable && trade && avail?.open && !freeSpent) {
     await reserveHold(prop.id, trade, claim.company);
   }
   const hold = prop && sellable ? await liveHold(prop.id, trade) : null;
@@ -136,8 +143,10 @@ export default async function ClaimPage({
 
   // Funnel step 1: log which offer state this clicker was actually shown, so we
   // can tell a gone-free-spot arrival (looks like a broken "free" promise) from
-  // a valid offer they abandoned. Best-effort; never blocks the render.
-  db.insert(claimEvent)
+  // a valid offer they abandoned. Best-effort; never blocks the render. Humans
+  // only — a preview-bot fetch isn't a real view.
+  if (isHuman)
+    db.insert(claimEvent)
     .values({
       company: claim.company ?? null,
       property_id: prop?.id ?? null,
