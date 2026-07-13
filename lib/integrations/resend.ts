@@ -11,8 +11,17 @@ import { isPlaceholderEmail } from "../buyer-auth";
 export function getResendKey(): string | null {
   return process.env.RESEND_API_KEY ?? null;
 }
-export function getResendFrom(): string | null {
+export function getResendFrom(stream: "transactional" | "campaign" = "transactional"): string | null {
   // e.g. "Cole @ NW Houston Grounds <cole@yourverifieddomain.com>"
+  // Cold outreach and transactional mail (magic links, receipts) should send
+  // from DIFFERENT domains: our auth IS email, so a cold-spam reputation hit on
+  // the primary domain would land magic links in spam and lock buyers out of a
+  // passwordless product. Set CAMPAIGN_EMAIL_FROM to a verified COUSIN domain
+  // (e.g. greenkeepmail.com) to isolate campaign reputation; until then, cold
+  // sends fall back to the primary so nothing breaks. See security-followups.md.
+  if (stream === "campaign" && process.env.CAMPAIGN_EMAIL_FROM) {
+    return process.env.CAMPAIGN_EMAIL_FROM;
+  }
   return process.env.RESEND_FROM ?? null;
 }
 export function getResendWebhookSecret(): string | null {
@@ -46,9 +55,13 @@ export async function sendEmail(args: {
    *  (buyer_outreach/outreach) skip this. Best-effort: a log failure never
    *  fails the send. */
   logAs?: { kind: string; buyerId?: string | null; refId?: string | null };
+  /** "campaign" routes cold outreach through CAMPAIGN_EMAIL_FROM (a cousin
+   *  domain) to protect the primary domain's transactional reputation.
+   *  Defaults to "transactional" (magic links, receipts, alerts). */
+  stream?: "transactional" | "campaign";
 }): Promise<SendResult> {
   const key = getResendKey();
-  const from = getResendFrom();
+  const from = getResendFrom(args.stream);
   if (!key) return { ok: false, error: "RESEND_API_KEY not set" };
   if (!from) return { ok: false, error: "RESEND_FROM not set (verified domain sender)" };
   // Phone-only buyers carry an internal placeholder address (lib/buyer-auth)

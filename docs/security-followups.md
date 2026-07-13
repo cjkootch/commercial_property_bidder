@@ -58,6 +58,40 @@ the hardening that needs a human decision or a live smoke-test.
   mailpiece cap (mirror the email morning-approval queue / `DEMAND_DAILY_CAP`)
   so a scoring bug can't mail thousands of real postcards.
 
+## Round 3 — needs a paired env/DNS step or is deferred
+
+- **Kill the auth fallback chains (audit #17, part 2).** `customer-auth` now
+  throws in production (the exploitable hardcoded-secret fix shipped), but both
+  buyer- and customer-auth still fall back to `OPERATOR_SHARED_SECRET` — and the
+  operator *cookie value* IS that secret, so one leaked operator cookie can
+  forge buyer + customer sessions. Fix = three DISTINCT secrets, no fallbacks.
+  This can't be done blind: removing the fallback while prod has only
+  `OPERATOR_SHARED_SECRET` set would lock everyone out. **Ops step first:** set
+  distinct `BUYER_AUTH_SECRET` and `CUSTOMER_AUTH_SECRET` in Vercel, THEN the
+  code drop of the `|| OPERATOR_SHARED_SECRET` fallbacks is safe.
+- **Cousin sending domain (audit #19).** The code seam is in
+  (`sendEmail({ stream: "campaign" })` → `CAMPAIGN_EMAIL_FROM`; the main cold
+  pipelines — buyer-prospecting, residential-demand, nudges — already pass it).
+  To ACTIVATE: verify a cousin domain (e.g. greenkeepmail.com) in Resend, set
+  `CAMPAIGN_EMAIL_FROM` to it. Until set, cold sends fall back to the primary
+  (no behavior change). Remaining cold sites (permits, renewals, outcome-check)
+  should adopt `stream: "campaign"` too before scaling campaign volume.
+- **Cron dead-man / positive heartbeat.** Failure alerting EXISTS (`cron-guard`
+  emails `ALERT_EMAIL` on a throw + returns 500). What's missing: (a) confirm
+  EVERY cron is wrapped in `guarded()`, and (b) a positive "pipeline ran" ping
+  so a cron that never fires (Vercel didn't trigger it) is noticed — a catch
+  block can't detect non-execution. Cheap: have the pipeline cron email a
+  one-line summary on success; alert if none arrived by mid-morning.
+- **Operator audit log.** Exports, queue approvals, and archives leave no trail.
+  Add an `operator_audit` table (actor, action, target, timestamp) written from
+  those mutations — wanted the first time inventory disappears and nobody can
+  say why. Deferred (moderate build).
+- **30-minute runtime settings pass (owner).** The remaining risk is in config
+  the code can't see: Vercel env (distinct secrets present? preview envs?), SES
+  receipt rules (spam/DKIM verdicts enabled?), Stripe dashboard (webhook secret
+  rotation, allowed events), and Neon backup/PITR configuration. Walk this list
+  against the live project.
+
 ## The pattern worth remembering
 
 Both audits found the same shape: the **payment** path is hardened as if under

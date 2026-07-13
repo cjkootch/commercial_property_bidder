@@ -197,6 +197,7 @@ export async function runNudges(opts?: { limit?: number; apply?: boolean }): Pro
       subject: msg.subject,
       html: toHtml(msg.body, unsubUrl, co?.physical_mailing_address ?? null),
       replyTo: replyEmail || undefined,
+      stream: "campaign", // cold follow-up — isolate from transactional domain reputation
       tags: { kind: "buyer_nudge" },
       headers: {
         "List-Unsubscribe": `<${unsubUrl}>`,

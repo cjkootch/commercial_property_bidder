@@ -351,6 +351,13 @@
       "when": 1783912860762,
       "tag": "0049_giant_spitfire",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1783915431542,
+      "tag": "0050_loud_thunderbolts",
+      "breakpoints": true
     }
   ]
 }

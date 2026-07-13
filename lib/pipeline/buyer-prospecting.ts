@@ -828,6 +828,7 @@ export async function runBuyerProspecting(opts?: {
         html: toHtml(msg.body, unsubUrl, co.physical_mailing_address ?? null),
         // Replies are the conversion event — route them to the watched inbox.
         replyTo: replyEmail || undefined,
+        stream: "campaign", // cold outreach — isolate from transactional domain reputation
         tags: { kind: "buyer_prospecting", variant: subjectVariant },
         headers: {
           "List-Unsubscribe": `<${unsubUrl}>`,
