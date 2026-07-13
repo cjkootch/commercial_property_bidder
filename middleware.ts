@@ -42,10 +42,18 @@ const PUBLIC_PREFIXES = [
   "/api/reports/snapshot", // self-authenticates with CRON_SECRET (machine twin of /reports)
 ];
 
+// Match on SEGMENT boundaries, not a raw prefix: a bare `startsWith("/bids")`
+// would also publicize `/bidsanything`, so a future operator route named with a
+// public prefix could be silently exposed. `/foo` matches `/foo` and `/foo/…`
+// but never `/foobar`.
+function isPublic(pathname: string): boolean {
+  return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  if (pathname === "/" || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
+  if (pathname === "/" || isPublic(pathname)) {
     return NextResponse.next();
   }
 
