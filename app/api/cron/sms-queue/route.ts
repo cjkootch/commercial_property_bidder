@@ -10,6 +10,7 @@ import {
   TEXT_QUEUE_DAILY_CAP,
 } from "@/lib/sms/queue";
 import { ensureLineTypeScreened } from "@/lib/sms/screen";
+import { ensureOwnerCell } from "@/lib/sms/cell";
 import { isTextableLineType } from "@/lib/integrations/twilio";
 
 // Automated first-touch SMS (the operator's 2026-07-12 standing approval:
@@ -70,17 +71,33 @@ export async function GET(req: NextRequest) {
     const sent: Array<{ company: string; phone: string; sid?: string; error?: string; skipped?: string }> = [];
     let skippedLandline = 0;
     for (const s of suggestions) {
-      // Just-in-time line-type screen for never-screened numbers (fail-open on
-      // lookup outage). Known landlines were already dropped by suggestedTexts.
-      const lineType = await ensureLineTypeScreened(s.companyId, s.phone, s.lineType);
+      // Cell-first: lead with the owner's mobile where Apollo can find one — a
+      // text to a business main line reaches nobody. Attempt-once per company;
+      // a swap resets line_type so the fresh number re-screens below.
+      const cell = await ensureOwnerCell(
+        {
+          id: s.companyId,
+          name: s.name,
+          website: s.website,
+          phone: s.phone,
+          lineType: s.lineType,
+          cellLookupAt: s.cellLookupAt,
+        },
+        { apply: true }
+      );
+      const phone = cell.phone;
+      // Just-in-time line-type screen (fail-open on lookup outage). A swapped
+      // cell was reset to unscreened, so screen it now; known landlines were
+      // already dropped by suggestedTexts.
+      const lineType = await ensureLineTypeScreened(s.companyId, phone, cell.swapped ? null : cell.lineType);
       if (!isTextableLineType(lineType)) {
         skippedLandline++;
-        sent.push({ company: s.name, phone: s.phone, skipped: `landline (${lineType})` });
+        sent.push({ company: s.name, phone, skipped: `landline (${lineType})` });
         continue; // no cap slot burned — a landline was never a valid send
       }
       if (!(await reserveCapSlot())) break;
       const res = await sendSms({
-        to: s.phone,
+        to: phone,
         body: s.opener,
         kind: "text_queue",
         companyKey: s.companyKey,
@@ -88,8 +105,8 @@ export async function GET(req: NextRequest) {
       });
       sent.push(
         res.ok
-          ? { company: s.name, phone: s.phone, sid: res.sid }
-          : { company: s.name, phone: s.phone, error: res.error }
+          ? { company: s.name, phone, sid: res.sid }
+          : { company: s.name, phone, error: res.error }
       );
     }
 

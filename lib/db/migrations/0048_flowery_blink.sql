@@ -1,0 +1,1 @@
+ALTER TABLE "prospect_company" ADD COLUMN "cell_lookup_at" timestamp with time zone;

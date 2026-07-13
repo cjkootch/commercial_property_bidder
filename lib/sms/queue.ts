@@ -82,6 +82,8 @@ export type QueueSuggestion = {
   clicks: number;
   hasEmail: boolean;
   lineType: string | null; // cached Twilio line type; null = not yet screened
+  website: string | null; // for the Apollo cell-reveal domain hint
+  cellLookupAt: Date | null; // last owner-cell reveal attempt (attempt-once)
   opener: string;
   claimUrl: string;
 };
@@ -102,6 +104,8 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
         claim_views: prospectCompany.claim_views,
         trade: prospectCompany.trade,
         line_type: prospectCompany.line_type,
+        website: prospectCompany.website,
+        cell_lookup_at: prospectCompany.cell_lookup_at,
       })
       .from(prospectCompany)
       .where(
@@ -170,6 +174,8 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
       clicks: a.clicks,
       hasEmail: !!c.email,
       lineType: c.line_type,
+      website: c.website,
+      cellLookupAt: c.cell_lookup_at,
       opener: openerFor(c.name, c.office_city),
       claimUrl: freshClaimUrl(a.propertyId, c.name, c.trade),
     });
