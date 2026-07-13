@@ -167,9 +167,24 @@ type ApolloPerson = {
   title?: string | null;
   email?: string | null;
   linkedin_url?: string | null;
-  phone_numbers?: { sanitized_number?: string }[];
+  // Apollo tags each number with a type ("mobile", "work_hq", "home", …). We
+  // want the mobile for SMS; the org main line is the worst case.
+  phone_numbers?: { sanitized_number?: string; type?: string | null; type_cd?: string | null }[];
   organization?: { name?: string; primary_domain?: string; phone?: string };
 };
+
+/** Pick the best SMS target from an Apollo person's numbers: a mobile-typed
+ *  number wins; otherwise null (a work/main line is NOT worth swapping in — the
+ *  recovery caller falls back to a website scrape). */
+export function pickMobileNumber(
+  phones: { sanitized_number?: string; type?: string | null; type_cd?: string | null }[] | undefined
+): string | null {
+  if (!phones?.length) return null;
+  const isMobile = (p: { type?: string | null; type_cd?: string | null }) =>
+    /mobile|cell/i.test(`${p.type ?? ""} ${p.type_cd ?? ""}`);
+  const mobile = phones.find((p) => p.sanitized_number && isMobile(p));
+  return mobile?.sanitized_number ?? null;
+}
 
 /**
  * Find the decision-maker at an owner organization: Apollo people search
@@ -230,10 +245,67 @@ export async function findDecisionContact(
       name: full.name.trim(),
       title: full.title?.trim() || null,
       email,
-      phone: full.phone_numbers?.[0]?.sanitized_number ?? full.organization?.phone ?? null,
+      phone:
+        pickMobileNumber(full.phone_numbers) ??
+        full.phone_numbers?.[0]?.sanitized_number ??
+        full.organization?.phone ??
+        null,
       linkedin: full.linkedin_url ?? null,
       org: full.organization?.name?.trim() || raw,
     };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Find the decision-maker's MOBILE number for a company — the recovery lever
+ * when the number on file carrier-rejected an SMS. Same search + match flow as
+ * findDecisionContact, but requests a phone reveal and returns ONLY a
+ * mobile-typed number (a work/main line isn't worth swapping for). Returns
+ * null without a key, on error, or when no mobile surfaces. Phone reveal costs
+ * an Apollo credit, so call this reactively (on a proven bounce), not in bulk.
+ */
+export async function findOwnerMobile(
+  orgName: string | null | undefined,
+  opts?: { domain?: string | null }
+): Promise<string | null> {
+  const raw = orgName?.trim();
+  const key = getApolloKey();
+  if (!raw || !key) return null;
+  try {
+    const domain =
+      opts?.domain?.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "").toLowerCase() || null;
+    const res = await fetch("https://api.apollo.io/api/v1/mixed_people/api_search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
+      body: JSON.stringify({
+        ...(domain ? { q_organization_domains_list: [domain] } : { q_keywords: raw }),
+        page: 1,
+        per_page: 10,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { people?: ApolloPerson[]; contacts?: ApolloPerson[] };
+    const candidates = [...(data.people ?? []), ...(data.contacts ?? [])].filter(
+      (p) =>
+        (p.name?.trim() || p.id) &&
+        (orgNameMatches(raw, p.organization?.name) ||
+          (domain && p.organization?.primary_domain?.toLowerCase() === domain))
+    );
+    const person = pickDecisionPerson(candidates);
+    if (!person?.id) return pickMobileNumber(person?.phone_numbers);
+    // reveal_phone_number pulls the person's numbers (incl. mobile). No
+    // webhook_url — read what the sync response carries; if a plan defers the
+    // reveal, phone_numbers comes back empty and the caller scrapes instead.
+    const mres = await fetch("https://api.apollo.io/api/v1/people/match", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-cache", "X-Api-Key": key },
+      body: JSON.stringify({ id: person.id, reveal_phone_number: true }),
+    });
+    if (!mres.ok) return pickMobileNumber(person.phone_numbers);
+    const m = (await mres.json()) as { person?: ApolloPerson };
+    return pickMobileNumber(m.person?.phone_numbers) ?? pickMobileNumber(person.phone_numbers);
   } catch {
     return null;
   }
