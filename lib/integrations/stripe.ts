@@ -279,21 +279,37 @@ export async function refundPayment(paymentIntentId: string | null | undefined):
 /**
  * Verify a `Stripe-Signature` header (t=...,v1=...) against the raw payload.
  * Allows 5 minutes of clock skew.
+ *
+ * The header can carry MULTIPLE `v1=` signatures — Stripe signs with every
+ * active endpoint secret during a webhook-secret rotation. We must accept the
+ * event if ANY of them matches ours; taking only one (as `Object.fromEntries`
+ * would) rejects valid paid events for the whole rotation window, which under
+ * the no-refund policy means paid-but-unfulfilled customers.
  */
 export function verifyStripeSignature(payload: string, header: string | null): boolean {
   const whsec = getStripeWebhookSecret();
   if (!whsec || !header) return false;
-  const parts = Object.fromEntries(
-    header.split(",").map((kv) => kv.split("=") as [string, string])
-  );
-  const t = parts.t;
-  const v1 = parts.v1;
-  if (!t || !v1) return false;
+  let t: string | undefined;
+  const v1s: string[] = [];
+  for (const part of header.split(",")) {
+    const eq = part.indexOf("="); // split once — hex sigs never contain '='
+    if (eq < 0) continue;
+    const key = part.slice(0, eq).trim();
+    const val = part.slice(eq + 1).trim();
+    if (key === "t") t = val;
+    else if (key === "v1") v1s.push(val);
+  }
+  if (!t || v1s.length === 0) return false;
   if (Math.abs(Date.now() / 1000 - Number(t)) > 300) return false;
   const expected = crypto.createHmac("sha256", whsec).update(`${t}.${payload}`).digest("hex");
-  try {
-    return crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(expected));
-  } catch {
-    return false;
-  }
+  const expectedBuf = Buffer.from(expected);
+  return v1s.some((v1) => {
+    // timingSafeEqual throws on length mismatch — guard before comparing.
+    if (v1.length !== expected.length) return false;
+    try {
+      return crypto.timingSafeEqual(Buffer.from(v1), expectedBuf);
+    } catch {
+      return false;
+    }
+  });
 }

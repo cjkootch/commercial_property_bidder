@@ -3,9 +3,12 @@
 // endpoints from abuse (each call costs Mapbox/geocode/county quota) and caps
 // per-tenant spend so white-label traffic can't burn the margin.
 //
-// FAIL-OPEN: a DB hiccup must not break the quote funnel — on error the check
-// allows the request. The counters are a cost guardrail, not a security
-// boundary.
+// FAIL-SOFT: a DB hiccup must not break the quote funnel, but it also must not
+// remove the cost ceiling entirely — the estimate endpoint spends Mapbox/
+// geocode money per call, so an unbounded fail-OPEN turns a DB degradation into
+// an unbounded bill. On DB error we fall back to a per-instance in-memory
+// counter: coarse (the effective cap is this-limit × live instances, and it
+// resets on cold start) but it closes the runaway-spend hole for free.
 
 import { sql } from "drizzle-orm";
 import { headers } from "next/headers";
@@ -20,9 +23,27 @@ export function windowStart(windowSec: number, now = Date.now()): Date {
 
 export type LimitResult = { ok: boolean; count: number };
 
+// Per-instance fallback counters, used only when the Postgres path throws.
+// Keyed by `${key}:${windowStartMs}`; the Map is swept when it grows so a
+// long-lived instance under sustained DB failure can't leak memory.
+const memCounters = new Map<string, number>();
+function memRateLimit(key: string, limit: number, windowSec: number): LimitResult {
+  const ws = windowStart(windowSec).getTime();
+  const bucket = `${key}:${ws}`;
+  const count = (memCounters.get(bucket) ?? 0) + 1;
+  memCounters.set(bucket, count);
+  if (memCounters.size > 5000) {
+    for (const k of memCounters.keys()) {
+      if (!k.endsWith(`:${ws}`)) memCounters.delete(k); // drop stale windows
+    }
+  }
+  return { ok: count <= limit, count };
+}
+
 /**
  * Count a hit against `key` in the current window and check it against
- * `limit`. Returns ok=false when the limit is exceeded.
+ * `limit`. Returns ok=false when the limit is exceeded. On a DB error, falls
+ * back to a per-instance in-memory cap (fail-soft) rather than fail-open.
  */
 export async function rateLimit(key: string, limit: number, windowSec: number): Promise<LimitResult> {
   try {
@@ -37,7 +58,7 @@ export async function rateLimit(key: string, limit: number, windowSec: number): 
       .returning({ count: usageCounter.count });
     return { ok: (row?.count ?? 1) <= limit, count: row?.count ?? 1 };
   } catch {
-    return { ok: true, count: 0 }; // fail-open
+    return memRateLimit(key, limit, windowSec); // fail-soft, not fail-open
   }
 }
 

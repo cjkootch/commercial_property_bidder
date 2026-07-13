@@ -202,6 +202,24 @@ export async function POST(req: NextRequest) {
       .update(leadUnlock)
       .set({ kind: "exclusive", price_cents: mine.price_cents + (session.amount_total ?? 0) })
       .where(eq(leadUnlock.id, mine.id));
+    // Post-flip re-check (Neon has no transactions): a shared unlock could have
+    // settled in the gap between the rivals read and this UPDATE, so its own
+    // confirmUnlockWithinCap ran while `mine` was still "paid" and let it stand
+    // — leaving a rival next to a fresh "exclusive". Re-read; if a rival is now
+    // present, revert the flip to "paid" and make the premium account credit
+    // rather than deliver a false "yours alone, permanently".
+    const after = await db.select().from(leadUnlock).where(eq(leadUnlock.property_id, propertyId));
+    if (after.some((r) => r.trade === mine.trade && r.id !== mine.id)) {
+      await db
+        .update(leadUnlock)
+        .set({ kind: "paid", price_cents: mine.price_cents })
+        .where(eq(leadUnlock.id, mine.id));
+      return creditAndNotify(
+        session,
+        b,
+        "another company joined this lead before your exclusive upgrade completed"
+      );
+    }
     await closeLeadIfDone(propertyId);
     await sendEmail({
       to: b.email,

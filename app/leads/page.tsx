@@ -53,7 +53,7 @@ export default async function LeadsPage() {
             </span>
           ))}
         </div>
-        <form action="/leads/export" method="GET" className="flex items-end gap-2">
+        <form action="/leads/export" method="POST" className="flex items-end gap-2">
           <label className="block text-sm">
             <span className="text-gray-600">Buyer (optional)</span>
             <input name="buyer" placeholder="e.g. GreenCo Dallas" className="input mt-1" />
