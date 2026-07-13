@@ -66,9 +66,9 @@ export const OPT_OUT_LINE = "Just let me know if you're not interested.";
 export function step2For(name: string, claimUrl: string): string {
   return (
     `Not selling anything — I run Greenkeep. Each lead goes to one company. ` +
-    `Open this one and it's held for ${name} for 24h — if you don't claim it, ` +
-    `it goes to the next company. Free, no card: ${claimUrl}\n\n` +
-    `${OPT_OUT_LINE}\n-Cole, Greenkeep`
+    `Open this one and you've got first claim on the free spot for 24h (while ` +
+    `the job's still open) — after that it passes to the next company. Free, no ` +
+    `card: ${claimUrl}\n\n${OPT_OUT_LINE}\n-Cole, Greenkeep`
   );
 }
 

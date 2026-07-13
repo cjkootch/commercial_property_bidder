@@ -283,14 +283,14 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
   if (!verdict.allowed) {
     fail(`Free claim isn't open on this job — ${verdict.reason} You can still unlock it as a paid sheet.`);
   }
-  // Respect the 24h loss-aversion hold: the free spot may be reserved for
-  // another company that just opened their claim link. The token path
-  // (tryFreeUnlock) already enforces this; the marketplace waterfall must too,
-  // or a browsing buyer could take a spot out from under the holder and the
-  // "held for you" promise would be a lie. Matched by the claimer's own company
-  // key (the holder claims via their token link, which always passes there).
-  if (heldByOther(await liveHold(propertyId, myTrade), meCheck ? companyKeyOf(meCheck.company_name) : null)) {
-    fail("Another company is holding the free spot on this job right now — you can unlock it as a paid sheet, or grab another free lead nearby.");
+  // Respect the 24h loss-aversion hold. On the marketplace path we can't trust
+  // the claimer's identity to satisfy the hold — company_name is a self-editable
+  // profile field, so matching on it would let anyone rename to the pitched
+  // company and steal a reserved spot. So ANY live hold blocks a marketplace
+  // free-claim; the legitimate holder claims via their signed token link
+  // (tryFreeUnlock), which is tamper-proof and releases the hold.
+  if (await liveHold(propertyId, myTrade)) {
+    fail("This lead is on hold for a company right now — if we texted or emailed it to you, claim it from that link. Otherwise it'll open back up soon, or you can unlock it as a paid sheet.");
   }
 
   const co = await getDefaultCompany();
