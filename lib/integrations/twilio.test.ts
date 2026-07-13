@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import crypto from "node:crypto";
-import { smsStatusRank, toE164, verifyTwilioSignature } from "./twilio";
+import { isTextableLineType, smsStatusRank, toE164, verifyTwilioSignature } from "./twilio";
 
 describe("smsStatusRank", () => {
   it("orders the delivery lifecycle monotonically", () => {
@@ -26,6 +26,22 @@ describe("toE164", () => {
     expect(toE164("call the office")).toBeNull();
     expect(toE164("555-0142")).toBeNull();
     expect(toE164(null)).toBeNull();
+  });
+});
+
+describe("isTextableLineType", () => {
+  it("texts mobile and voip", () => {
+    expect(isTextableLineType("mobile")).toBe(true);
+    expect(isTextableLineType("voip")).toBe(true);
+  });
+  it("skips true landlines", () => {
+    expect(isTextableLineType("landline")).toBe(false);
+  });
+  it("fails open on unknown / unscreened numbers", () => {
+    // A lookup outage or carrier-unmapped type must never silence the queue.
+    expect(isTextableLineType("unknown")).toBe(true);
+    expect(isTextableLineType(null)).toBe(true);
+    expect(isTextableLineType(undefined)).toBe(true);
   });
 });
 

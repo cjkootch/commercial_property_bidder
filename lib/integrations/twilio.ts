@@ -39,6 +39,52 @@ export function toE164(raw: string | null | undefined): string | null {
   return null;
 }
 
+/** Line-type verdict from Twilio Lookup v2. "mobile" | "voip" | "landline" |
+ *  "unknown"; a carrier-unmapped value is passed through verbatim. We text
+ *  mobile + voip and skip true landlines (owner cells are often VoIP). */
+export type LineType = string;
+
+/** Line types we WILL text. A landline main line wastes a cap slot and gets
+ *  carrier-rejected; VoIP is kept because many small-biz owners carry a VoIP
+ *  cell. Unknown/unscreened is allowed through (fail-open — never let a lookup
+ *  outage silence the whole queue). */
+export function isTextableLineType(lineType: string | null | undefined): boolean {
+  return lineType !== "landline";
+}
+
+/**
+ * Twilio Lookup v2 line_type_intelligence — one number, one HTTP call.
+ * Returns the line type ("mobile" | "landline" | "voip" | …) or null on any
+ * failure (never throws; callers treat null as "unknown / not screened").
+ * ~$0.008 per lookup — callers MUST cache the result, not re-query per send.
+ */
+export async function lookupLineType(raw: string): Promise<LineType | null> {
+  const c = creds();
+  if (!c) return null;
+  const to = toE164(raw);
+  if (!to) return null;
+  try {
+    const res = await fetch(
+      `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(to)}?Fields=line_type_intelligence`,
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${c.sid}:${c.token}`).toString("base64")}`,
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      line_type_intelligence?: { type?: string | null } | null;
+    };
+    // A valid lookup for an unrecognized number returns the field as null; we
+    // record "unknown" so it's marked screened (won't re-cost) yet stays
+    // textable under the fail-open rule.
+    return data.line_type_intelligence?.type ?? "unknown";
+  } catch {
+    return null;
+  }
+}
+
 export async function isSmsOptedOut(phoneE164: string): Promise<boolean> {
   const [row] = await db
     .select({ id: smsOptOut.id })

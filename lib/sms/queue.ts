@@ -8,7 +8,7 @@
 import { isNotNull, isNull, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
-import { toE164 } from "@/lib/integrations/twilio";
+import { toE164, isTextableLineType } from "@/lib/integrations/twilio";
 import { signBuyerClaim } from "@/lib/buyer-auth";
 import { DEFAULT_TZ, marketTimezones } from "@/lib/markets";
 
@@ -81,6 +81,7 @@ export type QueueSuggestion = {
   opens: number;
   clicks: number;
   hasEmail: boolean;
+  lineType: string | null; // cached Twilio line type; null = not yet screened
   opener: string;
   claimUrl: string;
 };
@@ -100,6 +101,7 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
         office_city: prospectCompany.office_city,
         claim_views: prospectCompany.claim_views,
         trade: prospectCompany.trade,
+        line_type: prospectCompany.line_type,
       })
       .from(prospectCompany)
       .where(
@@ -147,6 +149,9 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
   for (const c of companies) {
     const phone = toE164(c.phone);
     if (!phone || alreadyTexted.has(phone) || optedOut.has(phone)) continue;
+    // Known landlines are dropped up front; unscreened (null) numbers stay
+    // candidates and get a just-in-time lookup at send time (fail-open).
+    if (!isTextableLineType(c.line_type)) continue;
     const a = byKey.get(c.key);
     if (!a?.propertyId) continue; // step 2 needs a link to deliver
     // Heat: claim-page reads dominate, then clicks/opens; a missing email
@@ -164,6 +169,7 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
       opens: a.opens,
       clicks: a.clicks,
       hasEmail: !!c.email,
+      lineType: c.line_type,
       opener: openerFor(c.name, c.office_city),
       claimUrl: freshClaimUrl(a.propertyId, c.name, c.trade),
     });

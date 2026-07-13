@@ -9,6 +9,8 @@ import {
   withinSmsSendWindow,
   TEXT_QUEUE_DAILY_CAP,
 } from "@/lib/sms/queue";
+import { ensureLineTypeScreened } from "@/lib/sms/screen";
+import { isTextableLineType } from "@/lib/integrations/twilio";
 
 // Automated first-touch SMS (the operator's 2026-07-12 standing approval:
 // "we need to automate the initial sends... blanket auth"). Sends the
@@ -65,8 +67,17 @@ export async function GET(req: NextRequest) {
     const reserveCapSlot = async () => (await rateLimit("smsqueue:day", cap, 86_400)).ok;
 
     const suggestions = await suggestedTexts(budget - nudgeReserve);
-    const sent: Array<{ company: string; phone: string; sid?: string; error?: string }> = [];
+    const sent: Array<{ company: string; phone: string; sid?: string; error?: string; skipped?: string }> = [];
+    let skippedLandline = 0;
     for (const s of suggestions) {
+      // Just-in-time line-type screen for never-screened numbers (fail-open on
+      // lookup outage). Known landlines were already dropped by suggestedTexts.
+      const lineType = await ensureLineTypeScreened(s.companyId, s.phone, s.lineType);
+      if (!isTextableLineType(lineType)) {
+        skippedLandline++;
+        sent.push({ company: s.name, phone: s.phone, skipped: `landline (${lineType})` });
+        continue; // no cap slot burned — a landline was never a valid send
+      }
       if (!(await reserveCapSlot())) break;
       const res = await sendSms({
         to: s.phone,
@@ -107,6 +118,7 @@ export async function GET(req: NextRequest) {
       dailyCap: cap,
       sentToday:
         used + sent.filter((r) => r.sid).length + nudged.filter((r) => r.sid).length,
+      skippedLandline,
       sent,
       nudged,
     });
