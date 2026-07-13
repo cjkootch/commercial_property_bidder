@@ -11,6 +11,7 @@ import { claimAsExistingBuyer, createBuyerProfile, currentBuyerId } from "../../
 import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
 import { recordClaimView, companyKey } from "@/lib/leads/companies";
 import { reserveHold, liveHold, heldForMe, heldByOther } from "@/lib/leads/holds";
+import { cityClaimCount, cityScarcityLine } from "@/lib/leads/activity";
 import { Logo } from "@/components/Logo";
 import { openInventoryFor } from "@/lib/sms/ai-context";
 
@@ -120,6 +121,11 @@ export default async function ClaimPage({
       })
     : null;
 
+  // Market-activity social proof: real recent claims in this city. Honest
+  // urgency — the count is straight from lead_unlock, shown only when > 0.
+  const cityClaims = prop?.city ? await cityClaimCount(prop.city) : 0;
+  const scarcityLine = cityScarcityLine(cityClaims, prop?.city ?? null);
+
   const claimable = !!avail?.open && !freeSpent && !mySpentFree && !otherHeld;
   // Free spot spent (on the lead, or by THIS buyer) but paid spots remain:
   // say exactly that. Collapsing this into "filled up" told engaged companies
@@ -191,6 +197,12 @@ export default async function ClaimPage({
   return (
     <Shell brand={brand}>
       <h1 className="mt-3 text-xl font-semibold">Claim your free job sheet</h1>
+
+      {scarcityLine ? (
+        <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+          🔥 {scarcityLine}
+        </p>
+      ) : null}
 
       {claimable || paidOpen ? (
         <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm sm:p-4">
