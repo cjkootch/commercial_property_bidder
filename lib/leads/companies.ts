@@ -38,7 +38,20 @@ export async function upsertProspectCompany(
       // Newer non-null identity beats stored; nulls never clobber.
       ...(identity.website ? { website: identity.website } : {}),
       ...(identity.email ? { email: identity.email } : {}),
-      ...(identity.phone ? { phone: identity.phone } : {}),
+      ...(identity.phone
+        ? {
+            phone: identity.phone,
+            // A CHANGED number invalidates every phone-derived cache: otherwise
+            // a re-scraped main line inherits the prior number's line-type
+            // verdict (a landline could be texted as a screened "mobile"), or a
+            // recovered owner-cell is silently reverted while its lookup markers
+            // stay set. Unchanged number → keep the caches (no needless re-spend).
+            line_type: sql`CASE WHEN ${prospectCompany.phone} IS DISTINCT FROM ${identity.phone} THEN NULL ELSE ${prospectCompany.line_type} END`,
+            line_type_checked_at: sql`CASE WHEN ${prospectCompany.phone} IS DISTINCT FROM ${identity.phone} THEN NULL ELSE ${prospectCompany.line_type_checked_at} END`,
+            cell_lookup_at: sql`CASE WHEN ${prospectCompany.phone} IS DISTINCT FROM ${identity.phone} THEN NULL ELSE ${prospectCompany.cell_lookup_at} END`,
+            phone_recovery_at: sql`CASE WHEN ${prospectCompany.phone} IS DISTINCT FROM ${identity.phone} THEN NULL ELSE ${prospectCompany.phone_recovery_at} END`,
+          }
+        : {}),
       ...(identity.contact_form_url ? { contact_form_url: identity.contact_form_url } : {}),
       ...(identity.office_city ? { office_city: identity.office_city } : {}),
       ...(identity.office_lat != null ? { office_lat: identity.office_lat } : {}),
