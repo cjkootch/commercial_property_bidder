@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, gte, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { alertOperatorOfSignup } from "@/lib/email/operator-alerts";
-import { buyer, chatMessage, leadActivity, leadUnlock, property, suppression } from "@/lib/db/schema";
+import { buyer, chatMessage, claimEvent, leadActivity, leadUnlock, property, suppression } from "@/lib/db/schema";
 import {
   BUYER_COOKIE,
   BUYER_SESSION_MAX_AGE,
@@ -119,6 +119,18 @@ export async function createBuyerProfile(token: string, formData: FormData): Pro
   }
 
   const claimed = await tryFreeUnlock(row.id, claim.property_id, co?.name ?? null);
+  // Funnel step 2: they submitted the profile form (the drop we couldn't see
+  // before). `submit_unlocked` = the free lead was theirs; `submit_offer` = they
+  // signed up but the specific lead was already gone (waterfall to next). Best-
+  // effort; must never block the signup.
+  db.insert(claimEvent)
+    .values({
+      company: claim.company ?? company,
+      property_id: claim.property_id,
+      trade,
+      event: claimed ? "submit_unlocked" : "submit_offer",
+    })
+    .catch(() => {});
 
   // Stitch the journey: the claim token carries the company we pitched, so
   // the prospect profile links to the account it became (and the signup name
