@@ -41,15 +41,17 @@ export function toE164(raw: string | null | undefined): string | null {
 
 /** Line-type verdict from Twilio Lookup v2. "mobile" | "voip" | "landline" |
  *  "unknown"; a carrier-unmapped value is passed through verbatim. We text
- *  mobile + voip and skip true landlines (owner cells are often VoIP). */
+ *  mobile + voip, skip landline + toll-free (owner cells are often VoIP). */
 export type LineType = string;
 
-/** Line types we WILL text. A landline main line wastes a cap slot and gets
- *  carrier-rejected; VoIP is kept because many small-biz owners carry a VoIP
- *  cell. Unknown/unscreened is allowed through (fail-open — never let a lookup
- *  outage silence the whole queue). */
+/** Twilio Lookup line types we DON'T text: a landline or toll-free number is
+ *  a business main line — it won't reach the owner's cell and SMS to it is
+ *  unreliable/rejected, burning a cap slot. Everything else is textable: VoIP
+ *  is kept because many small-biz owners carry a VoIP cell, and unknown/
+ *  unscreened fails OPEN (a lookup outage must never silence the queue). */
+const NON_TEXTABLE_LINE_TYPES = new Set(["landline", "tollFree"]);
 export function isTextableLineType(lineType: string | null | undefined): boolean {
-  return lineType !== "landline";
+  return !lineType || !NON_TEXTABLE_LINE_TYPES.has(lineType);
 }
 
 /**

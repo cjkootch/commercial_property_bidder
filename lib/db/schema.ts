@@ -452,7 +452,8 @@ export const prospectCompany = pgTable("prospect_company", {
   // Twilio Lookup v2 line_type_intelligence verdict for `phone`, cached so we
   // pay the lookup once per number: "mobile" | "voip" | "landline" |
   // "unknown" (+ carrier-unmapped types stored verbatim). We text mobile and
-  // VoIP, skip true landlines (2026-07-13). NULL = never screened.
+  // VoIP, skip landlines + toll-free business lines (2026-07-13). NULL =
+  // never screened.
   line_type: text("line_type"),
   line_type_checked_at: timestamp("line_type_checked_at", { withTimezone: true }),
   claim_views: integer("claim_views").notNull().default(0),

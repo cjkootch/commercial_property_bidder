@@ -34,8 +34,9 @@ describe("isTextableLineType", () => {
     expect(isTextableLineType("mobile")).toBe(true);
     expect(isTextableLineType("voip")).toBe(true);
   });
-  it("skips true landlines", () => {
+  it("skips landlines and toll-free (business main lines)", () => {
     expect(isTextableLineType("landline")).toBe(false);
+    expect(isTextableLineType("tollFree")).toBe(false);
   });
   it("fails open on unknown / unscreened numbers", () => {
     // A lookup outage or carrier-unmapped type must never silence the queue.
