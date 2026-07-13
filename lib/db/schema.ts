@@ -573,6 +573,29 @@ export const smsOptOut = pgTable("sms_opt_out", {
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// --- claim_event ---------------------------------------------------------
+// Claim-page conversion funnel. We know page views (claim_views) and unlocks
+// (lead_unlock), but not the CRUCIAL middle: what offer state a clicker was
+// SHOWN, and whether they submitted the profile form. Without it, "clicks don't
+// convert" is unattributable — 2026-07-13 showed two clicks fail two different
+// ways (one arrived to a gone-free spot, one abandoned a valid free form). Each
+// row is one funnel step; query by day to see where clicks die at real volume.
+export const claimEvent = pgTable(
+  "claim_event",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** prospect_company name we pitched (from the claim token). */
+    company: text("company"),
+    property_id: uuid("property_id"),
+    trade: text("trade"),
+    /** view_claimable | view_paid | view_filled | view_unsellable | view_expired
+     *  | submit | submit_unlocked | submit_offer */
+    event: text("event").notNull(),
+    created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("claim_event_created_idx").on(t.created_at)]
+);
+
 // --- suppression ---------------------------------------------------------
 // Checked before every send (build spec section 9). Email is unique.
 

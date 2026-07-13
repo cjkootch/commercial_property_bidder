@@ -58,15 +58,18 @@ export function openerFor(name: string, city: string | null): string {
  *  still honors a literal STOP reply automatically regardless of wording. */
 export const OPT_OUT_LINE = "Just let me know if you're not interested.";
 
-/** Step 2 — sent manually from the thread after they reply. Identifies the
- *  business (CTIA sender-ID) and carries the one-time opt-out line. */
+/** Step 2 — sent manually from the thread after they reply. Trust-first: the
+ *  warm human opener must not hard-pivot into "click this link" (that pivot got
+ *  a Stop on 2026-07-13 and stalled every reply). Disarm the sales worry, name
+ *  the ONE opportunity, then present the link as low-commitment ("free, no
+ *  card") — one ask, not a stack. Identifies the business (CTIA) + opt-out. */
 export function step2For(name: string, claimUrl: string): string {
   return (
-    `Great — I found a local opportunity that looks like a good fit for ${name}. ` +
-    `Here it is, no charge: ${claimUrl}\n\n` +
-    `We tell you who to reach out to, when, and why they're likely to become ` +
-    `your next customer. If it's useful, happy to send more. ${OPT_OUT_LINE}\n\n` +
-    `-Cole, Greenkeep`
+    `Not selling anything — I run Greenkeep. We spot local businesses that need ` +
+    `work and hand each lead to one nearby company. One just came up that fits ` +
+    `${name}.\n\n` +
+    `It's yours to see free, no card: ${claimUrl}\n\n` +
+    `${OPT_OUT_LINE}\n-Cole, Greenkeep`
   );
 }
 

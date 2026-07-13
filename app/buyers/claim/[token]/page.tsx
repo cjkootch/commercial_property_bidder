@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, leadUnlock, property } from "@/lib/db/schema";
+import { buyer, claimEvent, leadUnlock, property } from "@/lib/db/schema";
 import { verifyBuyerClaim } from "@/lib/buyer-auth";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { FREE_MAX_PER_LEAD } from "@/lib/leads/allocation";
@@ -36,6 +36,7 @@ export default async function ClaimPage({
   const brand = co?.name ?? "Greenkeep";
 
   if (!claim) {
+    db.insert(claimEvent).values({ event: "view_expired" }).catch(() => {});
     return (
       <Shell brand={brand}>
         <h1 className="mt-4 text-xl font-semibold">This link has expired</h1>
@@ -105,6 +106,24 @@ export default async function ClaimPage({
   // away ready buyers.
   const paidOpen = !!avail?.open && (freeSpent || !!mySpentFree);
   const cap = leadMaxBuyers();
+
+  // Funnel step 1: log which offer state this clicker was actually shown, so we
+  // can tell a gone-free-spot arrival (looks like a broken "free" promise) from
+  // a valid offer they abandoned. Best-effort; never blocks the render.
+  db.insert(claimEvent)
+    .values({
+      company: claim.company ?? null,
+      property_id: prop?.id ?? null,
+      trade,
+      event: claimable
+        ? "view_claimable"
+        : paidOpen
+          ? "view_paid"
+          : prop && avail && !avail.open
+            ? "view_filled"
+            : "view_unsellable",
+    })
+    .catch(() => {});
 
   const cost = note(prop?.notes ?? null, /est\. cost (\$[\d,]+)/);
   const workType = note(prop?.notes ?? null, /: ([^,]+), est\. cost/);
@@ -281,7 +300,7 @@ export default async function ClaimPage({
           <input
             type="text"
             name="city"
-            placeholder="Office city (so we match jobs near you)"
+            placeholder="Office city — optional, helps us match nearby jobs"
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none"
           />
           {searchParams.error ? (
