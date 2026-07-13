@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
           { direction: "in", body: "Yes. Who is this?" },
         ],
       });
-      ai = draft ?? "FAILED (see function logs)";
+      ai = draft ? `[${draft.intent}] ${draft.text}` : "FAILED (see function logs)";
     }
     return Response.json({
       ai_probe: ai,

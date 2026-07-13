@@ -22,12 +22,19 @@ Rules:
 - NEVER promise a future action ("I'll check and send it over shortly", "let me look into it") — you cannot follow up on your own. Either include a link that's in your context NOW, or say Cole will text them directly.
 - Be honest. Only reference facts given in the context. Never invent details about the opportunity, never promise pricing, exclusivity, or outcomes. If they ask something the context can't answer, say Cole will get back to them with specifics.
 - If they ask to talk to a person, get a phone call, or otherwise want a human, confirm it plainly ("Cole will call you" / "Cole will text you directly") and stop selling — nothing else in that message.
-- When deferring to a human for ANY reason, phrase it with the exact words "Cole will" (e.g., "Cole will call you shortly") — that phrase is how the system knows to flag the thread for his personal follow-up.
 - If they're annoyed, say stop, or say they're not interested, draft a one-line polite close confirming they won't hear from us again — nothing else.
 
-Output ONLY the SMS text to send — no quotes, no preamble, no explanation.
+Return your reply through the sms_reply tool. \`text\` is the exact SMS to send. \`intent\` classifies it so the system routes it correctly — this is not a hint, the system BRANCHES on it:
+- "pitch": you are delivering/offering the opportunity (should carry the claim link).
+- "answer": answering a question or nudging them toward claiming.
+- "close": a goodbye / they're not interested — NEVER contains a claim link.
+- "handoff": you are deferring to a human ("Cole will follow up") — NEVER contains a link, and it flags the thread for Cole's personal follow-up. Set this whenever a person needs to take over, however you phrase it.
 
 ${PROGRAM_BRIEF}`;
+
+export type SmsIntent = "pitch" | "answer" | "close" | "handoff";
+const INTENTS: SmsIntent[] = ["pitch", "answer", "close", "handoff"];
+export type SmsDraft = { text: string; intent: SmsIntent };
 
 export type SmsDraftContext = {
   companyName: string | null;
@@ -45,28 +52,31 @@ export type SmsDraftContext = {
 /**
  * Safety net for the auto-sent AI reply: if the model's draft offers the
  * opportunity but dropped the claim URL, deliver the link we already have
- * rather than send a linkless "claim it" (2026-07-13 incident: an unreviewed
- * ai_reply pitched a lead to a prospect — "First one's free to claim." — with
- * no link, a dead end). Skips when the link was already sent earlier in the
- * thread, or the draft is a human hand-off ("Cole will …") or a polite close —
- * those must never carry a link.
+ * rather than send a linkless "claim it" (2026-07-13 incident). Branches on the
+ * model's declared INTENT, not regex over its prose — a close/handoff never
+ * carries a link (previously a goodbye the phrase-list missed could get the
+ * link appended, resurrecting the bait-and-switch in mirror image). Only a
+ * pitch/answer that dropped an available, not-yet-sent link gets it back.
  */
 export function ensureClaimLink(
   text: string,
   claimUrl: string | null | undefined,
-  thread: Array<{ direction: string; body: string }>
+  thread: Array<{ direction: string; body: string }>,
+  intent: SmsIntent
 ): string {
   if (!claimUrl || text.includes(claimUrl)) return text;
+  if (intent === "close" || intent === "handoff") return text; // never carry a link
   const alreadySent = thread.some((m) => m.direction !== "in" && m.body.includes(claimUrl));
-  const deferringToHuman = /\bCole will\b/i.test(text);
-  const closingOut = /\bnot interested\b|won'?t hear from us|take you off|won'?t reach out/i.test(text);
-  if (alreadySent || deferringToHuman || closingOut) return text;
+  if (alreadySent) return text;
   return `${text}\n\nHere it is, no charge: ${claimUrl}`;
 }
 
-/** Draft the next reply in an SMS thread. Returns null on any failure —
- *  the compose box just stays empty and the operator writes it themselves. */
-export async function draftSmsReply(ctx: SmsDraftContext): Promise<string | null> {
+/** Draft the next reply in an SMS thread, with its intent. Returns null on any
+ *  failure — the compose box just stays empty and the operator writes it. The
+ *  reply comes back as structured output (a forced tool call) so the caller can
+ *  branch on `intent` (link append, human-handoff flag) instead of regex over
+ *  the model's prose. */
+export async function draftSmsReply(ctx: SmsDraftContext): Promise<SmsDraft | null> {
   if (!process.env.ANTHROPIC_API_KEY) return null;
   try {
     // Tight budget: the webhook caller has already slept up to 3min of its
@@ -79,8 +89,28 @@ export async function draftSmsReply(ctx: SmsDraftContext): Promise<string | null
       .join("\n");
     const response = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: 300,
+      max_tokens: 400,
       system: SYSTEM,
+      tools: [
+        {
+          name: "sms_reply",
+          description: "Send Cole's next SMS reply and classify its intent.",
+          input_schema: {
+            type: "object",
+            properties: {
+              intent: {
+                type: "string",
+                enum: INTENTS,
+                description:
+                  "pitch = delivering/offering the opportunity (carries the link); answer = answering a question / nudging to claim; close = goodbye or not-interested (no link); handoff = a human must take over (no link, flags the thread).",
+              },
+              text: { type: "string", description: "The exact SMS text to send." },
+            },
+            required: ["intent", "text"],
+          },
+        },
+      ],
+      tool_choice: { type: "tool", name: "sms_reply" },
       messages: [
         {
           role: "user",
@@ -95,9 +125,17 @@ export async function draftSmsReply(ctx: SmsDraftContext): Promise<string | null
         },
       ],
     });
-    const block = response.content.find((b) => b.type === "text");
-    const text = block && block.type === "text" ? block.text.trim() : null;
-    return text ? ensureClaimLink(text, ctx.claimUrl, ctx.thread) : null;
+    const tu = response.content.find((b) => b.type === "tool_use");
+    if (!tu || tu.type !== "tool_use") return null;
+    const input = tu.input as { intent?: string; text?: string };
+    const raw = (input.text ?? "").trim();
+    if (!raw) return null;
+    // Unknown/missing intent fails SAFE: "answer" never triggers a handoff flag
+    // and only appends a link that's genuinely undelivered.
+    const intent: SmsIntent = INTENTS.includes(input.intent as SmsIntent)
+      ? (input.intent as SmsIntent)
+      : "answer";
+    return { text: ensureClaimLink(raw, ctx.claimUrl, ctx.thread, intent), intent };
   } catch (e) {
     console.error("draftSmsReply failed:", e);
     return null;

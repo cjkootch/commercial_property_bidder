@@ -163,7 +163,7 @@ export async function draftAiReply(formData: FormData): Promise<void> {
     thread,
   });
   const q = draft
-    ? `draft=${encodeURIComponent(draft)}`
+    ? `draft=${encodeURIComponent(draft.text)}`
     : `sms=${encodeURIComponent("AI draft failed — check ANTHROPIC_API_KEY")}`;
   redirect(`/messages/sms?t=${encodeURIComponent(phone)}&${q}`);
 }
