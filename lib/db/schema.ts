@@ -461,6 +461,11 @@ export const prospectCompany = pgTable("prospect_company", {
   // marker so a company with no recoverable mobile isn't re-processed every
   // run; a successful swap resets line_type to NULL for a fresh JIT screen.
   phone_recovery_at: timestamp("phone_recovery_at", { withTimezone: true }),
+  // Set when the opener queue has tried an Apollo mobile reveal to lead with
+  // the owner's cell (cell-first is stronger for SMS). Attempt-once so we pay
+  // the reveal credit at most once per company; a found cell overwrites phone
+  // and resets line_type to NULL for a fresh JIT screen.
+  cell_lookup_at: timestamp("cell_lookup_at", { withTimezone: true }),
   claim_views: integer("claim_views").notNull().default(0),
   last_claim_view_at: timestamp("last_claim_view_at", { withTimezone: true }),
   // Set when a signup arrives via a claim token carrying this company name.
