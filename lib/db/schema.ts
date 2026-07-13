@@ -449,6 +449,12 @@ export const prospectCompany = pgTable("prospect_company", {
   office_lat: doublePrecision("office_lat"),
   office_lng: doublePrecision("office_lng"),
   commercial_signal: boolean("commercial_signal"),
+  // Twilio Lookup v2 line_type_intelligence verdict for `phone`, cached so we
+  // pay the lookup once per number: "mobile" | "voip" | "landline" |
+  // "unknown" (+ carrier-unmapped types stored verbatim). We text mobile and
+  // VoIP, skip true landlines (2026-07-13). NULL = never screened.
+  line_type: text("line_type"),
+  line_type_checked_at: timestamp("line_type_checked_at", { withTimezone: true }),
   claim_views: integer("claim_views").notNull().default(0),
   last_claim_view_at: timestamp("last_claim_view_at", { withTimezone: true }),
   // Set when a signup arrives via a claim token carrying this company name.

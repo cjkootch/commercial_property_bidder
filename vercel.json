@@ -17,6 +17,10 @@
       "schedule": "7 11 * * 1"
     },
     {
+      "path": "/api/cron/screen-lines?limit=300",
+      "schedule": "2 11 * * 1"
+    },
+    {
       "path": "/api/cron/orlando-permits?want=20&minCost=150000&sinceDays=60",
       "schedule": "22 11 * * 1"
     },
