@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { orgNameMatches, pickDecisionPerson } from "./apollo";
+import { orgNameMatches, pickDecisionPerson, pickMobileNumber } from "./apollo";
+
+describe("integrations/apollo pickMobileNumber", () => {
+  it("prefers a mobile-typed number over a work line", () => {
+    expect(
+      pickMobileNumber([
+        { sanitized_number: "+18325551000", type: "work_hq" },
+        { sanitized_number: "+18325559999", type: "mobile" },
+      ])
+    ).toBe("+18325559999");
+  });
+  it("matches the type_cd field and cell wording", () => {
+    expect(pickMobileNumber([{ sanitized_number: "+18325559999", type_cd: "mobile" }])).toBe("+18325559999");
+    expect(pickMobileNumber([{ sanitized_number: "+18325559999", type: "Cell Phone" }])).toBe("+18325559999");
+  });
+  it("returns null when only a work/main line exists (not worth swapping)", () => {
+    expect(pickMobileNumber([{ sanitized_number: "+18325551000", type: "work_hq" }])).toBeNull();
+    expect(pickMobileNumber([])).toBeNull();
+    expect(pickMobileNumber(undefined)).toBeNull();
+  });
+});
 
 // The gates that keep a WRONG person off a sold sheet — worse than none.
 describe("integrations/apollo decision-contact gates", () => {

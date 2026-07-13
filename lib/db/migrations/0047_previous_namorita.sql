@@ -1,0 +1,1 @@
+ALTER TABLE "prospect_company" ADD COLUMN "phone_recovery_at" timestamp with time zone;

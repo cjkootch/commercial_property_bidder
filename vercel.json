@@ -77,6 +77,10 @@
       "schedule": "17 13 * * 1"
     },
     {
+      "path": "/api/cron/recover-numbers?apply=1&limit=50",
+      "schedule": "20 14 * * 1-5"
+    },
+    {
       "path": "/api/cron/sms-queue",
       "schedule": "37 15 * * 1-5"
     },

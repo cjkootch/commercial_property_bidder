@@ -456,6 +456,11 @@ export const prospectCompany = pgTable("prospect_company", {
   // never screened.
   line_type: text("line_type"),
   line_type_checked_at: timestamp("line_type_checked_at", { withTimezone: true }),
+  // Set when the bounce-recovery job has tried to find a better number for a
+  // phone that carrier-rejected an SMS (failed/undelivered). Attempt-once
+  // marker so a company with no recoverable mobile isn't re-processed every
+  // run; a successful swap resets line_type to NULL for a fresh JIT screen.
+  phone_recovery_at: timestamp("phone_recovery_at", { withTimezone: true }),
   claim_views: integer("claim_views").notNull().default(0),
   last_claim_view_at: timestamp("last_claim_view_at", { withTimezone: true }),
   // Set when a signup arrives via a claim token carrying this company name.
