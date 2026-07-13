@@ -27,6 +27,19 @@ describe("toE164", () => {
     expect(toE164("555-0142")).toBeNull();
     expect(toE164(null)).toBeNull();
   });
+  it("rejects structurally-invalid NANP numbers (the launch-day garbage)", () => {
+    expect(toE164("+16666666666")).toBeNull(); // all identical digits
+    expect(toE164("0000000000")).toBeNull();
+    expect(toE164("+11871868701")).toBeNull(); // area code starts with 1
+    expect(toE164("1180000000")).toBeNull(); // area code 118 (starts 1)
+    expect(toE164("2115550142")).toBeNull(); // N11 area code (211)
+    expect(toE164("7132110142")).toBeNull(); // N11 exchange (211)
+    expect(toE164("7131550142")).toBeNull(); // exchange starts with 1
+  });
+  it("still accepts genuine US numbers", () => {
+    expect(toE164("713-555-0142")).toBe("+17135550142");
+    expect(toE164("(832) 246-8100")).toBe("+18322468100");
+  });
 });
 
 describe("isTextableLineType", () => {

@@ -29,14 +29,36 @@ function creds(): { sid: string; token: string; from: string | null; serviceSid:
   return sid && token && (from || serviceSid) ? { sid, token, from, serviceSid } : null;
 }
 
-/** Best-effort US number → E.164. Returns null if it doesn't look like one. */
+/** A 10-digit US national number that is STRUCTURALLY dialable under the North
+ *  American Numbering Plan. Catches the garbage that a digit-count check lets
+ *  through — all-same-digit scrapes (0000000000, 6666666666), invalid area
+ *  codes / exchanges (must start 2-9), and N11 service codes (X11). These
+ *  otherwise pass toE164, error at Twilio ("not a valid number"), don't log,
+ *  and get re-selected + re-Apollo-revealed every run (2026-07-13 launch). */
+function isValidNanp(ten: string): boolean {
+  if (!/^\d{10}$/.test(ten)) return false;
+  if (/^(\d)\1{9}$/.test(ten)) return false; // all identical digits
+  const area = ten.slice(0, 3);
+  const exch = ten.slice(3, 6);
+  if (!/^[2-9]/.test(area) || !/^[2-9]/.test(exch)) return false; // NXX rule
+  if (/^\d11$/.test(area) || /^\d11$/.test(exch)) return false; // N11 (211..911, X11)
+  return true;
+}
+
+/** Best-effort US number → E.164. Returns null if it doesn't look like a
+ *  valid, dialable US number (structural NANP check, not just digit count). */
 export function toE164(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const digits = raw.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  if (raw.trim().startsWith("+") && digits.length >= 11) return `+${digits}`;
-  return null;
+  let national: string | null = null;
+  if (digits.length === 10) national = digits;
+  else if (digits.length === 11 && digits.startsWith("1")) national = digits.slice(1);
+  else if (raw.trim().startsWith("+") && digits.length >= 11 && !digits.startsWith("1")) {
+    return `+${digits}`; // non-US international — pass through, can't NANP-validate
+  } else {
+    return null;
+  }
+  return isValidNanp(national) ? `+1${national}` : null;
 }
 
 /** Line-type verdict from Twilio Lookup v2. "mobile" | "voip" | "landline" |
