@@ -43,13 +43,16 @@ describe("toE164", () => {
 });
 
 describe("isTextableLineType", () => {
-  it("texts mobile and voip", () => {
+  it("texts mobile and owner-cell VoIP (nonFixedVoip / generic voip)", () => {
     expect(isTextableLineType("mobile")).toBe(true);
     expect(isTextableLineType("voip")).toBe(true);
+    expect(isTextableLineType("nonFixedVoip")).toBe(true);
   });
-  it("skips landlines and toll-free (business main lines)", () => {
+  it("skips landlines, toll-free, and fixedVoip (business phone systems)", () => {
     expect(isTextableLineType("landline")).toBe(false);
     expect(isTextableLineType("tollFree")).toBe(false);
+    // 2026-07-13: every fixedVoip we texted bounced (carrier err 30006).
+    expect(isTextableLineType("fixedVoip")).toBe(false);
   });
   it("fails open on unknown / unscreened numbers", () => {
     // A lookup outage or carrier-unmapped type must never silence the queue.
