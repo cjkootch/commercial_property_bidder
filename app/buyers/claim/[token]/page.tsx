@@ -9,7 +9,8 @@ import { leadAvailability, leadMaxBuyers } from "@/lib/leads/availability";
 import { leadKind } from "@/lib/leads/market";
 import { claimAsExistingBuyer, createBuyerProfile, currentBuyerId } from "../../actions";
 import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
-import { recordClaimView } from "@/lib/leads/companies";
+import { recordClaimView, companyKey } from "@/lib/leads/companies";
+import { reserveHold, liveHold, heldForMe, heldByOther } from "@/lib/leads/holds";
 import { Logo } from "@/components/Logo";
 import { openInventoryFor } from "@/lib/sms/ai-context";
 
@@ -99,12 +100,32 @@ export default async function ClaimPage({
           .where(and(eq(leadUnlock.property_id, prop.id), eq(leadUnlock.kind, "free")))
       ).filter((u) => u.trade === trade).length >= FREE_MAX_PER_LEAD
     : false;
-  const claimable = !!avail?.open && !freeSpent && !mySpentFree;
+  // Loss-aversion 24h hold: opening the link reserves the free spot for this
+  // company (if it's open to hold). Others then see it taken until it expires or
+  // they claim — so "held for you, or it goes to the next company" is literally
+  // true. Best-effort; the reserve/read never block the render.
+  const myKey = claim.company ? companyKey(claim.company) : null;
+  if (prop && sellable && trade && avail?.open && !freeSpent) {
+    await reserveHold(prop.id, trade, claim.company);
+  }
+  const hold = prop && sellable ? await liveHold(prop.id, trade) : null;
+  const mineHeld = heldForMe(hold, myKey);
+  const otherHeld = heldByOther(hold, myKey);
+  const holdUntil = hold
+    ? hold.expires_at.toLocaleString("en-US", {
+        timeZone: "America/Chicago",
+        weekday: "short",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
+
+  const claimable = !!avail?.open && !freeSpent && !mySpentFree && !otherHeld;
   // Free spot spent (on the lead, or by THIS buyer) but paid spots remain:
   // say exactly that. Collapsing this into "filled up" told engaged companies
   // a lead was gone while 2/3 spots sat open — false scarcity, and it turns
   // away ready buyers.
-  const paidOpen = !!avail?.open && (freeSpent || !!mySpentFree);
+  const paidOpen = !!avail?.open && (freeSpent || !!mySpentFree || otherHeld);
   const cap = leadMaxBuyers();
 
   // Funnel step 1: log which offer state this clicker was actually shown, so we
@@ -175,11 +196,20 @@ export default async function ClaimPage({
         <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm sm:p-4">
           <div className="font-medium text-gray-900">
             {claimable
-              ? "Reserved for you:"
+              ? mineHeld
+                ? "Held for you — claim before it's gone:"
+                : "Reserved for you:"
               : mySpentFree
                 ? "Still open:"
-                : "Still open — the free spot went fast:"}
+                : otherHeld
+                  ? "Another company is holding the free spot — paid spots remain:"
+                  : "Still open — the free spot went fast:"}
           </div>
+          {claimable && mineHeld && holdUntil ? (
+            <div className="mt-1 text-xs font-semibold text-amber-700">
+              Yours until {holdUntil} — claim it now, or it goes to the next company in line.
+            </div>
+          ) : null}
           <div className="mt-2 grid grid-cols-3 gap-1.5 text-center sm:gap-2">
             {est ? (
               <div className="rounded-md bg-white px-1 py-2">

@@ -372,6 +372,13 @@
       "when": 1783973882015,
       "tag": "0052_chief_luke_cage",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1783976087333,
+      "tag": "0053_absurd_iron_lad",
+      "breakpoints": true
     }
   ]
 }
