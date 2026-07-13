@@ -50,6 +50,21 @@ export function anySmsSendWindowOpen(now: Date): boolean {
   return marketTimezones().some((tz) => withinSmsSendWindow(now, tz));
 }
 
+/** TCPA quiet-hours gate — 8am–9pm on the RECIPIENT's local clock. Broader than
+ *  the 9am–6pm cold-outreach window: a reply to a live inbound is fine in the
+ *  evening, but an auto-reply must never fire at, say, 11pm. Used to gate the
+ *  webhook auto-reply; pass the recipient's market tz (marketTz(lat,lng)). */
+export function withinTcpaHours(now: Date, tz: string = DEFAULT_TZ): boolean {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hour12: false })
+      .formatToParts(now)
+      .find((p) => p.type === "hour")?.value
+  );
+  // hour12:false yields 0–23 (some runtimes emit 24 for midnight — treat as 0).
+  const h = hour === 24 ? 0 : hour;
+  return h >= 8 && h < 21;
+}
+
 export function openerFor(name: string, city: string | null): string {
   return `Hi, is this ${name}${city ? ` in ${city}` : ""}?\n\nThanks,\n-Cole`;
 }

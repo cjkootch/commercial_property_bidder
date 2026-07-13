@@ -6,7 +6,9 @@ import { buyerOutreach, prospectCompany, smsOptOut, smsSend } from "@/lib/db/sch
 import { sendSms, smsStatusRank, verifyTwilioSignature } from "@/lib/integrations/twilio";
 import { draftSmsReply } from "@/lib/integrations/claude";
 import { inventoryContextFor } from "@/lib/sms/ai-context";
-import { freshClaimUrl } from "@/lib/sms/queue";
+import { freshClaimUrl, withinTcpaHours } from "@/lib/sms/queue";
+import { marketTz } from "@/lib/markets";
+import type { SmsIntent } from "@/lib/integrations/claude";
 import { sendEmail } from "@/lib/integrations/resend";
 
 // Twilio webhook, two shapes on one URL (both form-encoded POSTs):
@@ -249,6 +251,7 @@ async function deferredAiReply(args: {
 }) {
   const { from, body, inboundSid, match, base } = args;
   let aiReply: string | null = null;
+  let aiIntent: SmsIntent | null = null;
   let aiCapped = false;
   // Every inbound text the AI hasn't answered yet — the alert quotes them all,
   // so a rapid-fire prospect's earlier messages aren't invisible to the
@@ -344,14 +347,24 @@ async function deferredAiReply(args: {
           thread: thread.map((m) => ({ direction: m.direction, body: m.body })),
         });
         if (draft) {
-          const res = await sendSms({
-            to: from,
-            body: draft,
-            kind: "ai_reply",
-            companyKey: match?.key ?? null,
-            refId: match?.id ?? null,
-          });
-          if (res.ok) aiReply = draft;
+          // TCPA quiet hours: never auto-text a prospect outside 8am–9pm on
+          // THEIR local clock, even in reply to an inbound. An 11pm "hey" must
+          // not trigger an 11pm marketing auto-reply — the operator alert below
+          // still fires, so Cole picks it up from the inbox in the morning.
+          const tz = marketTz(match?.office_lat ?? null, match?.office_lng ?? null);
+          if (withinTcpaHours(new Date(), tz)) {
+            const res = await sendSms({
+              to: from,
+              body: draft.text,
+              kind: "ai_reply",
+              companyKey: match?.key ?? null,
+              refId: match?.id ?? null,
+            });
+            if (res.ok) {
+              aiReply = draft.text;
+              aiIntent = draft.intent;
+            }
+          }
         }
       }
       if (superseded) return; // the newer invocation alerts + replies
@@ -360,13 +373,14 @@ async function deferredAiReply(args: {
     console.error("deferredAiReply failed:", e);
   }
 
-  // Page the operator with both sides of the exchange. The AI defers by
-  // promising "Cole will …" (a phrasing the prompt mandates) — when that
-  // promise is in the reply, only the operator can keep it, so the alert
-  // escalates from FYI to YOUR TURN.
+  // Page the operator with both sides of the exchange. The AI signals a human
+  // hand-off via its structured intent (not a regex over its prose — a
+  // paraphrase like "I'll have Cole reach out" used to slip past the "Cole will"
+  // match and silently strand the thread). A handoff, OR an inbound we couldn't
+  // auto-answer (capped, or held for quiet hours), escalates to YOUR TURN.
   const to = process.env.ALERT_EMAIL;
   if (to) {
-    const needsHuman = !!aiReply && /\bCole will\b/i.test(aiReply);
+    const needsHuman = aiIntent === "handoff" || (!aiReply && !!match);
     const link = match ? `${base}/companies/${match.id}` : `${base}/messages/sms`;
     const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
     await sendEmail({

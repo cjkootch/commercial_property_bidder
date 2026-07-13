@@ -6,9 +6,24 @@ import {
   SMS_NUDGE_AFTER_HOURS,
   SMS_NUDGE_MAX_AGE_DAYS,
   withinSmsSendWindow,
+  withinTcpaHours,
 } from "./queue";
 
 // Times below are UTC; Chicago is UTC-5 (CDT) in July, UTC-6 (CST) in January.
+describe("withinTcpaHours (auto-reply quiet-hours gate, 8am–9pm local)", () => {
+  it("allows an evening reply the cold-outreach window would block", () => {
+    expect(withinTcpaHours(new Date("2026-07-13T23:30:00Z"))).toBe(true); // Mon 6:30pm CDT
+    expect(withinTcpaHours(new Date("2026-07-14T01:59:00Z"))).toBe(true); // Mon 8:59pm CDT
+  });
+  it("blocks quiet hours — the 11pm auto-reply", () => {
+    expect(withinTcpaHours(new Date("2026-07-14T04:00:00Z"))).toBe(false); // Mon 11pm CDT
+    expect(withinTcpaHours(new Date("2026-07-14T12:30:00Z"))).toBe(false); // Tue 7:30am CDT
+  });
+  it("allows weekends (TCPA hours are not business-day-scoped)", () => {
+    expect(withinTcpaHours(new Date("2026-07-18T18:00:00Z"))).toBe(true); // Sat 1pm CDT
+  });
+});
+
 describe("withinSmsSendWindow", () => {
   it("allows weekday business hours in Texas", () => {
     expect(withinSmsSendWindow(new Date("2026-07-13T15:37:00Z"))).toBe(true); // Mon 10:37 CDT
