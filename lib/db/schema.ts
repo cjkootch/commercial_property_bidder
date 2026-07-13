@@ -557,6 +557,9 @@ export const smsSend = pgTable("sms_send", {
   status: text("status").notNull().default("queued"),
   error_code: text("error_code"),
   delivered_at: timestamp("delivered_at", { withTimezone: true }),
+  // Operator has seen this inbound reply in the SMS inbox. Only meaningful for
+  // direction "in"; drives the iPhone-style unread dot in the thread list.
+  read_at: timestamp("read_at", { withTimezone: true }),
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
