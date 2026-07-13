@@ -392,7 +392,7 @@ export async function POST(req: NextRequest) {
       dossier,
       cycle: prop.sale_cycle,
     })
-    .onConflictDoNothing({ target: [leadUnlock.property_id, leadUnlock.buyer_id] })
+    .onConflictDoNothing({ target: [leadUnlock.property_id, leadUnlock.buyer_id, leadUnlock.trade, leadUnlock.cycle] })
     .returning();
   if (!unlock) {
     // Buyer already holds this lead (double-pay) — the duplicate becomes credit.

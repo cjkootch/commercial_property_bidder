@@ -13,11 +13,17 @@ const LOGIN_TTL = 30 * 60; // 30 min
 const SESSION_TTL = 30 * 24 * 60 * 60; // 30 days
 
 function secret(): string {
-  return (
-    process.env.CUSTOMER_AUTH_SECRET ||
-    process.env.OPERATOR_SHARED_SECRET ||
-    "dev-insecure-customer-secret"
-  );
+  const s = process.env.CUSTOMER_AUTH_SECRET || process.env.OPERATOR_SHARED_SECRET;
+  if (s) return s;
+  // Fail loudly in production — the old hardcoded fallback is committed to the
+  // repo, so anyone who read the code could forge a session token for ANY
+  // customer email and walk into the portal. Mirrors buyer-auth. (The
+  // OPERATOR_SHARED_SECRET fallback is a known privilege-linkage — see
+  // docs/security-followups.md; removing it needs a paired Vercel env step.)
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("CUSTOMER_AUTH_SECRET (or OPERATOR_SHARED_SECRET) must be set.");
+  }
+  return "dev-insecure-customer-secret";
 }
 
 function b64url(buf: Buffer | string): string {

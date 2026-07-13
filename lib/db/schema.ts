@@ -12,6 +12,7 @@ import {
   primaryKey,
   unique,
   uniqueIndex,
+  index,
   check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -672,20 +673,36 @@ export const leadUnlock = pgTable(
     outreach_status: text("outreach_status").notNull().default("new"),
     ...timestamps,
   },
-  (t) => [unique("lead_unlock_property_buyer").on(t.property_id, t.buyer_id)]
+  // Uniqueness is per TRADE per CYCLE, matching the scarcity model: a renewal
+  // (new cycle) reopens the lead, so the incumbent buyer who worked it last
+  // year MUST be able to buy its renewal — the old (property_id, buyer_id)
+  // constraint silently no-op'd that repurchase (settled money, no unlock row).
+  // Intra-cycle double-claims are still blocked (same property+buyer+trade+
+  // cycle), which is what the free-claim paths rely on.
+  (t) => [
+    unique("lead_unlock_property_buyer_trade_cycle").on(t.property_id, t.buyer_id, t.trade, t.cycle),
+    // property_id is covered by the composite unique's leading column; buyer_id
+    // (the buyer's "my unlocks" list) is not, so index it explicitly.
+    index("lead_unlock_buyer_idx").on(t.buyer_id),
+  ]
 );
 
 // Append-only activity log per unlocked lead: status changes, notes, and
 // postcard mailings. Powers the timeline on the sheet.
-export const leadActivity = pgTable("lead_activity", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  unlock_id: uuid("unlock_id")
-    .notNull()
-    .references(() => leadUnlock.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull(), // status | note | postcard
-  detail: text("detail").notNull(),
-  created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const leadActivity = pgTable(
+  "lead_activity",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    unlock_id: uuid("unlock_id")
+      .notNull()
+      .references(() => leadUnlock.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // status | note | postcard
+    detail: text("detail").notNull(),
+    created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Timeline is always queried by unlock_id — index the FK.
+  (t) => [index("lead_activity_unlock_idx").on(t.unlock_id)]
+);
 
 // Postcards mailed via Lob (paid, one-click). Idempotent on stripe_session_id so
 // a webhook retry never double-mails. A card targets EITHER a marketplace lead

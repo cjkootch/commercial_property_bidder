@@ -328,6 +328,7 @@ export async function runResidentialDemandGen(opts: {
       to: q.email,
       subject: msg.subject,
       html: toHtml(msg.body, unsubUrl, null),
+      stream: "campaign", // cold outreach — isolate from transactional domain reputation
       tags: { kind: "residential_demand", variant: subjectVariant },
       headers: {
         "List-Unsubscribe": `<${unsubUrl}>`,
