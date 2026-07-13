@@ -5,9 +5,11 @@ import { redirect } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsSend } from "@/lib/db/schema";
-import { sendSms, toE164 } from "@/lib/integrations/twilio";
+import { sendSms, toE164, isTextableLineType } from "@/lib/integrations/twilio";
 import { openerFor, queueSentToday, TEXT_QUEUE_DAILY_CAP } from "@/lib/sms/queue";
 import { draftSmsReply } from "@/lib/integrations/claude";
+import { ensureOwnerCell } from "@/lib/sms/cell";
+import { ensureLineTypeScreened } from "@/lib/sms/screen";
 import { rateLimit } from "@/lib/ratelimit";
 
 // Reply from the consolidated SMS inbox. The thread is keyed by the
@@ -69,13 +71,41 @@ export async function sendQueuedText(formData: FormData): Promise<void> {
       redirect(`/messages/sms?t=${encodeURIComponent(phoneE164)}&q=${encodeURIComponent("already opened with this number")}`);
     }
   }
+  // Autopilot parity (2026-07-13): a manual tap used to blast the raw number on
+  // file, bypassing the cell-first reveal + line screen the cron runs — so
+  // manual fires landed on business landlines/VoIP and bounced. Do both here
+  // too. Cell-first swaps in the owner's mobile where Apollo finds one; the
+  // just-in-time screen then drops a number SMS can't reach BEFORE we burn a
+  // cap slot on it.
+  const cell = await ensureOwnerCell(
+    {
+      id: p.id,
+      name: p.name,
+      website: p.website,
+      phone: p.phone,
+      lineType: p.line_type,
+      cellLookupAt: p.cell_lookup_at,
+    },
+    { apply: true }
+  );
+  const toPhone = cell.phone ?? p.phone;
+  const lineType = await ensureLineTypeScreened(p.id, toPhone, cell.swapped ? null : cell.lineType);
+  if (!isTextableLineType(lineType)) {
+    const to = toE164(toPhone);
+    redirect(
+      `/messages/sms${to ? `?t=${encodeURIComponent(to)}&` : "?"}q=${encodeURIComponent(
+        `skipped — that number is a ${lineType} and can't receive SMS (no mobile on file)`
+      )}`
+    );
+  }
+
   // Same atomic daily ledger as the cron — the snapshot check above races.
   if (!(await rateLimit("smsqueue:day", cap, 86_400)).ok) {
     redirect(`/messages/sms?q=${encodeURIComponent(`daily cap reached (${cap})`)}`);
   }
 
   const res = await sendSms({
-    to: p.phone,
+    to: toPhone,
     body: openerFor(p.name, p.office_city),
     kind: "text_queue",
     companyKey: p.key,
