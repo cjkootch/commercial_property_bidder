@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { desc, gte, like } from "drizzle-orm";
+import { desc, gte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { leadUnlock, property } from "@/lib/db/schema";
 import { resolveTenant } from "@/lib/tenant";
@@ -26,7 +26,10 @@ async function openJobStats() {
   const rows = await db
     .select()
     .from(property)
-    .where(like(property.name, "%(TABS %"))
+    // Any sourced lead kind, not just TABS construction — the shelf sells
+    // permits (BLD), code (CODE), transfers (HCAD), openings, distress (TAX),
+    // RFPs too, so the "open jobs" count must include them all.
+    .where(sql`${property.name} ~ '\\((TABS|HCAD|STP|H311|TABC|TAX|RFP|BLD|CODE) '`)
     .orderBy(desc(property.created_at));
   const unlocks = await db
     .select({ pid: leadUnlock.property_id, kind: leadUnlock.kind })

@@ -303,6 +303,13 @@ export default async function BuyerDashboard({
   const feed = alerts.slice(0, 8);
   const seenAt = me.alerts_seen_at?.getTime() ?? 0;
   const unseen = feed.filter((a) => a.at.getTime() > seenAt).length;
+  // Mark alerts seen on view: this render still highlights what's new since the
+  // LAST visit (isNew is computed against the old seenAt above), and the next
+  // visit starts clean — so the "N new" count means "since you last looked,"
+  // not "since you last clicked a button." (The explicit Mark-all-read stays.)
+  if (unseen > 0) {
+    await db.update(buyer).set({ alerts_seen_at: new Date() }).where(eq(buyer.id, me.id));
+  }
   const alertTime = (d: Date) =>
     d.toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
