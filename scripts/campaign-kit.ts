@@ -237,8 +237,11 @@ async function main() {
 
     // Per-buyer claim link: 30-day token carrying the lead + suggested company
     // name. Opening it lands on /buyers/claim/<token> — profile creation IS the
-    // free unlock (takes one of the lead's capped shared spots).
-    const claimUrl = `${base}/buyers/claim/${signBuyerClaim(lead.id, b.name)}`;
+    // free unlock (takes one of the lead's capped shared spots). This script is
+    // landscaping-only, so pin ?trade=landscaping EXPLICITLY: the claim page
+    // defaults a trade-less link to landscaping, and leaving it implicit would
+    // silently mis-shelf buyers if this script is ever reused for another trade.
+    const claimUrl = `${base}/buyers/claim/${signBuyerClaim(lead.id, b.name)}?trade=landscaping`;
 
     const msg = message({ company: b.name, distClause, distShort, lead, brand: co.name, replyEmail, price: PRICE, cap, claimUrl });
     const safe = b.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50);
