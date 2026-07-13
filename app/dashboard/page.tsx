@@ -6,6 +6,7 @@ import { getDefaultCompany, listDashboard, type DashboardRow } from "@/lib/db/qu
 import { usd, titleCase } from "@/lib/format";
 import { isGrassQualified, grassPercentLabel } from "@/lib/sourcing/criteria";
 import { leadMaxBuyers } from "@/lib/leads/availability";
+import { displayName } from "@/lib/leads/market";
 import { TRADES, asTrade, type Trade } from "@/lib/leads/trades";
 import { archiveProperty, unarchiveProperty } from "@/app/properties/actions";
 
@@ -216,7 +217,7 @@ function PropertyTable({
             <tr key={r.id} className="hover:bg-gray-50">
               <td className="px-4 py-2.5">
                 <Link href={`/properties/${r.id}`} className="font-medium text-brand hover:underline">
-                  {r.name.replace(/ \(TABS [^)]+\)$/, "")}
+                  {displayName(r.name)}
                 </Link>
                 {r.city ? <span className="ml-1 text-gray-400">· {r.city}</span> : null}
                 {r.lead_reasons.length ? (
