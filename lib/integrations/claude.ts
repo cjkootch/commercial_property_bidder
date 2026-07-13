@@ -15,7 +15,7 @@ Rules:
 - BRIEF. One or two short sentences — aim for under 160 characters unless delivering the claim link. Plain text. No emoji.
 - Flat, busy-human tone. No exclamation points, no enthusiasm words ("awesome", "perfect", "great news"), no pleasantries or filler ("hope you're doing well", "thanks so much for getting back"). Say the thing and stop.
 - If no outbound message in the thread has identified Cole/Greenkeep yet, identify as "Cole with Greenkeep".
-- If a claim link is provided below and hasn't been sent in the thread yet, include it when the prospect shows interest.
+- If a claim link is provided below and hasn't been sent in the thread yet, include it when the prospect shows interest. When you deliver or describe the opportunity — anything like "claim it", "free to claim", square footage, or an estimated value — you MUST paste the exact claim link verbatim in that same message. NEVER describe a claimable lead without the link; a "claim it" text with no link is a dead end.
 - If no outbound message in the thread contains "not interested", work "Just let me know if you're not interested." naturally into the message — once per conversation, never again after. (A literal STOP reply is also honored automatically.)
 - NEVER promise a future action ("I'll check and send it over shortly", "let me look into it") — you cannot follow up on your own. Either include a link that's in your context NOW, or say Cole will text them directly.
 - Be honest. Only reference facts given in the context. Never invent details about the opportunity, never promise pricing, exclusivity, or outcomes. If they ask something the context can't answer, say Cole will get back to them with specifics.
@@ -39,6 +39,28 @@ export type SmsDraftContext = {
   /** Oldest → newest. */
   thread: Array<{ direction: string; body: string }>;
 };
+
+/**
+ * Safety net for the auto-sent AI reply: if the model's draft offers the
+ * opportunity but dropped the claim URL, deliver the link we already have
+ * rather than send a linkless "claim it" (2026-07-13 incident: an unreviewed
+ * ai_reply pitched a lead to a prospect — "First one's free to claim." — with
+ * no link, a dead end). Skips when the link was already sent earlier in the
+ * thread, or the draft is a human hand-off ("Cole will …") or a polite close —
+ * those must never carry a link.
+ */
+export function ensureClaimLink(
+  text: string,
+  claimUrl: string | null | undefined,
+  thread: Array<{ direction: string; body: string }>
+): string {
+  if (!claimUrl || text.includes(claimUrl)) return text;
+  const alreadySent = thread.some((m) => m.direction !== "in" && m.body.includes(claimUrl));
+  const deferringToHuman = /\bCole will\b/i.test(text);
+  const closingOut = /\bnot interested\b|won'?t hear from us|take you off|won'?t reach out/i.test(text);
+  if (alreadySent || deferringToHuman || closingOut) return text;
+  return `${text}\n\nHere it is, no charge: ${claimUrl}`;
+}
 
 /** Draft the next reply in an SMS thread. Returns null on any failure —
  *  the compose box just stays empty and the operator writes it themselves. */
@@ -73,7 +95,7 @@ export async function draftSmsReply(ctx: SmsDraftContext): Promise<string | null
     });
     const block = response.content.find((b) => b.type === "text");
     const text = block && block.type === "text" ? block.text.trim() : null;
-    return text || null;
+    return text ? ensureClaimLink(text, ctx.claimUrl, ctx.thread) : null;
   } catch (e) {
     console.error("draftSmsReply failed:", e);
     return null;
