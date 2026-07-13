@@ -9,8 +9,11 @@ import { alertOperatorOfReply } from "@/lib/email/reply-alert";
 // replies are the conversion event, they must never sit unseen.
 //
 // Auth: SNS can't send custom headers, so the subscription URL carries
-// ?key=<INBOUND_WEBHOOK_SECRET or CRON_SECRET>. SubscriptionConfirmation is
-// completed automatically by fetching the SubscribeURL.
+// ?key=<INBOUND_WEBHOOK_SECRET>. This is a DEDICATED secret — never CRON_SECRET,
+// whose leak (query strings persist in logs) would hand an attacker the
+// credential that runs the whole pipeline. A stronger fix is verifying the SNS
+// message signature (SNS signs every delivery); tracked as a hardening
+// follow-up. SubscriptionConfirmation is completed by fetching the SubscribeURL.
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
@@ -20,14 +23,24 @@ type SnsEnvelope = {
   Message?: string;
 };
 
+type Verdict = { status?: string };
 type SesNotification = {
   notificationType?: string;
   mail?: { source?: string; destination?: string[] };
+  // SES receipt-rule verdicts — the only signal that the sender is who they
+  // claim. Absent for non-SES paths, in which case the alert treats the sender
+  // as unverified.
+  receipt?: {
+    spfVerdict?: Verdict;
+    dkimVerdict?: Verdict;
+    spamVerdict?: Verdict;
+    virusVerdict?: Verdict;
+  };
   content?: string; // raw MIME, base64 when base64Encoded, else utf8
 };
 
 export async function POST(req: NextRequest) {
-  const secret = process.env.INBOUND_WEBHOOK_SECRET || process.env.CRON_SECRET;
+  const secret = process.env.INBOUND_WEBHOOK_SECRET;
   if (!secret || req.nextUrl.searchParams.get("key") !== secret) {
     return new Response("Unauthorized", { status: 401 });
   }
@@ -74,6 +87,17 @@ export async function POST(req: NextRequest) {
     ? parseInboundEmail(raw)
     : { from: note.mail?.source ?? null, fromEmail: note.mail?.source?.toLowerCase() ?? null, subject: null, text: "(no content in notification — enable message content in the SES receipt rule)" };
 
-  await alertOperatorOfReply(parsed);
+  // A reply is only "verified" when SES's own SPF + DKIM checks both PASS.
+  // Anyone can email leads@ wearing a real buyer's From, so the alert must not
+  // present an unverified sender as trusted (phishing via our own conversion
+  // channel). Verdicts absent (non-SES path) => unverified.
+  const v = note.receipt;
+  const verified =
+    v?.spfVerdict?.status === "PASS" &&
+    v?.dkimVerdict?.status === "PASS" &&
+    v?.spamVerdict?.status !== "FAIL" &&
+    v?.virusVerdict?.status !== "FAIL";
+
+  await alertOperatorOfReply({ ...parsed, verified });
   return new Response("ok", { status: 200 });
 }

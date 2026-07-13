@@ -596,6 +596,12 @@ export const buyer = pgTable("buyer", {
   lat: doublePrecision("lat"),
   lng: doublePrecision("lng"),
   notify: boolean("notify").notNull().default(true),
+  // Operator kill switch for a bad actor (chargeback abuser, scraper). Set =
+  // the session resolves to null in currentBuyerId() and new logins are
+  // refused, so revoking access no longer depends on rotating the stateless
+  // session secret. Suppression only stops emails; this stops the portal.
+  banned_at: timestamp("banned_at", { withTimezone: true }),
+  banned_reason: text("banned_reason"),
   // First Look subscription (MRR): members see brand-new leads during the
   // early-access window before they hit the public shelf. plan flips via the
   // Stripe webhook (subscription checkout / invoice.paid / cancellation);

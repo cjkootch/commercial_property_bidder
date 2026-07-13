@@ -46,7 +46,19 @@ function baseUrl(): string {
 }
 
 export async function currentBuyerId(): Promise<string | null> {
-  return verifyBuyerSession(cookies().get(BUYER_COOKIE)?.value);
+  const id = verifyBuyerSession(cookies().get(BUYER_COOKIE)?.value);
+  if (!id) return null;
+  // Session revocation: a stateless HMAC session can't be invalidated by
+  // rotating the secret without logging everyone out, so a banned buyer is
+  // checked here — the one choke point every authenticated buyer action calls.
+  // Banned = treated as logged out (portal, unlocks, prospecting all gated).
+  const [row] = await db
+    .select({ banned_at: buyer.banned_at })
+    .from(buyer)
+    .where(eq(buyer.id, id))
+    .limit(1);
+  if (!row || row.banned_at) return null;
+  return id;
 }
 
 /**

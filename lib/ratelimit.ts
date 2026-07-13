@@ -62,7 +62,12 @@ export async function rateLimit(key: string, limit: number, windowSec: number): 
   }
 }
 
-/** Best-effort client IP for server actions / route handlers behind Vercel. */
+/** Best-effort client IP for server actions / route handlers behind Vercel.
+ *  SECURITY ASSUMPTION: takes the LEFTMOST x-forwarded-for entry, which is
+ *  client-spoofable in general — it is only trustworthy because Vercel's edge
+ *  OVERWRITES this header with the real client IP before our code runs. If this
+ *  app is ever deployed behind a different/additional proxy, IP-keyed rate
+ *  limits become spoofable; use the platform's verified client-IP header there. */
 export function clientIp(): string {
   try {
     const h = headers();
