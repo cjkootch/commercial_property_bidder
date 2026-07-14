@@ -1,4 +1,7 @@
 import { NextRequest } from "next/server";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { buyer, emailSend, prospectCompany } from "@/lib/db/schema";
 import { parseInboundEmail } from "@/lib/email/inbound";
 import { alertOperatorOfReply } from "@/lib/email/reply-alert";
 
@@ -97,6 +100,43 @@ export async function POST(req: NextRequest) {
     v?.dkimVerdict?.status === "PASS" &&
     v?.spamVerdict?.status !== "FAIL" &&
     v?.virusVerdict?.status !== "FAIL";
+
+  // Log EVERY inbound reply to email_send (direction "in") — the email twin of
+  // sms_send — so all communication is queryable, not just alerted-then-lost.
+  // Match the sender to a company/buyer so the reply joins their journey.
+  // Best-effort: a logging failure must never swallow the operator alert.
+  try {
+    const fromEmail = parsed.fromEmail;
+    let companyKey: string | null = null;
+    let buyerId: string | null = null;
+    if (fromEmail) {
+      const [co] = await db
+        .select({ key: prospectCompany.key })
+        .from(prospectCompany)
+        .where(eq(prospectCompany.email, fromEmail))
+        .limit(1);
+      companyKey = co?.key ?? null;
+      const [b] = await db
+        .select({ id: buyer.id })
+        .from(buyer)
+        .where(eq(buyer.email, fromEmail))
+        .limit(1);
+      buyerId = b?.id ?? null;
+    }
+    await db.insert(emailSend).values({
+      direction: "in",
+      kind: "inbound_reply",
+      from_email: fromEmail,
+      to_email: note.mail?.destination?.[0] ?? "leads@greenkeep.us",
+      subject: parsed.subject,
+      body: parsed.text?.slice(0, 8000) ?? null,
+      company_key: companyKey,
+      buyer_id: buyerId,
+      verified,
+    });
+  } catch (e) {
+    console.error("inbound-email: failed to log reply", e);
+  }
 
   await alertOperatorOfReply({ ...parsed, verified });
   return new Response("ok", { status: 200 });

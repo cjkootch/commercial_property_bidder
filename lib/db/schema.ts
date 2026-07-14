@@ -520,13 +520,24 @@ export const sourcingReject = pgTable("sourcing_reject", {
 
 export const emailSend = pgTable("email_send", {
   id: uuid("id").primaryKey().defaultRandom(),
-  /** "res_publish_alert" | "cart_nudge" | ... — the path that sent it. */
+  /** out | in — inbound replies land here too (the email twin of sms_send), so
+   *  ALL communication lives in one queryable place, not just the alert inbox. */
+  direction: text("direction").notNull().default("out"),
+  /** "res_publish_alert" | "cart_nudge" | "inbound_reply" | ... — the path. */
   kind: text("kind").notNull(),
   buyer_id: uuid("buyer_id").references(() => buyer.id, { onDelete: "set null" }),
+  /** prospect_company.key — joins email onto the company journey (like SMS). */
+  company_key: text("company_key"),
   /** What it was about (package id, property id) — attribution joins. */
   ref_id: text("ref_id"),
   to_email: text("to_email").notNull(),
+  /** Sender; meaningful for inbound (the prospect who replied). */
+  from_email: text("from_email"),
   subject: text("subject"),
+  /** Reply text for inbound (outbound bodies are backfillable later). */
+  body: text("body"),
+  /** Inbound only: SES SPF+DKIM both PASS (guards against spoofed replies). */
+  verified: boolean("verified"),
   resend_message_id: text("resend_message_id"),
   delivered_at: timestamp("delivered_at", { withTimezone: true }),
   opened_at: timestamp("opened_at", { withTimezone: true }),
