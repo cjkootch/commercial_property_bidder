@@ -35,6 +35,7 @@ const PUBLIC_PREFIXES = [
   "/buyers/login",
   "/buyers/verify",
   "/api/unsubscribe",
+  "/api/claim/track", // claim-page view tracking POST (token-verified inside; the page it serves is public)
   "/api/webhooks",
   "/api/property-preview",
   "/api/postcard-asset", // Lob fetches the prospect aerial by unguessable slug
