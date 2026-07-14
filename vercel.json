@@ -86,15 +86,7 @@
     },
     {
       "path": "/api/cron/sms-queue",
-      "schedule": "37 15 * * 1-5"
-    },
-    {
-      "path": "/api/cron/sms-queue",
-      "schedule": "7 19 * * 1-5"
-    },
-    {
-      "path": "/api/cron/sms-queue",
-      "schedule": "37 21 * * 1-5"
+      "schedule": "37 14-23 * * 1-5"
     },
     {
       "path": "/api/cron/sms-flush",
