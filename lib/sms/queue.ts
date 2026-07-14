@@ -175,10 +175,13 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
     if (!isTextableLineType(c.line_type)) continue;
     const a = byKey.get(c.key);
     if (!a?.propertyId) continue; // step 2 needs a link to deliver
-    // Heat: claim-page reads dominate, then clicks/opens; a missing email
-    // adds weight because SMS is the only channel left for them.
+    // Every prospect with a phone + a lead to offer is textable — SMS is not
+    // reserved for the already-engaged (operator decision 2026-07-14: "all
+    // prospects get a text and email"). Score still RANKS them so the daily cap
+    // works the warmest first and drains down to cold over successive runs; it
+    // no longer gates. (The deliverability/compliance guards above — valid
+    // number, line-screen, opt-out, dedupe, per-day cap — all still apply.)
     const score = c.claim_views * 5 + a.clicks * 3 + a.opens + (c.email ? 0 : 2);
-    if (score < 1) continue; // cold-cold stays in the email machine
     out.push({
       companyId: c.id,
       companyKey: c.key,
