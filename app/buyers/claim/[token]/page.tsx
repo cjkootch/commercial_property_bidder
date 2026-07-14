@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { headers } from "next/headers";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, claimEvent, leadUnlock, property } from "@/lib/db/schema";
+import { buyer, leadUnlock, property } from "@/lib/db/schema";
 import { verifyBuyerClaim } from "@/lib/buyer-auth";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { FREE_MAX_PER_LEAD } from "@/lib/leads/allocation";
@@ -10,9 +9,9 @@ import { leadAvailability, leadMaxBuyers } from "@/lib/leads/availability";
 import { leadKind } from "@/lib/leads/market";
 import { claimAsExistingBuyer, createBuyerProfile, currentBuyerId } from "../../actions";
 import { asTrade, TRADES, tradeValueInput } from "@/lib/leads/trades";
-import { recordClaimView, companyKey } from "@/lib/leads/companies";
-import { isPreviewBot } from "@/lib/user-agent";
-import { reserveHold, liveHold, heldForMe, heldByOther } from "@/lib/leads/holds";
+import { companyKey } from "@/lib/leads/companies";
+import { liveHold, heldForMe, heldByOther } from "@/lib/leads/holds";
+import { ClaimTrack } from "./ClaimTrack";
 import { cityClaimCount, cityScarcityLine } from "@/lib/leads/activity";
 import { Logo } from "@/components/Logo";
 import { openInventoryFor } from "@/lib/sms/ai-context";
@@ -38,16 +37,16 @@ export default async function ClaimPage({
   const claim = verifyBuyerClaim(params.token);
   const co = await getDefaultCompany();
   const brand = co?.name ?? "Greenkeep";
-  // A link-preview fetch (iMessage/WhatsApp/corporate filter) hits this page the
-  // instant the text is delivered. Those GETs must not start the 24h hold clock
-  // or pollute the funnel — only a real human tap counts. Same lesson as the
-  // round-1 export-on-GET bug: no functional state change on a bot GET.
-  const isHuman = !isPreviewBot(headers().get("user-agent"));
+  // Every functional side effect of a VIEW (hold, funnel event, claim heat) is
+  // deferred to a client-JS POST (ClaimTrack → /api/claim/track), never done on
+  // this server GET. Email-security link scanners re-fetch claim links hourly
+  // and evade UA sniffing, but they execute no JS — so gating on the POST is
+  // what actually keeps them from placing bogus holds (2026-07-14 incident).
 
   if (!claim) {
-    if (isHuman) db.insert(claimEvent).values({ event: "view_expired" }).catch(() => {});
     return (
       <Shell brand={brand}>
+        <ClaimTrack token={params.token} event="view_expired" trade="" canHold={false} />
         <h1 className="mt-4 text-xl font-semibold">This link has expired</h1>
         <p className="mt-2 text-sm text-gray-500">
           No problem — if you already have a profile, sign in below. Otherwise reply to the
@@ -85,10 +84,7 @@ export default async function ClaimPage({
         .where(and(eq(leadUnlock.buyer_id, sessionBuyerId!), eq(leadUnlock.kind, "free")))
         .limit(1)
     : [];
-  // The hot unconverted signal: this company opened the offer. Best-effort —
-  // never blocks the render. Skipped for preview bots so heat isn't inflated by
-  // the delivery-time fetch.
-  if (isHuman) await recordClaimView(claim.company);
+  // (claim-view heat is recorded via the client POST, not this GET.)
   // Pre-signup, the trade comes from the outreach link (?trade=). Signed in,
   // it's the buyer's own trade — that's the shelf the unlock actually runs on.
   const trade = me ? asTrade(me.trade) : asTrade(searchParams.trade);
@@ -108,14 +104,10 @@ export default async function ClaimPage({
           .where(and(eq(leadUnlock.property_id, prop.id), eq(leadUnlock.kind, "free")))
       ).filter((u) => u.trade === trade).length >= FREE_MAX_PER_LEAD
     : false;
-  // Loss-aversion 24h hold: opening the link reserves the free spot for this
-  // company (if it's open to hold). Others then see it taken until it expires or
-  // they claim — so "held for you, or it goes to the next company" is literally
-  // true. Best-effort; the reserve/read never block the render.
+  // Loss-aversion 24h hold: reserving the free spot happens via the client POST
+  // (/api/claim/track) so only a real human — not a link scanner — can place it.
+  // Here we just READ any live hold to render "held for you" / "held by another".
   const myKey = claim.company ? companyKey(claim.company) : null;
-  if (isHuman && prop && sellable && trade && avail?.open && !freeSpent) {
-    await reserveHold(prop.id, trade, claim.company);
-  }
   const hold = prop && sellable ? await liveHold(prop.id, trade) : null;
   const mineHeld = heldForMe(hold, myKey);
   const otherHeld = heldByOther(hold, myKey);
@@ -141,25 +133,17 @@ export default async function ClaimPage({
   const paidOpen = !!avail?.open && (freeSpent || !!mySpentFree || otherHeld);
   const cap = leadMaxBuyers();
 
-  // Funnel step 1: log which offer state this clicker was actually shown, so we
-  // can tell a gone-free-spot arrival (looks like a broken "free" promise) from
-  // a valid offer they abandoned. Best-effort; never blocks the render. Humans
-  // only — a preview-bot fetch isn't a real view.
-  if (isHuman)
-    db.insert(claimEvent)
-    .values({
-      company: claim.company ?? null,
-      property_id: prop?.id ?? null,
-      trade,
-      event: claimable
-        ? "view_claimable"
-        : paidOpen
-          ? "view_paid"
-          : prop && avail && !avail.open
-            ? "view_filled"
-            : "view_unsellable",
-    })
-    .catch(() => {});
+  // Funnel step 1: which offer state this clicker was shown (claimable-free vs.
+  // gone vs. filled). Recorded by the client POST, not this GET, so scanners
+  // don't pollute it. canHold = the free spot is actually reservable for them.
+  const viewEvent = claimable
+    ? "view_claimable"
+    : paidOpen
+      ? "view_paid"
+      : prop && avail && !avail.open
+        ? "view_filled"
+        : "view_unsellable";
+  const canHold = !!(prop && sellable && trade && avail?.open && !freeSpent);
 
   const cost = note(prop?.notes ?? null, /est\. cost (\$[\d,]+)/);
   const workType = note(prop?.notes ?? null, /: ([^,]+), est\. cost/);
@@ -205,6 +189,7 @@ export default async function ClaimPage({
 
   return (
     <Shell brand={brand}>
+      <ClaimTrack token={params.token} event={viewEvent} trade={trade} canHold={canHold} />
       <h1 className="mt-3 text-xl font-semibold">Claim your free job sheet</h1>
 
       {scarcityLine ? (
@@ -307,6 +292,21 @@ export default async function ClaimPage({
           View a sample sheet →
         </a>
       </p>
+
+      {/* Questions? One tap to a real person on WhatsApp. */}
+      <a
+        href={`https://wa.me/18324927169?text=${encodeURIComponent(
+          `Hi — question about the ${prop?.city ?? "commercial"} lead on Greenkeep`
+        )}`}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-2 flex items-center justify-center gap-1.5 text-center text-xs font-medium text-gray-500 hover:text-[#25D366]"
+      >
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="#25D366" aria-hidden="true">
+          <path d="M17.5 14.4c-.3-.15-1.77-.87-2.04-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.95 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37s-1.05 1.02-1.05 2.5 1.08 2.9 1.23 3.1c.15.2 2.12 3.24 5.14 4.54.72.31 1.28.5 1.71.63.72.23 1.38.2 1.9.12.58-.09 1.77-.72 2.02-1.42.25-.7.25-1.3.17-1.42-.07-.12-.27-.2-.57-.35zM12.05 21.5h-.01a9.5 9.5 0 01-4.83-1.32l-.35-.2-3.59.94.96-3.5-.23-.36a9.48 9.48 0 01-1.45-5.05c0-5.24 4.27-9.5 9.51-9.5 2.54 0 4.92.99 6.72 2.79a9.44 9.44 0 012.78 6.72c0 5.24-4.27 9.5-9.5 9.5zm5.53-15.03A11.06 11.06 0 0012.05.5C5.95.5 1 5.45 1 11.55c0 1.95.51 3.85 1.48 5.53L.9 22.9l5.96-1.56a11 11 0 005.18 1.32h.01c6.1 0 11.06-4.96 11.06-11.06 0-2.95-1.15-5.73-3.24-7.82z" />
+        </svg>
+        Questions? Message us on WhatsApp
+      </a>
 
       {me ? (
         <form action={claimAsExistingBuyer.bind(null, params.token)} className="mt-5 space-y-3">
