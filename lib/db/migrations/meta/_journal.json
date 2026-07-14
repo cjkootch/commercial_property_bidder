@@ -386,6 +386,13 @@
       "when": 1783980038081,
       "tag": "0054_youthful_sunfire",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1783989873879,
+      "tag": "0055_curved_jimmy_woo",
+      "breakpoints": true
     }
   ]
 }
