@@ -28,11 +28,16 @@ import { isTextableLineType } from "@/lib/integrations/twilio";
 //    never texted before, never opted out/blocked/converted
 //  - Kill switch: SMS_AUTOPILOT=0 turns every run into a no-op
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // up to 60 sequential sends per run
+export const maxDuration = 300; // headroom for a batch of sequential sends + lookups
 
+// Trickle sizing (2026-07-14, cold-outreach scale): the cron now runs HOURLY
+// across the send window instead of 3x/day, and each run sends a small batch —
+// same daily total (the shared cap), spread evenly. A ~60-message burst in two
+// minutes of identical-template cold SMS is exactly the pattern carrier spam
+// filters flag; ~20/hour reads human. Tune via SMS_QUEUE_PER_RUN.
 const PER_RUN = () => {
   const n = Number(process.env.SMS_QUEUE_PER_RUN);
-  return Number.isFinite(n) && n > 0 ? n : 60;
+  return Number.isFinite(n) && n > 0 ? n : 20;
 };
 
 export async function GET(req: NextRequest) {
