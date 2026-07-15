@@ -16,6 +16,7 @@ import {
 } from "@/lib/sms/queue";
 import { NUDGE_AFTER_HOURS, NUDGE_MAX_AGE_DAYS } from "@/lib/pipeline/nudges";
 import { LONG_TAIL_EVERY_DAYS, LONG_TAIL_MAX_TOUCHES } from "@/lib/pipeline/long-tail";
+import { OUTCOME_AFTER_DAYS, outcomeSmsFor } from "@/lib/pipeline/outcome-check";
 import { HOLD_TTL_HOURS } from "@/lib/leads/holds";
 
 // --- cron → human text ------------------------------------------------------
@@ -229,10 +230,33 @@ export function CommFlow() {
         others see it taken, then it releases), shows real recent claim activity in their city, and
         offers WhatsApp for questions. Creating the 3-field profile IS the claim.
       </div>
+
+      {/* ---------------- after the claim: the outcome loop ---------------- */}
+      <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50/50 p-4 text-sm text-gray-700">
+        <div className="mb-2">
+          <span className="font-semibold text-violet-900">
+            After the claim — day-{OUTCOME_AFTER_DAYS} outcome check-in:
+          </span>{" "}
+          one message per claimed lead, ever, on the buyer&apos;s best channel — SMS when their
+          number is textable (nudge cron: {schedulesFor("/api/cron/nudges").join(" · ")}), email
+          otherwise.
+        </div>
+        <Msg text={outcomeSmsFor({ city: "Houston", trade: "cleaning" })} />
+        <div className="pt-2">
+          <Chip tone="green">went well → AI offers the next open lead + claim link (upsell)</Chip>
+          <Chip tone="amber">went nowhere → AI asks how they worked it (timing, channel, contact)</Chip>
+          <Chip tone="red">dead contact → flagged for the operator to re-verify the sheet</Chip>
+        </div>
+        <div className="pt-1 text-xs text-gray-500">
+          SMS replies branch automatically in the AI thread; email replies land on the operator
+          (reply-to) with the same playbook.
+        </div>
+      </div>
       <p className="mt-2 text-[11px] text-gray-400">
         Sources: vercel.json (schedules) · lib/sms/queue.ts (SMS copy + timings) ·
-        lib/pipeline/nudges.ts (email nudge) · lib/leads/holds.ts (hold TTL) · previews rendered by
-        the exact template functions the senders call, with sample data.
+        lib/pipeline/nudges.ts (email nudge) · lib/pipeline/outcome-check.ts (outcome loop) ·
+        lib/leads/holds.ts (hold TTL) · previews rendered by the exact template functions the
+        senders call, with sample data.
       </p>
     </section>
   );
