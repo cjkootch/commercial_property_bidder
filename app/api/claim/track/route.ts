@@ -12,7 +12,9 @@ import { asTrade } from "@/lib/leads/trades";
 // Rationale (2026-07-14): email-security link scanners (Mimecast/Proofpoint/
 // Safe-Links) re-fetch claim links hourly and evade UA sniffing, so a GET-time
 // hold placed BOGUS holds that blocked real buyers and polluted the funnel.
-// Scanners don't execute JS, so gating on this POST cleanly excludes them.
+// Update (2026-07-15): scanners started executing JS too (headless browsers),
+// so ClaimTrack now only fires this POST on the first human *input* — pointer,
+// touch, scroll, or key — which automated page renderers never produce.
 // The token is signed (property is trustworthy); trade/event are analytics.
 export const dynamic = "force-dynamic";
 
