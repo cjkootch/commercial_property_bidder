@@ -15,6 +15,7 @@ import {
   TEXT_QUEUE_DAILY_CAP,
 } from "@/lib/sms/queue";
 import { NUDGE_AFTER_HOURS, NUDGE_MAX_AGE_DAYS } from "@/lib/pipeline/nudges";
+import { LONG_TAIL_EVERY_DAYS, LONG_TAIL_MAX_TOUCHES } from "@/lib/pipeline/long-tail";
 import { HOLD_TTL_HOURS } from "@/lib/leads/holds";
 
 // --- cron → human text ------------------------------------------------------
@@ -109,6 +110,7 @@ export function CommFlow() {
   const flushCron = schedulesFor("/api/cron/sms-flush").join(" · ");
   const demandCron = schedulesFor("/api/cron/demand").join(" · ");
   const emailNudgeCron = schedulesFor("/api/cron/nudges").join(" · ");
+  const longTailCron = schedulesFor("/api/cron/long-tail").join(" · ");
 
   return (
     <section className="mt-10">
@@ -167,7 +169,13 @@ export function CommFlow() {
             </div>
           </Step>
 
-          <Step n="3" title="End of automation" accent="bg-gray-400" timing="no further automated texts" last>
+          <Step n="3" title="Long tail (phone-only prospects)" accent="bg-brand" timing={`every ${LONG_TAIL_EVERY_DAYS}d of silence · max ${LONG_TAIL_MAX_TOUCHES} touches, ever · shared daily cap + hours window`}>
+            Prospects with no email get the SMS version of the long-tail re-touch: a genuinely new
+            lead near them with the value estimate + 24h hold. Emailable prospects get it by email
+            instead (see Email column).
+          </Step>
+
+          <Step n="4" title="End of automation" accent="bg-gray-400" timing="no further automated texts" last>
             Replies still land in the inbox + AI thread any time; a claim converts them to a buyer
             and removes them from all prospect sends.
           </Step>
@@ -200,7 +208,14 @@ export function CommFlow() {
             companies that engaged (opened/clicked/viewed); capped per event.
           </Step>
 
-          <Step n="4" title="End of automation" accent="bg-gray-400" timing="no further automated emails" last>
+          <Step n="4" title="Long tail — new-inventory re-touch" accent="bg-blue-600" timing={`${longTailCron} · every ${LONG_TAIL_EVERY_DAYS}d of silence · max ${LONG_TAIL_MAX_TOUCHES} touches, ever`}>
+            A quiet prospect gets one re-touch offering a <em>genuinely new</em> lead near them
+            (never a repeat, never &quot;just checking in&quot;) — real value estimate + the 24h
+            first-claim hold. Phone-only prospects get the SMS version (same cadence, shared SMS
+            cap). Any engagement drops them back into the hot machinery.
+          </Step>
+
+          <Step n="5" title="End of automation" accent="bg-gray-400" timing="no further automated emails" last>
             Replies to leads@ are logged + alert the operator instantly. Bounces and complaints
             auto-suppress the address forever.
           </Step>

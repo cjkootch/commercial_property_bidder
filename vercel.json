@@ -93,6 +93,10 @@
       "schedule": "7 12-15 * * *"
     },
     {
+      "path": "/api/cron/long-tail?limit=40",
+      "schedule": "22 16 * * 2"
+    },
+    {
       "path": "/api/cron/buyer-alerts",
       "schedule": "7 17 * * 1-5"
     }
