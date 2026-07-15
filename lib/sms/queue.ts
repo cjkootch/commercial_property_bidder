@@ -5,12 +5,13 @@
 // a short human opener, then — once they reply — the pitch with their claim
 // link, where Greenkeep is identified and the casual opt-out is offered.
 
-import { isNotNull, isNull, and } from "drizzle-orm";
+import { isNotNull, isNull, and, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyerOutreach, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
+import { buyerOutreach, property, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
 import { toE164, isTextableLineType } from "@/lib/integrations/twilio";
 import { signBuyerClaim } from "@/lib/buyer-auth";
 import { DEFAULT_TZ, marketTimezones } from "@/lib/markets";
+import { asTrade, TRADES } from "@/lib/leads/trades";
 
 /** Claim links for texts are minted FRESH at suggestion/send time — a stored
  *  buyer_outreach.claim_url may be older than the 30-day token TTL, and a
@@ -240,11 +241,26 @@ export const SMS_NUDGE_AFTER_HOURS = 48;
 export const SMS_NUDGE_MAX_AGE_DAYS = 25;
 
 /** The follow-up text: delivers the pitch + link the silent opener never
- *  earned, identifies the business (CTIA), carries the casual opt-out. */
-export function nudgeTextFor(name: string, claimUrl: string): string {
+ *  earned, identifies the business (CTIA), carries the casual opt-out.
+ *  Leans on the two honest hooks (2026-07-14): the lead's REAL dollar size
+ *  (from the teaser estimate, when sized) and the enforced 24h first-claim
+ *  hold — one scarcity fact, not a stack; everything literally true. */
+export function nudgeTextFor(
+  name: string,
+  claimUrl: string,
+  opts?: { city?: string | null; service?: string | null; estLo?: number | null; estHi?: number | null }
+): string {
+  const city = opts?.city
+    ?.trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+  const what = `a ${city ? `${city} ` : ""}${opts?.service ?? "commercial"} job`;
+  const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+  const value =
+    opts?.estLo && opts?.estHi ? `, est. ${usd(opts.estLo)}-${usd(opts.estHi)}/yr` : "";
   return (
-    `Didn't hear back, so I'll just send it over — we found a commercial ` +
-    `opportunity near you that looks like a fit for ${name}. Free to view: ${claimUrl}\n\n` +
+    `Didn't hear back, so I'll just send it over — ${what}${value}. Each lead ` +
+    `goes to one company; opening this gives ${name} first claim for 24h: ${claimUrl}\n\n` +
     `${OPT_OUT_LINE}\n\n-Cole, Greenkeep`
   );
 }
@@ -352,6 +368,18 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
     if (!prev || at >= prev.at) offerByKey.set(o.company_key, { propertyId: o.property_id!, at });
   }
 
+  // The lead's city + teaser estimate power the nudge's value line ("a Houston
+  // cleaning job, est. $6,600-$12,300/yr") — real numbers, fetched once for the
+  // offered properties. Absent teaser → the copy degrades gracefully.
+  const offeredIds = [...new Set([...offerByKey.values()].map((o) => o.propertyId))];
+  const props = offeredIds.length
+    ? await db
+        .select({ id: property.id, city: property.city, lead_teaser: property.lead_teaser })
+        .from(property)
+        .where(inArray(property.id, offeredIds))
+    : [];
+  const propById = new Map(props.map((p) => [p.id, p]));
+
   // Deterministic company order so a phone shared by two companies always
   // resolves to the same one — and only ONE nudge per phone regardless.
   const out: SmsNudgeTarget[] = [];
@@ -363,12 +391,19 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
     const offer = offerByKey.get(c.key);
     if (!offer) continue; // nothing to deliver
     nudgedPhones.add(phone);
+    const p = propById.get(offer.propertyId);
+    const teaser = (p?.lead_teaser ?? null) as { annual_lo?: number; annual_hi?: number } | null;
     out.push({
       companyId: c.id,
       companyKey: c.key,
       name: c.name,
       phone,
-      text: nudgeTextFor(c.name, freshClaimUrl(offer.propertyId, c.name, c.trade)),
+      text: nudgeTextFor(c.name, freshClaimUrl(offer.propertyId, c.name, c.trade), {
+        city: p?.city ?? null,
+        service: TRADES[asTrade(c.trade)].service,
+        estLo: teaser?.annual_lo ?? null,
+        estHi: teaser?.annual_hi ?? null,
+      }),
     });
   }
   // Oldest opener first — they've waited longest and their tokens expire first.

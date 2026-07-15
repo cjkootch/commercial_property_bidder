@@ -110,4 +110,21 @@ describe("nudgeTextFor", () => {
     expect(text).toContain("Greenkeep");
     expect(text).toContain(OPT_OUT_LINE);
   });
+  it("names the REAL dollar size and the 24h first-claim hold when sized", () => {
+    const text = nudgeTextFor("Acme Lawn", "https://x/claim/tok", {
+      city: "HOUSTON",
+      service: "cleaning",
+      estLo: 6600,
+      estHi: 12300,
+    });
+    expect(text).toContain("a Houston cleaning job, est. $6,600-$12,300/yr");
+    expect(text).toContain("first claim for 24h");
+    expect(text).toContain("Each lead goes to one company");
+  });
+  it("degrades gracefully without an estimate or city", () => {
+    const text = nudgeTextFor("Acme Lawn", "https://x/claim/tok", { service: "roofing" });
+    expect(text).toContain("a roofing job. Each lead goes to one company");
+    expect(text).not.toContain("est.");
+    expect(text).not.toContain("$");
+  });
 });

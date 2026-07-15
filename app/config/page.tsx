@@ -1,4 +1,5 @@
 import { getActiveConfig, getDefaultCompany, toEngineConfig } from "@/lib/db/queries";
+import { CommFlow } from "./CommFlow";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,12 @@ export default async function ConfigPage() {
   const cfgRow = co ? await getActiveConfig(co.id) : null;
 
   if (!cfgRow) {
-    return <p className="text-sm text-gray-500">No active pricing config. Run `npm run db:seed`.</p>;
+    return (
+      <div className="max-w-5xl">
+        <p className="text-sm text-gray-500">No active pricing config. Run `npm run db:seed`.</p>
+        <CommFlow />
+      </div>
+    );
   }
 
   const cfg = toEngineConfig(cfgRow);
@@ -38,20 +44,23 @@ export default async function ConfigPage() {
     cfg.crew_size * cfg.labor_cost_per_person_hour + cfg.equipment_cost_per_crew_hour;
 
   return (
-    <div className="max-w-2xl">
-      <h1 className="text-2xl font-semibold">Pricing config</h1>
-      <p className="mt-1 text-sm text-gray-500">
-        Active version {cfgRow.version}. Derived crew cost: ${crewCost.toFixed(2)}/hr. Editing
-        (new version) comes in a later phase.
-      </p>
-      <dl className="mt-6 grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
-        {Object.entries(LABELS).map(([key, label]) => (
-          <div key={key} className="flex justify-between border-b border-gray-100 py-1">
-            <dt className="text-gray-600">{label}</dt>
-            <dd className="font-medium tabular-nums">{String((cfg as unknown as Record<string, number>)[key])}</dd>
-          </div>
-        ))}
-      </dl>
+    <div className="max-w-5xl">
+      <div className="max-w-2xl">
+        <h1 className="text-2xl font-semibold">Pricing config</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Active version {cfgRow.version}. Derived crew cost: ${crewCost.toFixed(2)}/hr. Editing
+          (new version) comes in a later phase.
+        </p>
+        <dl className="mt-6 grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
+          {Object.entries(LABELS).map(([key, label]) => (
+            <div key={key} className="flex justify-between border-b border-gray-100 py-1">
+              <dt className="text-gray-600">{label}</dt>
+              <dd className="font-medium tabular-nums">{String((cfg as unknown as Record<string, number>)[key])}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <CommFlow />
     </div>
   );
 }
