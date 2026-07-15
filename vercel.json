@@ -97,6 +97,10 @@
       "schedule": "22 16 * * 2"
     },
     {
+      "path": "/api/cron/hold-expiry?apply=1",
+      "schedule": "23 14-23 * * *"
+    },
+    {
       "path": "/api/cron/buyer-alerts",
       "schedule": "7 17 * * 1-5"
     }

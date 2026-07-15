@@ -17,6 +17,7 @@ import {
 import { NUDGE_AFTER_HOURS, NUDGE_MAX_AGE_DAYS } from "@/lib/pipeline/nudges";
 import { LONG_TAIL_EVERY_DAYS, LONG_TAIL_MAX_TOUCHES } from "@/lib/pipeline/long-tail";
 import { OUTCOME_AFTER_DAYS, outcomeSmsFor } from "@/lib/pipeline/outcome-check";
+import { HOLD_REMIND_BEFORE_HOURS, holdReminderSmsFor } from "@/lib/pipeline/hold-expiry";
 import { HOLD_TTL_HOURS } from "@/lib/leads/holds";
 
 // --- cron → human text ------------------------------------------------------
@@ -225,10 +226,25 @@ export function CommFlow() {
 
       {/* ---------------- shared destination ---------------- */}
       <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-sm text-gray-700">
-        <span className="font-semibold text-emerald-900">Both channels land on the claim page:</span>{" "}
-        opening it holds the lead&apos;s free spot for that company for {HOLD_TTL_HOURS}h (enforced —
-        others see it taken, then it releases), shows real recent claim activity in their city, and
-        offers WhatsApp for questions. Creating the 3-field profile IS the claim.
+        <div className="mb-2">
+          <span className="font-semibold text-emerald-900">Both channels land on the claim page:</span>{" "}
+          opening it holds the lead&apos;s free spot for that company for {HOLD_TTL_HOURS}h (enforced —
+          others see it taken, then it releases), shows real recent claim activity in their city, and
+          offers WhatsApp for questions. Creating the 3-field profile IS the claim.
+        </div>
+        <div className="mb-1 text-xs font-semibold text-emerald-900">
+          Hold ending unclaimed → one reminder, ≤{HOLD_REMIND_BEFORE_HOURS}h before expiry (hourly cron,
+          best channel, once per hold ever):
+        </div>
+        <Msg
+          text={holdReminderSmsFor({
+            city: "Houston",
+            trade: "cleaning",
+            expiresAt: new Date("2026-01-01T18:11:00Z"),
+            tz: "America/Chicago",
+            claimUrl: SAMPLE_LINK,
+          })}
+        />
       </div>
 
       {/* ---------------- after the claim: the outcome loop ---------------- */}
@@ -255,8 +271,8 @@ export function CommFlow() {
       <p className="mt-2 text-[11px] text-gray-400">
         Sources: vercel.json (schedules) · lib/sms/queue.ts (SMS copy + timings) ·
         lib/pipeline/nudges.ts (email nudge) · lib/pipeline/outcome-check.ts (outcome loop) ·
-        lib/leads/holds.ts (hold TTL) · previews rendered by the exact template functions the
-        senders call, with sample data.
+        lib/pipeline/hold-expiry.ts (hold reminder) · lib/leads/holds.ts (hold TTL) · previews
+        rendered by the exact template functions the senders call, with sample data.
       </p>
     </section>
   );
