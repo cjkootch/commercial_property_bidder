@@ -37,10 +37,33 @@ export type SendResult =
  * and come back on webhook events (we tag the outreach id so opens map back).
  * Returns the Resend message id on success. Never throws.
  */
+/** Plain-text alternative derived from our simple email HTML. HTML-only mail
+ *  is a bot signature spam filters mildly penalize (human mail clients always
+ *  send multipart) — every send gets a text part, derived here unless the
+ *  caller passes a higher-fidelity one. Handles the shapes our builders emit:
+ *  inline-styled <p>/<br>/<a> with escaped entities. */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h1|h2|h3|li|tr)>/gi, "\n\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export async function sendEmail(args: {
   to: string;
   subject: string;
   html: string;
+  /** Plain-text part; derived from html when omitted (never sent html-only). */
+  text?: string;
   tags?: Record<string, string>;
   /** Extra SMTP headers (e.g. List-Unsubscribe for one-click opt-out). */
   headers?: Record<string, string>;
@@ -80,6 +103,7 @@ export async function sendEmail(args: {
         to: [args.to],
         subject: args.subject,
         html: args.html,
+        text: args.text ?? htmlToText(args.html),
         // Resend open/click tracking (also enable at the domain level in Resend).
         tracking: { opens: true, clicks: true },
         tags: args.tags
