@@ -24,10 +24,13 @@ import { marketTz } from "../markets";
 import { getDefaultCompany } from "../db/queries";
 import { rateLimit } from "../ratelimit";
 
-/** Days of silence between long-tail touches. */
-export const LONG_TAIL_EVERY_DAYS = 30;
-/** Lifetime long-tail touch budget per company — then quiet forever. */
-export const LONG_TAIL_MAX_TOUCHES = 4;
+/** Days of silence between long-tail touches (env-tunable, no deploy). */
+export const LONG_TAIL_EVERY_DAYS = Number(process.env.LONG_TAIL_EVERY_DAYS) || 30;
+/** Lifetime long-tail touch budget per company — then quiet. 12 = a full year
+ *  of monthly re-touches (automotive-length follow-up; operator 2026-07-15:
+ *  4 was "not nearly enough"). Only ACTUAL sends burn budget — a month with no
+ *  new inventory near them costs nothing. Env-tunable. */
+export const LONG_TAIL_MAX_TOUCHES = Number(process.env.LONG_TAIL_MAX_TOUCHES) || 12;
 
 export type LongTailCandidate = {
   key: string;
