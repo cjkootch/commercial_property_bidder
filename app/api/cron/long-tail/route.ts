@@ -4,7 +4,7 @@ import { runLongTail } from "@/lib/pipeline/long-tail";
 
 // Weekly long-tail re-engagement (see lib/pipeline/long-tail.ts): quiet
 // prospects ≥30 days silent get ONE re-touch with a genuinely NEW lead near
-// them — email first, SMS for phone-only — capped at 4 lifetime touches.
+// them — email first, SMS for phone-only — capped lifetime touches (env-tunable).
 // Kill switch: LONG_TAIL_AUTOPILOT=0.
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
