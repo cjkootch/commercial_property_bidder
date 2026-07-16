@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  normalizeAttomSale,
   normalizeResidentialSale,
   normalizeTarrantSale,
   MIN_HOME_VALUE,
@@ -203,5 +204,45 @@ describe("normalizeTarrantSale", () => {
     const noDate = cloneTad();
     noDate.properties.DEED_DATE = null;
     expect(normalizeTarrantSale(noDate)).toBeNull();
+  });
+});
+
+describe("normalizeAttomSale", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    properties: {
+      identifier: { attomId: 987654 },
+      address: { line1: "6657 COYOTE VALLEY TRL", locality: "CROWLEY", postal1: "76036" },
+      location: { latitude: "32.5721", longitude: "-97.3695" },
+      sale: { saleTransDate: "2026-07-01", amount: { saleAmt: 355020 } },
+      summary: { propType: "SFR" },
+      ...over,
+    },
+  });
+
+  it("normalizes a fresh ATTOM sale (camelCase survives, price is the value)", () => {
+    const c = normalizeAttomSale(row())!;
+    expect(c.sourceKey).toBe("attom");
+    expect(c.account).toBe("987654");
+    expect(c.address).toBe("6657 Coyote Valley Trl");
+    expect(c.city).toBe("Crowley");
+    expect(c.zip).toBe("76036");
+    expect(c.saleDateIso).toBe("2026-07-01");
+    expect(c.marketValue).toBe(355020);
+    expect(c.lat).toBeCloseTo(32.5721);
+  });
+
+  it("drops rows without a price or outside the volume band (the SFR screen)", () => {
+    expect(normalizeAttomSale(row({ sale: { saleTransDate: "2026-07-01", amount: {} } }))).toBeNull();
+    expect(
+      normalizeAttomSale(row({ sale: { saleTransDate: "2026-07-01", amount: { saleAmt: 90000 } } }))
+    ).toBeNull();
+    expect(
+      normalizeAttomSale(row({ sale: { saleTransDate: "2026-07-01", amount: { saleAmt: 9000000 } } }))
+    ).toBeNull();
+  });
+
+  it("drops non-residential property types and dateless rows", () => {
+    expect(normalizeAttomSale(row({ summary: { propType: "COMMERCIAL" } }))).toBeNull();
+    expect(normalizeAttomSale(row({ sale: { amount: { saleAmt: 355020 } } }))).toBeNull();
   });
 });

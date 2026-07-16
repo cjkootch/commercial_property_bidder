@@ -67,7 +67,7 @@ function num(v: any): number | null {
  *  (assdTtlValue vs assdttlvalue — a live day-one bug: the camelCase real
  *  response slipped straight through lowercase paths and reported rich
  *  records as empty). Lowercase every key once, then read lowercase paths. */
-function lcKeys(v: any): any {
+export function lcKeys(v: any): any {
   if (Array.isArray(v)) return v.map(lcKeys);
   if (v && typeof v === "object") {
     const out: Record<string, any> = {};
@@ -131,9 +131,15 @@ export type AttomResult =
   | { ok: true; facts: AttomFacts }
   | { ok: false; error: string; budget?: boolean };
 
-/** One metered GET. Ledgers are counted BEFORE the HTTP call — an over-budget
- *  request is refused without spending. */
-export async function fetchExpandedProfile(address1: string, address2: string): Promise<AttomResult> {
+export type AttomGetResult =
+  | { ok: true; json: unknown; noResult: boolean }
+  | { ok: false; error: string; budget?: boolean };
+
+/** The ONE metered GET every ATTOM endpoint goes through. Ledgers are counted
+ *  BEFORE the HTTP call — an over-budget request is refused without spending.
+ *  `noResult: true` = ATTOM's SuccessWithoutResult (a real "nothing here"
+ *  answer, often delivered as HTTP 400). */
+export async function attomGet(path: string, params: Record<string, string>): Promise<AttomGetResult> {
   const key = getAttomKey();
   if (!key) return { ok: false, error: "ATTOM_API_KEY not set" };
 
@@ -143,23 +149,30 @@ export async function fetchExpandedProfile(address1: string, address2: string): 
   if (!day.ok) return { ok: false, error: "daily ATTOM brake tripped", budget: true };
 
   try {
-    const url = `${BASE}/property/expandedprofile?address1=${encodeURIComponent(address1)}&address2=${encodeURIComponent(address2)}`;
-    const res = await fetch(url, { headers: { apikey: key, Accept: "application/json" } });
+    const sp = new URLSearchParams(params);
+    const res = await fetch(`${BASE}${path}?${sp.toString()}`, {
+      headers: { apikey: key, Accept: "application/json" },
+    });
     const json = (await res.json().catch(() => null)) as {
       status?: { code?: number; msg?: string };
     } | null;
-    // ATTOM signals "no data for this address" as SuccessWithoutResult (often
-    // HTTP 400) — a real answer, cached as such upstream.
     const msg = json?.status?.msg ?? "";
     if (/SuccessWithoutResult/i.test(msg) || res.status === 404) {
-      return { ok: true, facts: emptyFacts() };
+      return { ok: true, json, noResult: true };
     }
     if (!res.ok) return { ok: false, error: `HTTP ${res.status} ${msg}`.trim() };
-    const facts = normalizeExpandedProfile(json);
-    return facts ? { ok: true, facts } : { ok: true, facts: emptyFacts() };
+    return { ok: true, json, noResult: false };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "attom fetch failed" };
   }
+}
+
+export async function fetchExpandedProfile(address1: string, address2: string): Promise<AttomResult> {
+  const res = await attomGet("/property/expandedprofile", { address1, address2 });
+  if (!res.ok) return res;
+  if (res.noResult) return { ok: true, facts: emptyFacts() };
+  const facts = normalizeExpandedProfile(res.json);
+  return facts ? { ok: true, facts } : { ok: true, facts: emptyFacts() };
 }
 
 function emptyFacts(): AttomFacts {
