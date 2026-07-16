@@ -18,10 +18,11 @@
 // the addresses worth a vendor's stamp), dedupe on the county account carried
 // in raw_source, land rows as 'sourced' for the package builder.
 
-import { sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
 import { titleCase, epochToIso, assembleSiteAddress, geometryCenter } from "./transfers";
+import { attomGet, lcKeys } from "../integrations/attom";
 
 const HCAD_QUERY_URL =
   "https://www.gis.hctx.net/arcgis/rest/services/HCAD/Parcels/MapServer/0/query";
@@ -57,8 +58,8 @@ const str = (v: unknown): string | null => {
 };
 
 export type ResidentialCandidate = {
-  /** Which county source produced this (also the raw_source dedupe key). */
-  sourceKey: "hcad" | "tad";
+  /** Which source produced this (also the raw_source dedupe key). */
+  sourceKey: "hcad" | "tad" | "attom";
   /** County account number — the dedupe identity. */
   account: string;
   address: string;
@@ -210,14 +211,106 @@ export async function fetchRecentTarrantSales(opts: {
   });
 }
 
+// --- ATTOM sale/snapshot: the FRESH deed source -----------------------------
+// County GIS layers lag recorded deeds by 3-6 months (verified live: a July
+// pull returned December sales, and once ingested the wells run dry). ATTOM
+// publishes recordings within ~2-6 weeks — probed live 2026-07-16: 2,216
+// Tarrant-area sales recorded in the prior 45 days, freshest 15 days old.
+// METERED (trial budget): one call returns up to 100 sales, so a full run is
+// ~4-6 calls — the cheapest fresh-mover supply we have. Anchored per metro.
+
+const ATTOM_ANCHORS = [
+  { label: "Tarrant", lat: 32.7555, lng: -97.3308, radius: 25 },
+  { label: "Harris", lat: 29.7604, lng: -95.3698, radius: 25 },
+];
+const ATTOM_MAX_PAGES_PER_ANCHOR = 2;
+
+export async function fetchAttomSales(opts: {
+  sinceDays: number;
+  minValue: number;
+  limit: number;
+}): Promise<GeoJsonFeature[]> {
+  const since = new Date(Date.now() - Math.min(opts.sinceDays, 90) * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const out: GeoJsonFeature[] = [];
+  for (const a of ATTOM_ANCHORS) {
+    for (let page = 1; page <= ATTOM_MAX_PAGES_PER_ANCHOR; page++) {
+      if (out.length >= opts.limit) return out;
+      const res = await attomGet("/sale/snapshot", {
+        latitude: String(a.lat),
+        longitude: String(a.lng),
+        radius: String(a.radius),
+        startsalesearchdate: since,
+        endsalesearchdate: today,
+        pagesize: "100",
+        page: String(page),
+      });
+      if (!res.ok) {
+        // Budget stop or transient failure — take what we have; the county
+        // sources still run after us.
+        if (!res.budget) console.error(`attom sale/snapshot ${a.label}: ${res.error}`);
+        return out;
+      }
+      if (res.noResult) break;
+      const props = ((res.json as { property?: unknown[] })?.property ?? []) as Record<string, unknown>[];
+      for (const p of props) out.push({ properties: p });
+      if (props.length < 100) break; // last page for this anchor
+    }
+  }
+  return out;
+}
+
+/** Normalize one ATTOM sale row (ride-along in feature.properties). */
+export function normalizeAttomSale(f: GeoJsonFeature): ResidentialCandidate | null {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const p = lcKeys(f.properties ?? {}) as any;
+  const account = str(p.identifier?.attomid) ?? str(p.identifier?.id);
+  const address = str(p.address?.line1);
+  const city = str(p.address?.locality);
+  const zip = str(p.address?.postal1);
+  const saleDateIso = str(p.sale?.saletransdate);
+  const amt = Number(p.sale?.amount?.saleamt);
+  const lat = Number(p.location?.latitude);
+  const lng = Number(p.location?.longitude);
+  const propType = str(p.summary?.proptype);
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  if (!account || !address || !saleDateIso || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  // Price band doubles as the single-family screen: no price (commercial/
+  // non-disclosure gaps) or outside the volume band -> not this product.
+  if (!Number.isFinite(amt) || amt < MIN_HOME_VALUE || amt > MAX_HOME_VALUE) return null;
+  if (propType && !/SFR|SINGLE|TOWNHOUSE|RESID/i.test(propType)) return null;
+  return {
+    sourceKey: "attom",
+    account: String(account),
+    address: titleCase(address),
+    city: city ? titleCase(city) : null,
+    zip,
+    subdivision: null,
+    saleDateIso,
+    marketValue: Math.round(amt), // the recorded price IS the value signal
+    lotSqft: null,
+    yearBuilt: null,
+    lat,
+    lng,
+  };
+}
+
 type ResidentialSource = {
-  key: "hcad" | "tad";
+  key: "hcad" | "tad" | "attom";
   label: string;
   fetch: (opts: { sinceDays: number; minValue: number; limit: number }) => Promise<GeoJsonFeature[]>;
   normalize: (f: GeoJsonFeature) => ResidentialCandidate | null;
+  /** false = a thin window is the truth, don't re-fetch wider (metered
+   *  sources: every widening pass costs real API budget). */
+  widen?: boolean;
 };
 
 const SOURCES: ResidentialSource[] = [
+  // Freshest first: ATTOM inserts this month's movers before the county
+  // layers backfill last winter's.
+  { key: "attom", label: "ATTOM (fresh deeds)", fetch: fetchAttomSales, normalize: normalizeAttomSale, widen: false },
   { key: "hcad", label: "Harris (HCAD)", fetch: fetchRecentResidentialSales, normalize: normalizeResidentialSale },
   { key: "tad", label: "Tarrant (TAD)", fetch: fetchRecentTarrantSales, normalize: normalizeTarrantSale },
 ];
@@ -252,12 +345,24 @@ export async function runResidentialSourcing(opts?: {
     .select({
       hcad: sql<string | null>`${schema.residentialLead.raw_source}->>'hcad'`,
       tad: sql<string | null>`${schema.residentialLead.raw_source}->>'tad'`,
+      attom: sql<string | null>`${schema.residentialLead.raw_source}->>'attom'`,
+      address: schema.residentialLead.address,
+      signal_date: schema.residentialLead.signal_date,
     })
     .from(schema.residentialLead);
   const have = new Set<string>();
+  // Cross-source guard: ATTOM lands a sale months before the county layer
+  // republishes the SAME sale under a different account — address + sale
+  // month is the identity that survives the source switch.
+  const haveAddr = new Set<string>();
+  const addrKey = (address: string | null, iso: string | null) =>
+    address && iso ? `${address.toLowerCase().replace(/\s+/g, " ")}|${iso.slice(0, 7)}` : null;
   for (const r of existing) {
     if (r.hcad) have.add(`hcad:${r.hcad}`);
     if (r.tad) have.add(`tad:${r.tad}`);
+    if (r.attom) have.add(`attom:${r.attom}`);
+    const k = addrKey(r.address, r.signal_date?.toISOString() ?? null);
+    if (k) haveAddr.add(k);
   }
 
   let scanned = 0;
@@ -272,7 +377,11 @@ export async function runResidentialSourcing(opts?: {
       // months, so a fixed short window can be legitimately thin. Keep
       // widening until a window yields at least `want` sales, settling for
       // the widest window's haul otherwise.
-      for (const days of [sinceDays, ...FALLBACK_WINDOWS_DAYS.filter((d) => d > sinceDays)]) {
+      const windows =
+        source.widen === false
+          ? [sinceDays]
+          : [sinceDays, ...FALLBACK_WINDOWS_DAYS.filter((d) => d > sinceDays)];
+      for (const days of windows) {
         features = await source.fetch({ sinceDays: days, minValue, limit: want * 2 });
         windowUsed = days;
         if (features.length >= want) break;
@@ -296,7 +405,8 @@ export async function runResidentialSourcing(opts?: {
     for (const c of candidates) {
       if (sourceAdded >= want) break;
       const key = `${c.sourceKey}:${c.account}`;
-      if (have.has(key)) {
+      const aKey = addrKey(c.address, c.saleDateIso);
+      if (have.has(key) || (aKey && haveAddr.has(aKey))) {
         sourceDupes++;
         continue;
       }
@@ -321,6 +431,8 @@ export async function runResidentialSourcing(opts?: {
         raw_source: { [c.sourceKey]: c.account, sale_date: c.saleDateIso },
       });
       have.add(key);
+      const newAKey = addrKey(c.address, c.saleDateIso);
+      if (newAKey) haveAddr.add(newAKey);
       sourceAdded++;
     }
     added += sourceAdded;
@@ -328,5 +440,45 @@ export async function runResidentialSourcing(opts?: {
     log.push(`  ${sourceAdded} lead(s) added, ${sourceDupes} already known`);
   }
 
+  // ZIP-month is the package grouping key, and Tarrant's bulk layer
+  // publishes no ZIP — heal the gap while we're here (best-effort).
+  const zipsFixed = await backfillResidentialZips().catch(() => 0);
+  if (zipsFixed) log.push(`ZIP backfill: ${zipsFixed} lead(s) geocoded to a ZIP`);
+
   return { scanned, added, duplicates, log };
+}
+
+/** Backfill missing ZIPs from coordinates via Mapbox reverse geocoding (a
+ *  ZIP-less lead can never join a package). Best-effort; returns rows fixed. */
+export async function backfillResidentialZips(limit = 150): Promise<number> {
+  const token = process.env.MAPBOX_API;
+  if (!token) return 0;
+  const rows = await db
+    .select({ id: schema.residentialLead.id, lat: schema.residentialLead.lat, lng: schema.residentialLead.lng })
+    .from(schema.residentialLead)
+    .where(and(isNull(schema.residentialLead.zip), isNotNull(schema.residentialLead.lat)))
+    .limit(limit);
+  let updated = 0;
+  for (const r of rows) {
+    if (r.lat == null || r.lng == null) continue;
+    try {
+      const res = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${r.lng},${r.lat}.json?types=postcode&limit=1&access_token=${token}`
+      );
+      const json = (await res.json().catch(() => null)) as {
+        features?: Array<{ text?: string }>;
+      } | null;
+      const zip = json?.features?.[0]?.text;
+      if (zip && /^\d{5}$/.test(zip)) {
+        await db
+          .update(schema.residentialLead)
+          .set({ zip, updated_at: new Date() })
+          .where(eq(schema.residentialLead.id, r.id));
+        updated++;
+      }
+    } catch {
+      // best-effort — a geocode hiccup must not fail the sourcing run
+    }
+  }
+  return updated;
 }
