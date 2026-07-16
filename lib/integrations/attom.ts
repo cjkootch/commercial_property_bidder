@@ -16,7 +16,7 @@
 
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
-import { property, usageCounter } from "../db/schema";
+import { property, residentialLead, usageCounter } from "../db/schema";
 import { rateLimit, windowStart } from "../ratelimit";
 import { marketForCoords } from "../markets";
 
@@ -39,6 +39,9 @@ export type AttomFacts = {
   status: "ok" | "none";
   owner: string | null;
   owner_mailing: string | null;
+  /** Assessor's absentee flag: true = absentee owner, false = owner occupied,
+   *  null = unstated. High-signal for residential (absentee = landlord). */
+  absentee?: boolean | null;
   /** Assessor total assessed value, USD. */
   assessed_value: number | null;
   /** Assessor total market value, USD. */
@@ -58,32 +61,54 @@ function num(v: any): number | null {
   return Number.isFinite(n) && n !== 0 ? n : null;
 }
 
+/** ATTOM's field casing is inconsistent across endpoints and vintages
+ *  (assdTtlValue vs assdttlvalue — a live day-one bug: the camelCase real
+ *  response slipped straight through lowercase paths and reported rich
+ *  records as empty). Lowercase every key once, then read lowercase paths. */
+function lcKeys(v: any): any {
+  if (Array.isArray(v)) return v.map(lcKeys);
+  if (v && typeof v === "object") {
+    const out: Record<string, any> = {};
+    for (const [k, val] of Object.entries(v)) out[k.toLowerCase()] = lcKeys(val);
+    return out;
+  }
+  return v;
+}
+
 function ownerName(o: any): string | null {
   if (!o) return null;
-  const one = [o.owner1, o.owner2, o.owner3, o.owner4]
+  const names = [o.owner1, o.owner2, o.owner3, o.owner4]
     .map((x) => {
       if (!x) return null;
-      const full = [x.firstnameandmi, x.lastname].filter(Boolean).join(" ").trim();
+      const full =
+        (x.fullname as string | undefined) ||
+        [x.firstnameandmi, x.lastname].filter(Boolean).join(" ").trim();
       return full || null;
     })
-    .filter(Boolean)[0];
-  return (one as string | undefined) ?? null;
+    .filter(Boolean) as string[];
+  if (!names.length) return null;
+  return names.slice(0, 2).join(" & ");
 }
 
 /** Defensive pick over ATTOM's deeply-nested response. Every path optional —
  *  commercial parcels frequently omit whole branches. */
 export function normalizeExpandedProfile(json: any): AttomFacts | null {
-  const p = json?.property?.[0];
-  if (!p) return null;
+  const raw = json?.property?.[0];
+  if (!raw) return null;
+  const p = lcKeys(raw);
   const owner = p.assessment?.owner ?? null;
-  const mailing =
-    owner?.mailingaddressoneline ??
-    (owner?.mailingAddressOneLine as string | undefined) ??
-    null;
+  const mailing = owner?.mailingaddressoneline ?? null;
+  // "A" = absentee owner, "O" = owner occupied (assessor's own flag beats any
+  // zip heuristic). Falls back to the summary indicator string.
+  const abs = owner?.absenteeownerstatus ?? null;
+  const absInd = p.summary?.absenteeind ? String(p.summary.absenteeind) : null;
+  const absentee =
+    abs === "A" ? true : abs === "O" ? false : absInd ? /absentee/i.test(absInd) : null;
   return {
     status: "ok",
     owner: ownerName(owner),
     owner_mailing: mailing ? String(mailing) : null,
+    absentee,
     assessed_value: num(p.assessment?.assessed?.assdttlvalue),
     market_value: num(p.assessment?.market?.mktttlvalue),
     building_sqft:
@@ -93,7 +118,7 @@ export function normalizeExpandedProfile(json: any): AttomFacts | null {
     lot_sqft: num(p.lot?.lotsize2) ?? (num(p.lot?.lotsize1) ? num(p.lot.lotsize1)! * 43_560 : null),
     year_built: num(p.summary?.yearbuilt),
     property_type: p.summary?.proptype ? String(p.summary.proptype) : null,
-    last_sale_date: p.sale?.saleTransDate ? String(p.sale.saleTransDate) : null,
+    last_sale_date: p.sale?.saletransdate ? String(p.sale.saletransdate) : null,
     last_sale_price: num(p.sale?.amount?.saleamt),
     fetched_at: new Date().toISOString(),
   };
@@ -140,6 +165,7 @@ function emptyFacts(): AttomFacts {
     status: "none",
     owner: null,
     owner_mailing: null,
+    absentee: null,
     assessed_value: null,
     market_value: null,
     building_sqft: null,
@@ -191,6 +217,40 @@ export async function ensurePropertyAttom(p: PropertyForAttom): Promise<AttomFac
     .set({ attom: res.facts, attom_fetched_at: new Date() })
     .where(eq(property.id, p.id))
     .catch((e) => console.error("attom cache write failed:", e));
+  return res.facts.status === "ok" ? res.facts : null;
+}
+
+type ResidentialForAttom = {
+  id: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  attom: unknown;
+  attom_fetched_at: Date | null;
+};
+
+/** Residential twin of ensurePropertyAttom — same metering, same
+ *  cache-forever, keyed on residential_lead. Residential is where ATTOM
+ *  earns it: owner names, real sale prices, and the absentee flag. */
+export async function ensureResidentialAttom(r: ResidentialForAttom): Promise<AttomFacts | null> {
+  if (r.attom_fetched_at) {
+    const cached = r.attom as AttomFacts | null;
+    return cached && cached.status === "ok" ? cached : null;
+  }
+  if (!r.address || !r.city) return null;
+  if (!/^\d+\s/.test(r.address.trim())) return null;
+  const address2 = `${r.city}, ${r.state ?? "TX"}${r.zip ? ` ${r.zip}` : ""}`;
+  const res = await fetchExpandedProfile(r.address, address2);
+  if (!res.ok) {
+    if (!res.budget) console.error(`attom: ${res.error}`);
+    return null;
+  }
+  await db
+    .update(residentialLead)
+    .set({ attom: res.facts, attom_fetched_at: new Date() })
+    .where(eq(residentialLead.id, r.id))
+    .catch((e) => console.error("attom residential cache write failed:", e));
   return res.facts.status === "ok" ? res.facts : null;
 }
 

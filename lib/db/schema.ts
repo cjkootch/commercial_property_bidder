@@ -1064,6 +1064,10 @@ export const residentialLead = pgTable("residential_lead", {
   status: residentialLeadStatusEnum("status").notNull().default("sourced"),
   notes: text("notes"),
   raw_source: jsonb("raw_source"),
+  // Cached ATTOM assessor facts (owner names, sale price, value, absentee
+  // flag) — same once-per-row-ever metering as property.attom.
+  attom: jsonb("attom"),
+  attom_fetched_at: timestamp("attom_fetched_at", { withTimezone: true }),
   ...timestamps,
 });
 
