@@ -77,6 +77,14 @@
       "schedule": "7 21 * * *"
     },
     {
+      "path": "/api/cron/residential-demand",
+      "schedule": "41 15 * * 1-5"
+    },
+    {
+      "path": "/api/cron/residential-demand",
+      "schedule": "41 20 * * 1-5"
+    },
+    {
       "path": "/api/cron/residential?want=200",
       "schedule": "17 13 * * 1"
     },

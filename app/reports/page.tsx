@@ -257,6 +257,64 @@ export default async function ReportsPage({
         </section>
 
         <section className="rounded-lg border border-gray-200 bg-white p-4">
+          <h2 className="mb-3 text-sm font-semibold text-gray-700">
+            Residential pipeline (own funnel)
+          </h2>
+          <div className="flex items-center gap-3">
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                data.residential.autopilot.enabled
+                  ? "bg-green-100 text-green-800"
+                  : "bg-red-100 text-red-800"
+              }`}
+            >
+              {data.residential.autopilot.enabled ? "● Running" : "● Off"}
+            </span>
+            <span className="text-sm text-gray-600">
+              <span className="font-semibold tabular-nums">
+                {data.residential.autopilot.sentToday}
+              </span>{" "}
+              / {data.residential.autopilot.cap} pitches today
+            </span>
+          </div>
+          <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+            <div className="flex justify-between border-b border-gray-50 py-0.5">
+              <dt className="text-gray-500">Pitched (period)</dt>
+              <dd className="font-semibold tabular-nums">{data.residential.pitched}</dd>
+            </div>
+            <div className="flex justify-between border-b border-gray-50 py-0.5">
+              <dt className="text-gray-500">Opened / Clicked</dt>
+              <dd className="font-semibold tabular-nums">
+                {data.residential.opened} / {data.residential.clicked}
+              </dd>
+            </div>
+            <div className="flex justify-between border-b border-gray-50 py-0.5">
+              <dt className="text-gray-500">Purchases</dt>
+              <dd className="font-semibold tabular-nums">{data.residential.purchases}</dd>
+            </div>
+            <div className="flex justify-between border-b border-gray-50 py-0.5">
+              <dt className="text-gray-500">Revenue</dt>
+              <dd className="font-semibold tabular-nums">
+                ${Math.round(data.residential.revenueCents / 100).toLocaleString()}
+              </dd>
+            </div>
+            <div className="flex justify-between border-b border-gray-50 py-0.5">
+              <dt className="text-gray-500">Packages published</dt>
+              <dd className="font-semibold tabular-nums">{data.residential.packagesPublished}</dd>
+            </div>
+            <div className="flex justify-between border-b border-gray-50 py-0.5">
+              <dt className="text-gray-500">Pitched at least once</dt>
+              <dd className="font-semibold tabular-nums">{data.residential.packagesPitched}</dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-xs text-gray-400">
+            Residential rows are split out of every commercial number on this page — this card is
+            the whole residential story. 2 runs/invocation, twice per business day, least-pitched
+            package first. Kill switch: RESI_DEMAND_AUTOPILOT=0.
+          </p>
+        </section>
+
+        <section className="rounded-lg border border-gray-200 bg-white p-4">
           <h2 className="mb-3 text-sm font-semibold text-gray-700">Milestones</h2>
           {data.timeline.length === 0 ? (
             <p className="text-sm text-gray-400">No launch events yet.</p>
