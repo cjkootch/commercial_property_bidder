@@ -119,6 +119,14 @@ export async function runResidentialDemandGen(opts: {
   const teaser = pkg.signal_summary as PackageTeaser | null;
   const geography = pkg.geography_label ?? pkg.zip ?? teaser?.cities?.[0] ?? "your area";
 
+  // Warm the ATTOM cache BEFORE the first pitch goes out (once-ever per
+  // lead): a buyer who purchases minutes after the email must get owner
+  // names without the Stripe webhook doing 20+ metered fetches.
+  if (doSend) {
+    const { enrichPackageLeads } = await import("../residential/dossier");
+    await enrichPackageLeads(pkg.id).catch(() => 0);
+  }
+
   // Centroid of the member addresses — the anchor for radius + metro.
   const members = await db
     .select({ lat: schema.residentialLead.lat, lng: schema.residentialLead.lng })

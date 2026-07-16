@@ -197,8 +197,11 @@ export async function createBuyerAccount(formData: FormData): Promise<void> {
   const company = ((formData.get("company") as string) || "").trim();
   const city = ((formData.get("city") as string) || "").trim();
   const trade = asTrade(formData.get("trade"));
-  // Residential-pitch signups land on the marketplace they were sold on.
-  const respkg = /^[0-9a-f-]{36}$/i.test((formData.get("respkg") as string) ?? "");
+  // Residential-pitch signups land on the marketplace they were sold on —
+  // carrying the package id so the page can pin THEIR list first (v1 coerced
+  // this to a boolean and dumped them on the generic 38-package shelf).
+  const respkgRaw = (formData.get("respkg") as string) ?? "";
+  const respkg = /^[0-9a-f-]{36}$/i.test(respkgRaw) ? respkgRaw : null;
   if (!email.includes("@") || !company) redirect("/buyers/signup?error=1");
 
   const rl = await rateLimit(`buyersignup:ip:${clientIp()}`, 10, 3600);
@@ -229,7 +232,7 @@ export async function createBuyerAccount(formData: FormData): Promise<void> {
     maxAge: BUYER_SESSION_MAX_AGE,
     path: "/",
   });
-  redirect(respkg ? "/buyers/residential" : "/buyers");
+  redirect(respkg ? `/buyers/residential?respkg=${respkg}` : "/buyers");
 }
 
 /**
