@@ -19,6 +19,7 @@ import { LONG_TAIL_EVERY_DAYS, LONG_TAIL_MAX_TOUCHES } from "@/lib/pipeline/long
 import { OUTCOME_AFTER_DAYS, outcomeSmsFor } from "@/lib/pipeline/outcome-check";
 import { HOLD_REMIND_BEFORE_HOURS, holdReminderSmsFor } from "@/lib/pipeline/hold-expiry";
 import { HOLD_TTL_HOURS } from "@/lib/leads/holds";
+import { buildPackagePitch } from "@/lib/pipeline/residential-demand";
 
 // --- cron → human text ------------------------------------------------------
 
@@ -247,6 +248,66 @@ export function CommFlow() {
         />
       </div>
 
+      {/* ---------------- residential: its own pipeline ---------------- */}
+      <div className="mt-6 rounded-xl border border-gray-200 bg-white p-5">
+        <div className="mb-4 flex items-center gap-2">
+          <span className="text-lg">🏠</span>
+          <h3 className="font-semibold text-gray-900">Residential (own pipeline, own metrics)</h3>
+        </div>
+
+        <Step
+          n="1"
+          title="Package pitch email — the whole list is the product"
+          accent="bg-amber-600"
+          timing={`autopilot: ${schedulesFor("/api/cron/residential-demand").join(" · ")} · 2 packages/run, least-pitched first · ≤${Number(process.env.RESI_DEMAND_DAILY_CAP) || 90}/day own ledger`}
+        >
+          <Msg
+            text={(() => {
+              const m = buildPackagePitch({
+                subjectVariant: "A",
+                company: "Acme Lawn Care",
+                pkg: { name: "Tarrant County — New Homeowners (June)", lead_count: 18, price_cents: 14900 },
+                geography: "Tarrant County",
+                trade: "landscaping",
+                brand: "Greenkeep",
+                replyEmail: null,
+                ctaUrl: "https://greenkeep.us/buyers/residential?respkg=<package>",
+              });
+              return `Subject: ${m.subject}\n\n${m.body}`;
+            })()}
+          />
+          <div>
+            <Chip>lawn + pest companies near the package, alternating by run</Chip>
+            <Chip>30-day cooldown shared with commercial</Chip>
+            <Chip>A/B subjects</Chip>
+            <Chip tone="red">unsubscribe/complaint → suppressed</Chip>
+          </div>
+        </Step>
+
+        <Step
+          n="2"
+          title="CTA → packages page → purchase"
+          accent="bg-amber-600"
+          timing="no free lead, no claim mechanic — the cheapest package IS the sample"
+        >
+          Teaser shows count, signal mix, and value range — never the addresses. Purchase delivers
+          the full report + CSV with owner names, purchase date + price, county value, and
+          landlord flags (ATTOM). Publish alerts also go to existing in-radius buyers.
+        </Step>
+
+        <Step
+          n="3"
+          title="Measured on its own metrics"
+          accent="bg-gray-400"
+          timing="residential rows are split out of every commercial number"
+          last
+        >
+          The /reports “Residential pipeline” card is the whole story: pitched → opened → clicked →
+          purchases → revenue, plus shelf coverage and the autopilot ledger. Kill switch:
+          RESI_DEMAND_AUTOPILOT=0.
+        </Step>
+      </div>
+
       {/* ---------------- after the claim: the outcome loop ---------------- */}
       <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50/50 p-4 text-sm text-gray-700">
         <div className="mb-2">
@@ -271,8 +332,9 @@ export function CommFlow() {
       <p className="mt-2 text-[11px] text-gray-400">
         Sources: vercel.json (schedules) · lib/sms/queue.ts (SMS copy + timings) ·
         lib/pipeline/nudges.ts (email nudge) · lib/pipeline/outcome-check.ts (outcome loop) ·
-        lib/pipeline/hold-expiry.ts (hold reminder) · lib/leads/holds.ts (hold TTL) · previews
-        rendered by the exact template functions the senders call, with sample data.
+        lib/pipeline/hold-expiry.ts (hold reminder) · lib/pipeline/residential-demand.ts
+        (residential pitch) · lib/leads/holds.ts (hold TTL) · previews rendered by the exact
+        template functions the senders call, with sample data.
       </p>
     </section>
   );
