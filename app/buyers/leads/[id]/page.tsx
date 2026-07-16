@@ -419,6 +419,16 @@ export default async function LeadSheet({
                   {d.scope ? <p className="mt-4 text-sm leading-relaxed text-gray-600">{d.scope}</p> : null}
                 </Card>
 
+                {d.facts?.length ? (
+                  <Card title="Property facts" eyebrow="County assessor">
+                    <dl className="space-y-2">
+                      {d.facts.map((f, i) => (
+                        <Row k={f.label} v={f.value} key={i} />
+                      ))}
+                    </dl>
+                  </Card>
+                ) : null}
+
                 <Card title="Decision contacts">
                   {d.contacts.length === 0 ? (
                     <p className="text-sm text-gray-500">

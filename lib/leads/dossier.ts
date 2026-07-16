@@ -18,6 +18,7 @@ import { findTabsByNumber, fetchTabsDetails } from "../integrations/tabs";
 import { fetchDriveTime } from "../integrations/geocoding";
 import { findContact } from "../integrations/contact";
 import { findDecisionContact } from "../integrations/apollo";
+import { ensurePropertyAttom, usdShort } from "../integrations/attom";
 import { haversineMiles } from "../sourcing/criteria";
 import type { ParcelResult } from "../geo/types";
 
@@ -60,6 +61,9 @@ export type Dossier = {
   crew_hours_per_visit: number;
   visits_per_year: number;
   contacts: { role: string; value: string }[];
+  /** Assessor facts (ATTOM enrichment): value, building, last sale. Absent on
+   *  sheets snapshotted before the integration or when ATTOM had no data. */
+  facts?: { label: string; value: string }[];
   route_intel: string;
   guidance: string;
   intro_letter: string;
@@ -184,11 +188,18 @@ export async function buildDossier(
   const proj = tabsNum ? await findTabsByNumber(tabsNum) : null;
   const det = proj ? await fetchTabsDetails(proj.project_id) : null;
 
-  const owner = det?.owner ?? note(p.notes, /Owner: ([^.]+)\./);
+  // ATTOM assessor facts: fetched at most once per property ever (metered
+  // trial — see lib/integrations/attom.ts), then snapshotted into every sheet.
+  // Fills owner/mailing gaps where county GIS is thin and adds the property
+  // facts block (value, building, last sale) buyers price jobs with.
+  const attom = await ensurePropertyAttom(p).catch(() => null);
+
+  const owner = det?.owner ?? note(p.notes, /Owner: ([^.]+)\./) ?? attom?.owner ?? null;
   const facilityName = p.name.replace(/ \((TABS|HCAD|STP|H311|TABC|TAX) [^)]+\)$/, "");
   const contacts: { role: string; value: string }[] = [];
   if (owner) contacts.push({ role: "Owner", value: owner });
   if (parcel.owner_mailing_address) contacts.push({ role: "Owner mail (county)", value: parcel.owner_mailing_address });
+  else if (attom?.owner_mailing) contacts.push({ role: "Owner mail (assessor)", value: attom.owner_mailing });
   if (det?.tenant) contacts.push({ role: "Tenant", value: det.tenant });
   if (det?.architect) contacts.push({ role: "Architect", value: det.architect });
   // Published contacts are vetted against the facility/owner names — a tenant
@@ -266,6 +277,32 @@ export async function buildDossier(
             ? `This property is in the county's delinquent-tax process — a forced-action window on both sides of the sale. Before the auction, the owner (or their attorney) needs the property presentable and code-clean while they redeem or contest; after it, the winning investor re-bids every vendor from scratch. Send the letter to the owner's mailing address now, and put the address on your follow-up list for 30 days after the sale date — the new owner is the warmer buyer.`
             : `Private owner: send the intro letter to the owner's mailing address and call any published number. The architect can route you to the GC or the property manager who will hold the maintenance contract.`;
 
+  // Assessor facts block (ATTOM): what the property is worth, how big the
+  // building is, and when it last traded — the context a bidder prices with.
+  const facts: { label: string; value: string }[] = [];
+  if (attom) {
+    const value = attom.market_value ?? attom.assessed_value;
+    if (value) {
+      facts.push({
+        label: attom.market_value ? "Market value (assessor)" : "Assessed value",
+        value: usdShort(value)!,
+      });
+    }
+    if (attom.building_sqft) {
+      facts.push({
+        label: "Building",
+        value: `${Math.round(attom.building_sqft).toLocaleString()} sf${attom.year_built ? ` · built ${attom.year_built}` : ""}`,
+      });
+    }
+    if (attom.last_sale_date || attom.last_sale_price) {
+      facts.push({
+        label: "Last sale",
+        value: [usdShort(attom.last_sale_price), attom.last_sale_date].filter(Boolean).join(" · "),
+      });
+    }
+    if (attom.property_type) facts.push({ label: "Property type", value: attom.property_type });
+  }
+
   const facility = facilityName;
   const situation =
     kind === "transfer"
@@ -308,6 +345,7 @@ Respectfully,
     turf_sqft: sizing.turf_sqft,
     projected: sizing.projected,
     detected_sqft: est ? Math.round(est.turf_sqft) : null,
+    facts: facts.length ? facts : undefined,
     annual_lo: sizing.annual_lo,
     annual_hi: sizing.annual_hi,
     monthly: Math.round(sizing.monthly),
