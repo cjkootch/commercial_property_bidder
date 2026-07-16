@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   nudgeTextFor,
+  resiNudgeTextFor,
+  resiStep2For,
   OPT_OUT_LINE,
   selectSmsNudges,
   SMS_NUDGE_AFTER_HOURS,
@@ -138,5 +140,22 @@ describe("nudgeTextFor", () => {
     expect(text).toContain("a roofing job. Each lead goes to one company");
     expect(text).not.toContain("est.");
     expect(text).not.toContain("$");
+  });
+});
+
+describe("residential SMS copy", () => {
+  it("step 2 pitches the paid list with no free-lead/hold framing", () => {
+    const t = resiStep2For("Acme Lawn", "https://greenkeep.us/buyers/residential?respkg=abc");
+    expect(t).toContain("https://greenkeep.us/buyers/residential?respkg=abc");
+    expect(t).toContain("county records");
+    expect(t).not.toMatch(/free|24h|first claim/i);
+    expect(t).toContain("-Cole, Greenkeep");
+  });
+
+  it("the residential nudge stays honest too", () => {
+    const t = resiNudgeTextFor("Acme Lawn", "https://x.example/r?respkg=abc");
+    expect(t).toContain("https://x.example/r?respkg=abc");
+    expect(t).not.toMatch(/free lead|24h|first claim/i);
+    expect(t).toContain("Just let me know");
   });
 });

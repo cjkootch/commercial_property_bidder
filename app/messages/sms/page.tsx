@@ -2,7 +2,7 @@ import Link from "next/link";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
-import { step2For, suggestedTexts, queueSentToday, TEXT_QUEUE_DAILY_CAP } from "@/lib/sms/queue";
+import { resiStep2For, step2For, suggestedTexts, queueSentToday, TEXT_QUEUE_DAILY_CAP } from "@/lib/sms/queue";
 import { draftAiReply, replyInboxSms, sendQueuedText } from "./actions";
 import { InboxAutoRefresh } from "./InboxAutoRefresh";
 
@@ -113,7 +113,9 @@ export default async function SmsInbox({
     // it by the opt-out phrase false-positived on AI replies (which carry the
     // same courtesy line without the link) and left the pitch undelivered.
     const step2Sent = active.msgs.some(
-      (m) => m.direction === "out" && m.body.includes("/buyers/claim/")
+      (m) =>
+        m.direction === "out" &&
+        (m.body.includes("/buyers/claim/") || m.body.includes("respkg="))
     );
     if (openerSent && !step2Sent) {
       const key = active.msgs.find((m) => m.company_key)?.company_key;
@@ -125,7 +127,12 @@ export default async function SmsInbox({
           .orderBy(desc(buyerOutreach.sent_at))
           .limit(10);
         const claimUrl = offers.find((o) => o.claim_url)?.claim_url;
-        if (claimUrl) prefill = step2For(active.name, claimUrl);
+        // Latest offer decides the script: residential package vs job claim.
+        if (claimUrl) {
+          prefill = claimUrl.includes("respkg=")
+            ? resiStep2For(active.name, claimUrl)
+            : step2For(active.name, claimUrl);
+        }
       }
     }
   }
