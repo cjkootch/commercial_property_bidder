@@ -301,6 +301,14 @@ export async function buildDossier(
       });
     }
     if (attom.property_type) facts.push({ label: "Property type", value: attom.property_type });
+    if (attom.absentee != null) {
+      facts.push({
+        label: "Occupancy",
+        value: attom.absentee
+          ? "Absentee owner — decisions made from the mailing address"
+          : "Owner occupied",
+      });
+    }
   }
 
   const facility = facilityName;

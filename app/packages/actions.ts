@@ -25,6 +25,11 @@ export async function setPackageStatus(formData: FormData): Promise<void> {
   if (status === "published") {
     const { notifyBuyersOfPackagePublish } = await import("@/lib/residential/alerts");
     await notifyBuyersOfPackagePublish(id).catch(() => null);
+    // ATTOM-enrich the package's leads now (owner names, purchase price,
+    // absentee flags) — bounded, deliberate spend; once-ever cache means a
+    // re-publish costs nothing and purchase-time dossiers read the cache.
+    const { enrichPackageLeads } = await import("@/lib/residential/dossier");
+    await enrichPackageLeads(id).catch(() => null);
   }
   revalidatePath("/packages");
 }

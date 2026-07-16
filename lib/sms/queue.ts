@@ -12,6 +12,7 @@ import { toE164, isTextableLineType } from "@/lib/integrations/twilio";
 import { signBuyerClaim } from "@/lib/buyer-auth";
 import { DEFAULT_TZ, marketTimezones } from "@/lib/markets";
 import { asTrade, TRADES } from "@/lib/leads/trades";
+import { usdShort, type AttomFacts } from "@/lib/integrations/attom";
 
 /** Claim links for texts are minted FRESH at suggestion/send time — a stored
  *  buyer_outreach.claim_url may be older than the 30-day token TTL, and a
@@ -248,13 +249,22 @@ export const SMS_NUDGE_MAX_AGE_DAYS = 25;
 export function nudgeTextFor(
   name: string,
   claimUrl: string,
-  opts?: { city?: string | null; service?: string | null; estLo?: number | null; estHi?: number | null }
+  opts?: {
+    city?: string | null;
+    service?: string | null;
+    estLo?: number | null;
+    estHi?: number | null;
+    /** ATTOM county valuation of the property itself — "at a $2.1M property"
+     *  reads as insider knowledge (it is) and sizes the stakes honestly. */
+    propertyValue?: number | null;
+  }
 ): string {
   const city = opts?.city
     ?.trim()
     .toLowerCase()
     .replace(/\b\w/g, (m) => m.toUpperCase());
-  const what = `a ${city ? `${city} ` : ""}${opts?.service ?? "commercial"} job`;
+  const at = opts?.propertyValue ? ` at a ${usdShort(opts.propertyValue)} property` : "";
+  const what = `a ${city ? `${city} ` : ""}${opts?.service ?? "commercial"} job${at}`;
   const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
   const value =
     opts?.estLo && opts?.estHi ? `, est. ${usd(opts.estLo)}-${usd(opts.estHi)}/yr` : "";
@@ -374,7 +384,7 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
   const offeredIds = [...new Set([...offerByKey.values()].map((o) => o.propertyId))];
   const props = offeredIds.length
     ? await db
-        .select({ id: property.id, city: property.city, lead_teaser: property.lead_teaser })
+        .select({ id: property.id, city: property.city, lead_teaser: property.lead_teaser, attom: property.attom })
         .from(property)
         .where(inArray(property.id, offeredIds))
     : [];
@@ -393,6 +403,9 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
     nudgedPhones.add(phone);
     const p = propById.get(offer.propertyId);
     const teaser = (p?.lead_teaser ?? null) as { annual_lo?: number; annual_hi?: number } | null;
+    // Cached ATTOM county valuation (read-only here — never a fetch): sizes
+    // the stakes in the nudge when the offer-time enrichment found one.
+    const facts = (p?.attom ?? null) as AttomFacts | null;
     out.push({
       companyId: c.id,
       companyKey: c.key,
@@ -403,6 +416,7 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
         service: TRADES[asTrade(c.trade)].service,
         estLo: teaser?.annual_lo ?? null,
         estHi: teaser?.annual_hi ?? null,
+        propertyValue: facts?.status === "ok" ? facts.market_value ?? facts.assessed_value : null,
       }),
     });
   }

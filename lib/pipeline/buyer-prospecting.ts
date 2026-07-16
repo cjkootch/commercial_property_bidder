@@ -44,6 +44,7 @@ import { leadMaxBuyers } from "../leads/availability";
 import { haversineMiles } from "../sourcing/criteria";
 import { loadMarketLeads, type LeadKind, type MarketLead } from "../leads/market";
 import { leadTierFor } from "../leads/pricing-tiers";
+import { ensurePropertyAttom, usdShort, type AttomFacts } from "../integrations/attom";
 
 /** Don't email a NEWLY DISCOVERED company again within this window. Known
  *  contacts (past recipients) instead follow the area-alert cadence below. */
@@ -248,6 +249,9 @@ type LeadPitch = {
   /** THIS trade's contract-value estimate (landscaping = the teaser; other
    *  trades price off county records). Null = no honest number to quote. */
   value: TradeValueEstimate | null;
+  /** ATTOM assessor facts, enriched at offer time (one metered call per
+   *  property, ever) — powers the memo's PROPERTY line. */
+  facts?: AttomFacts | null;
 };
 
 export function toPitch(l: MarketLead, trade: Trade = DEFAULT_TRADE): LeadPitch | null {
@@ -351,13 +355,27 @@ export function buildProspectMessage(o: {
           ? `PROJECT — ${TRADES[trade].service} work, vendor decision in motion`
           : `CONTRACT — year-round ${TRADES[trade].service} contract, vendor decision in motion`;
 
+  // The PROPERTY line (ATTOM assessor facts, when enriched): the stakes in
+  // county numbers — reads as insider knowledge because it is.
+  const f = lead.facts && lead.facts.status === "ok" ? lead.facts : null;
+  const factBits = f
+    ? [
+        usdShort(f.market_value ?? f.assessed_value)
+          ? `county-valued at ${usdShort(f.market_value ?? f.assessed_value)}`
+          : null,
+        f.building_sqft ? `${Math.round(f.building_sqft).toLocaleString()} sq ft building` : null,
+        f.absentee === true ? "absentee owner (decisions made off-site)" : null,
+      ].filter(Boolean)
+    : [];
+  const propertyRow = factBits.length ? `PROPERTY — ${factBits.join(", ")}\n` : "";
+
   const body = `${o.company} team —
 
 A lead for you. No charge on this one, no obligation — but a heads-up before the details: we only ever sell a job to ${o.cap} companies, and this one is live right now.
 
 AREA — ${lead.city ?? "Houston"}${mi != null ? `, about ${mi} ${mi === 1 ? "mile" : "miles"} from your office` : ""}
 TRIGGER — ${trigger}
-${valueRows}
+${propertyRow}${valueRows}
 STATUS — ${lead.spotsLeft} of ${o.cap} spots left — when they're gone, this job closes for good
 
 The full sheet has the exact address, the owner and their mailing address, our aerial measurement, and a ready-to-send intro letter:
@@ -478,8 +496,13 @@ export async function runBuyerProspecting(opts?: {
       return { lead: null, candidates: 0, qualified: 0, queued: 0, sent: 0, skippedNoEmail: 0, log };
     }
   }
+  // Offer-time ATTOM enrichment: ONE metered call for the single property this
+  // whole campaign pitches (cached forever) — the memo and every later nudge
+  // for this lead get the county valuation + building size to sell with.
+  const chosenRow = market.find((m) => m.p.id === lead!.id)?.p;
+  lead.facts = chosenRow ? await ensurePropertyAttom(chosenRow).catch(() => null) : null;
   log.push(
-    `Lead: ${lead.city ?? "?"} ${lead.kind}, ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr (${lead.id.slice(0, 8)})`
+    `Lead: ${lead.city ?? "?"} ${lead.kind}, ${usd(lead.annualLo)}–${usd(lead.annualHi)}/yr (${lead.id.slice(0, 8)})${lead.facts ? ` · ATTOM ${usdShort(lead.facts.market_value ?? lead.facts.assessed_value) ?? "facts"}` : ""}`
   );
 
   // ---- 2. Exclusions: existing accounts + cooldown + already-offered-this-lead.
