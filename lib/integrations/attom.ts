@@ -23,7 +23,9 @@ import { marketForCoords } from "../markets";
 const BASE = "https://api.gateway.attomdata.com/propertyapi/v1.0.0";
 
 export const ATTOM_TRIAL_CAP = () => Number(process.env.ATTOM_TRIAL_CAP) || 950;
-export const ATTOM_DAILY_CAP = () => Number(process.env.ATTOM_DAILY_CAP) || 25;
+// 40/day leaves room for a package publish (16–45 leads) plus the day's
+// claims while still capping a runaway bug at ~4% of the trial per day.
+export const ATTOM_DAILY_CAP = () => Number(process.env.ATTOM_DAILY_CAP) || 40;
 /** ~13 months — one fixed window that outlives the trial, so the lifetime
  *  ledger can't silently reset mid-trial the way a 30d window could. */
 const TRIAL_WINDOW_SEC = 400 * 86_400;

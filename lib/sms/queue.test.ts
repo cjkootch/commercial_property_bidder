@@ -104,6 +104,18 @@ describe("selectSmsNudges (the no-reply follow-up)", () => {
 });
 
 describe("nudgeTextFor", () => {
+  it("sizes the stakes with the ATTOM property value when cached", () => {
+    const text = nudgeTextFor("Acme Lawn", "https://x.example/c", {
+      city: "houston",
+      service: "cleaning",
+      estLo: 6600,
+      estHi: 12300,
+      propertyValue: 2082825,
+    });
+    expect(text).toContain("a Houston cleaning job at a $2.1M property, est. $6,600-$12,300/yr");
+  });
+
+
   it("delivers the link, identifies the business, and offers the opt-out", () => {
     const text = nudgeTextFor("Acme Lawn", "https://greenkeep.us/buyers/claim/tok");
     expect(text).toContain("https://greenkeep.us/buyers/claim/tok");

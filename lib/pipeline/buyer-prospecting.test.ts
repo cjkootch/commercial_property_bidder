@@ -24,6 +24,48 @@ const pitch = {
 };
 
 describe("pipeline/buyer-prospecting", () => {
+  it("adds the PROPERTY line when ATTOM facts are enriched — and omits it bare", () => {
+    const base = {
+      company: "Westco Grounds Maintenance",
+      distanceMi: 12.4,
+      brand: "Greenkeep",
+      replyEmail: "leads@greenkeep.us",
+      price: 89,
+      cap: 3,
+      claimUrl: "https://greenkeep.us/buyers/claim/tok123",
+    };
+    const withFacts = buildProspectMessage({
+      ...base,
+      lead: {
+        ...pitch,
+        facts: {
+          status: "ok" as const,
+          owner: "SPO ASSOCIATES LTD",
+          owner_mailing: "PO BOX 1, HOUSTON, TX 77002",
+          absentee: true,
+          assessed_value: null,
+          market_value: 2082825,
+          building_sqft: 4396,
+          lot_sqft: null,
+          year_built: null,
+          property_type: "COMMERCIAL",
+          last_sale_date: null,
+          last_sale_price: null,
+          fetched_at: "2026-07-16T00:00:00Z",
+        },
+      },
+    });
+    expect(withFacts.body).toContain(
+      "PROPERTY — county-valued at $2.1M, 4,396 sq ft building, absentee owner (decisions made off-site)"
+    );
+    // Teaser-safe: facts never leak the owner NAME into the email.
+    expect(withFacts.body).not.toContain("SPO ASSOCIATES");
+
+    const bare = buildProspectMessage({ ...base, lead: pitch });
+    expect(bare.body).not.toContain("PROPERTY —");
+  });
+
+
   it("reads as a lead handoff: specifics up top, real date, teaser-safe", () => {
     const m = buildProspectMessage({
       company: "Westco Grounds Maintenance",

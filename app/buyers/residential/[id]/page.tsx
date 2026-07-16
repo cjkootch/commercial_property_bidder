@@ -107,10 +107,11 @@ export default async function ResidentialReport({ params }: { params: { id: stri
                   <th className="px-4 py-3">Address</th>
                   <th className="px-4 py-3">City</th>
                   <th className="px-4 py-3">ZIP</th>
-                  <th className="px-4 py-3">Subdivision</th>
+                  <th className="px-4 py-3">Owner</th>
+                  <th className="px-4 py-3">Bought</th>
                   <th className="px-4 py-3">Signal</th>
                   <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3 text-right">Est. value</th>
+                  <th className="px-4 py-3 text-right">Value</th>
                   <th className="px-4 py-3 text-right">Lot (sqft)</th>
                   <th className="px-4 py-3 text-right">Built</th>
                   <th className="px-4 py-3 text-right">Score</th>
@@ -122,10 +123,22 @@ export default async function ResidentialReport({ params }: { params: { id: stri
                     <td className="px-4 py-2.5 font-medium text-gray-900">{l.address ?? "—"}</td>
                     <td className="px-4 py-2.5 text-gray-600">{l.city ?? "—"}</td>
                     <td className="px-4 py-2.5 text-gray-600">{l.zip ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-gray-600">{l.subdivision ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-gray-600">
+                      {l.owner ?? "—"}
+                      {l.absentee === true ? (
+                        <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                          landlord
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-600">
+                      {l.purchase_date || l.purchase_price
+                        ? `${l.purchase_date ?? ""}${l.purchase_price ? ` · ${fmtMoney(l.purchase_price)}` : ""}`
+                        : "—"}
+                    </td>
                     <td className="px-4 py-2.5 capitalize text-gray-600">{fmtSignal(l.signal_type)}</td>
                     <td className="px-4 py-2.5 text-gray-600">{l.signal_date ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-right text-gray-600">{fmtMoney(l.estimated_home_value)}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-600">{fmtMoney(l.county_value ?? l.estimated_home_value)}</td>
                     <td className="px-4 py-2.5 text-right text-gray-600">
                       {l.lot_size_sqft ? Math.round(l.lot_size_sqft).toLocaleString() : "—"}
                     </td>
