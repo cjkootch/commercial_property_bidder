@@ -69,7 +69,7 @@ export function buildPackagePitch(o: {
     `- Sourced from official county records over the past months (every date shown, nothing hidden)\n` +
     `- ${price} one-time for the full list + CSV download for your route planner\n\n` +
     `See it here: ${o.ctaUrl}\n\n` +
-    `We're ${o.brand} — we also run capped commercial job leads for ${t.noun} companies in Texas, if that's more your book.\n\n` +
+    `We're ${o.brand} — we also run capped commercial job leads for ${t.noun} in Texas, if that's more your book.\n\n` +
     `Reply to this email with any questions${o.replyEmail ? ` (${o.replyEmail})` : ""}.`;
   return { subject, body };
 }
