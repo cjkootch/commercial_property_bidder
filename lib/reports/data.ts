@@ -1,4 +1,4 @@
-import { eq, isNotNull } from "drizzle-orm";
+import { eq, inArray, isNotNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   buyer,
@@ -9,6 +9,7 @@ import {
   postcard,
   property,
   prospectCompany,
+  residentialPackage,
   residentialUnlock,
   smsOptOut,
   smsSend,
@@ -65,6 +66,19 @@ export type ReportData = {
   timeline: TimelineEvent[];
   autopilot: { enabled: boolean; sentToday: number; cap: number };
   sms: SmsReport;
+  /** The residential pipeline's OWN funnel (2026-07-16 directive) — its rows
+   *  are split out of every commercial aggregate above. */
+  residential: {
+    pitched: number;
+    pitchedPrev: number;
+    opened: number;
+    clicked: number;
+    purchases: number;
+    revenueCents: number;
+    packagesPublished: number;
+    packagesPitched: number;
+    autopilot: { enabled: boolean; sentToday: number; cap: number };
+  };
 };
 
 const DAY_MS = 86_400_000;
@@ -93,12 +107,13 @@ export async function getReportData(days: number): Promise<ReportData> {
   const inPrev = (t: Date | null | undefined) =>
     !!t && t.getTime() >= prevStart && t.getTime() < winStart;
 
-  const [bo, ow, es, companies, buyers, unlocks, resUnlocks, cards, props, counters, sms, smsOptOuts] =
+  const [boAll, ow, es, companies, buyers, unlocks, resUnlocks, resPkgs, cards, props, counters, sms, smsOptOuts] =
     await Promise.all([
       db
         .select({
           company_key: buyerOutreach.company_key,
           property_id: buyerOutreach.property_id,
+          claim_url: buyerOutreach.claim_url,
           sent_at: buyerOutreach.sent_at,
           delivered_at: buyerOutreach.delivered_at,
           opened_at: buyerOutreach.opened_at,
@@ -143,15 +158,21 @@ export async function getReportData(days: number): Promise<ReportData> {
       db
         .select({ created_at: residentialUnlock.created_at, price_cents: residentialUnlock.price_cents })
         .from(residentialUnlock),
+      db.select({ status: residentialPackage.status }).from(residentialPackage),
       db
         .select({ created_at: postcard.created_at, price_cents: postcard.price_cents, status: postcard.status })
         .from(postcard),
       db.select({ id: property.id, lat: property.lat, lng: property.lng }).from(property),
-      // Rate-limit counters share this table — fetch only today's demand key.
+      // Rate-limit counters share this table — fetch today's demand ledgers.
       db
         .select({ key: usageCounter.key, count: usageCounter.count })
         .from(usageCounter)
-        .where(eq(usageCounter.key, `demand_sent:${new Date().toISOString().slice(0, 10)}`)),
+        .where(
+          inArray(usageCounter.key, [
+            `demand_sent:${new Date().toISOString().slice(0, 10)}`,
+            `resi_demand_sent:${new Date().toISOString().slice(0, 10)}`,
+          ])
+        ),
       db
         .select({
           direction: smsSend.direction,
@@ -163,6 +184,11 @@ export async function getReportData(days: number): Promise<ReportData> {
         .from(smsSend),
       db.select({ created_at: smsOptOut.created_at }).from(smsOptOut),
     ]);
+
+  // Residential pitches ride buyer_outreach but are their OWN funnel — split
+  // them out so every commercial aggregate below stays pure.
+  const resiPitches = boAll.filter((r) => r.claim_url?.includes("respkg="));
+  const bo = boAll.filter((r) => !r.claim_url?.includes("respkg="));
 
   // --- daily/weekly engagement buckets --------------------------------------
   const weekly = days > 35;
@@ -499,6 +525,31 @@ export async function getReportData(days: number): Promise<ReportData> {
     },
   };
 
+  // --- residential: its own funnel, measured on its own numbers -------------
+  const resiToday = `resi_demand_sent:${new Date().toISOString().slice(0, 10)}`;
+  const resiCap = Number(process.env.RESI_DEMAND_DAILY_CAP) || 90; // mirrors residential-demand route
+  const residential = {
+    pitched: resiPitches.filter((r) => inWin(r.sent_at)).length,
+    pitchedPrev: resiPitches.filter((r) => inPrev(r.sent_at)).length,
+    opened: resiPitches.filter((r) => inWin(r.opened_at)).length,
+    clicked: resiPitches.filter((r) => inWin(r.clicked_at)).length,
+    purchases: resUnlocks.filter((u) => inWin(u.created_at)).length,
+    revenueCents: resUnlocks
+      .filter((u) => inWin(u.created_at))
+      .reduce((a, u) => a + (u.price_cents ?? 0), 0),
+    packagesPublished: resPkgs.filter((x) => x.status === "published").length,
+    packagesPitched: new Set(
+      resiPitches
+        .map((r) => r.claim_url?.match(/respkg=([0-9a-f-]+)/)?.[1])
+        .filter(Boolean)
+    ).size,
+    autopilot: {
+      enabled: process.env.RESI_DEMAND_AUTOPILOT !== "0",
+      sentToday: counters.find((c) => c.key === resiToday)?.count ?? 0,
+      cap: resiCap,
+    },
+  };
+
   return {
     days,
     generatedAt: new Date().toISOString(),
@@ -511,6 +562,7 @@ export async function getReportData(days: number): Promise<ReportData> {
     timeline,
     autopilot,
     sms: smsReport,
+    residential,
   };
 }
 
@@ -538,6 +590,19 @@ export function snapshotMarkdown(d: ReportData): string {
   L.push("");
   L.push(
     `## Autopilot: ${d.autopilot.enabled ? "ON" : "OFF"} — ${d.autopilot.sentToday}/${d.autopilot.cap} sent today`
+  );
+  L.push("");
+  L.push("## Residential (own funnel)");
+  L.push(`- Pitched: ${d.residential.pitched} (prev ${d.residential.pitchedPrev})`);
+  L.push(`- Opened: ${d.residential.opened} / Clicked: ${d.residential.clicked}`);
+  L.push(
+    `- Purchases: ${d.residential.purchases} — $${Math.round(d.residential.revenueCents / 100).toLocaleString()}`
+  );
+  L.push(
+    `- Shelf: ${d.residential.packagesPublished} published, ${d.residential.packagesPitched} pitched at least once`
+  );
+  L.push(
+    `- Autopilot: ${d.residential.autopilot.enabled ? "ON" : "OFF"} — ${d.residential.autopilot.sentToday}/${d.residential.autopilot.cap} sent today`
   );
   L.push("");
   L.push("## SMS (vs previous period)");
