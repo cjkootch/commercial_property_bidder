@@ -1,0 +1,1 @@
+ALTER TABLE "claim_event" ADD COLUMN "ip_hash" text;

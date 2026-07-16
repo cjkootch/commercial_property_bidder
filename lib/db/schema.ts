@@ -629,6 +629,10 @@ export const claimEvent = pgTable(
     /** view_claimable | view_paid | view_filled | view_unsellable | view_expired
      *  | submit | submit_unlocked | submit_offer */
     event: text("event").notNull(),
+    /** Salted hash of the requester IP — scanner forensics (one machine
+     *  walking many companies' links is the bot fingerprint no per-page
+     *  signal can see). Never the raw IP. */
+    ip_hash: text("ip_hash"),
     created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("claim_event_created_idx").on(t.created_at)]

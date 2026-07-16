@@ -28,23 +28,36 @@ export function ClaimTrack(props: {
       "scroll",
       "keydown",
     ] as const;
+    // Input alone stopped being enough (2026-07-16: appliances simulate it) —
+    // the POST also waits out a minimum dwell and reports it, so a machine
+    // racing through a link list gets filtered server-side.
+    const MIN_DWELL_MS = 1500;
+    const loadedAt = Date.now();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const post = () => {
+      fetch("/api/claim/track", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...props, dwellMs: Date.now() - loadedAt }),
+        keepalive: true,
+      }).catch(() => {});
+    };
     const fire = () => {
       if (fired.current) return;
       fired.current = true;
       cleanup();
-      fetch("/api/claim/track", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(props),
-        keepalive: true,
-      }).catch(() => {});
+      const wait = Math.max(0, MIN_DWELL_MS - (Date.now() - loadedAt));
+      timer = setTimeout(post, wait);
     };
     const cleanup = () =>
       EVENTS.forEach((e) => window.removeEventListener(e, fire));
     EVENTS.forEach((e) =>
       window.addEventListener(e, fire, { passive: true })
     );
-    return cleanup;
+    return () => {
+      cleanup();
+      if (timer) clearTimeout(timer);
+    };
   }, [props]);
   return null;
 }
