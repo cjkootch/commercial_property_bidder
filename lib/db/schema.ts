@@ -195,6 +195,13 @@ export const property = pgTable("property", {
   // Suggested digital contact (free OSM tags + website scrape): phone/email/
   // website. A SUGGESTION the operator confirms into a contact before any send.
   contact_suggestion: jsonb("contact_suggestion"),
+  // Cached ATTOM expanded-profile facts (lib/integrations/attom.ts AttomFacts):
+  // assessor owner + mailing, assessed/market value, building size, last sale.
+  // Fetched at most ONCE per property, ever — the metered trial budget makes
+  // cache-forever the whole design. fetched_at set even on an API miss so a
+  // no-data address never costs a second call.
+  attom: jsonb("attom"),
+  attom_fetched_at: timestamp("attom_fetched_at", { withTimezone: true }),
   // Operator-set buying signal: the property is actively marketed for lease / has
   // a new property manager (spotted via a sign or listing). No reliable free API
   // for this, so it's a manual flag.

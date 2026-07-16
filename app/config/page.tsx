@@ -1,4 +1,5 @@
 import { getActiveConfig, getDefaultCompany, toEngineConfig } from "@/lib/db/queries";
+import { ATTOM_TRIAL_CAP, attomCallsUsed, getAttomKey } from "@/lib/integrations/attom";
 import { CommFlow } from "./CommFlow";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ const LABELS: Record<string, string> = {
 export default async function ConfigPage() {
   const co = await getDefaultCompany();
   const cfgRow = co ? await getActiveConfig(co.id) : null;
+  const attomUsed = getAttomKey() ? await attomCallsUsed() : null;
 
   if (!cfgRow) {
     return (
@@ -60,6 +62,22 @@ export default async function ConfigPage() {
           ))}
         </dl>
       </div>
+
+      {attomUsed != null ? (
+        <div className="mt-8 max-w-2xl rounded-xl border border-gray-200 bg-white p-4 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-gray-900">ATTOM enrichment budget</span>
+            <span className="tabular-nums text-gray-700">
+              {attomUsed} / {ATTOM_TRIAL_CAP()} calls used
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-gray-500">
+            Metered trial. Calls fire only when a lead sheet is built for a never-enriched
+            property (cached forever after) — see lib/integrations/attom.ts.
+          </p>
+        </div>
+      ) : null}
+
       <CommFlow />
     </div>
   );
