@@ -11,7 +11,8 @@
 //   3. One endpoint that earns the spend: /property/expandedprofile bundles
 //      assessor owner + mailing, assessed/market value, building size, year
 //      built, and last sale in a single call.
-// Env: ATTOM_API_KEY (+ optional ATTOM_TRIAL_CAP, ATTOM_DAILY_CAP).
+// Env: ATTOM_API_KEY — or PARCEL_VENDOR_API_KEY, the name it carries in the
+// Vercel project (+ optional ATTOM_TRIAL_CAP, ATTOM_DAILY_CAP).
 
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
@@ -28,7 +29,7 @@ export const ATTOM_DAILY_CAP = () => Number(process.env.ATTOM_DAILY_CAP) || 25;
 const TRIAL_WINDOW_SEC = 400 * 86_400;
 
 export function getAttomKey(): string | null {
-  return process.env.ATTOM_API_KEY ?? null;
+  return process.env.ATTOM_API_KEY ?? process.env.PARCEL_VENDOR_API_KEY ?? null;
 }
 
 /** Normalized keeper-fields from /property/expandedprofile. status "ok" =
