@@ -107,7 +107,7 @@ function Chip({ children, tone = "gray" }: { children: React.ReactNode; tone?: "
 export function CommFlow() {
   const SAMPLE_LINK = "https://greenkeep.us/buyers/claim/<their-token>?trade=cleaning";
   const cap = TEXT_QUEUE_DAILY_CAP();
-  const perRun = Number(process.env.SMS_QUEUE_PER_RUN) || 20; // mirrors sms-queue route default
+  const perRun = Number(process.env.SMS_QUEUE_PER_RUN) || 40; // mirrors sms-queue route default
   const smsCron = schedulesFor("/api/cron/sms-queue").join(" · ");
   const flushCron = schedulesFor("/api/cron/sms-flush").join(" · ");
   const demandCron = schedulesFor("/api/cron/demand").join(" · ");

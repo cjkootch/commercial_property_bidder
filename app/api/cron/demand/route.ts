@@ -20,9 +20,13 @@ import { TRADES, type Trade } from "@/lib/leads/trades";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+// 45 → 90 (2026-07-16 "double the trickle" directive): deliverability and
+// tone are proven (79% delivery, ~20-26% reply, zero STOPs) and the funnel
+// needs visitor volume — the demand engine is the spigot that feeds both
+// channels. Still env-tunable.
 const DAILY_CAP = () => {
   const n = Number(process.env.DEMAND_DAILY_CAP);
-  return Number.isFinite(n) && n > 0 ? n : 45;
+  return Number.isFinite(n) && n > 0 ? n : 90;
 };
 const RUNS_PER_INVOCATION = 3;
 const TIME_BUDGET_MS = 240_000; // leave headroom under maxDuration

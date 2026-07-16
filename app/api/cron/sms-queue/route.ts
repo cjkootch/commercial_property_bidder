@@ -35,9 +35,12 @@ export const maxDuration = 300; // headroom for a batch of sequential sends + lo
 // same daily total (the shared cap), spread evenly. A ~60-message burst in two
 // minutes of identical-template cold SMS is exactly the pattern carrier spam
 // filters flag; ~20/hour reads human. Tune via SMS_QUEUE_PER_RUN.
+// 20 → 40 (2026-07-16 "double the trickle"): headroom, not a target — actual
+// per-run volume is bounded by the eligible pool the demand engine creates,
+// and the shared daily cap still rules everything.
 const PER_RUN = () => {
   const n = Number(process.env.SMS_QUEUE_PER_RUN);
-  return Number.isFinite(n) && n > 0 ? n : 20;
+  return Number.isFinite(n) && n > 0 ? n : 40;
 };
 
 export async function GET(req: NextRequest) {
