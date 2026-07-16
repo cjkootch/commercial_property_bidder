@@ -20,11 +20,16 @@ import { asTrade, type Trade } from "@/lib/leads/trades";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+// 90 → 150 (2026-07-16 "bigger launch" directive) with 4 daily waves and 3
+// packages per wave — volume AND shelf coverage scale together. Watch the
+// /reports residential card's bounce/complaint signals during the ramp; the
+// cousin domain has warmed at 25-90/day, and this takes the combined cold
+// send to ~240/day.
 const DAILY_CAP = () => {
   const n = Number(process.env.RESI_DEMAND_DAILY_CAP);
-  return Number.isFinite(n) && n > 0 ? n : 90;
+  return Number.isFinite(n) && n > 0 ? n : 150;
 };
-const RUNS_PER_INVOCATION = 2;
+const RUNS_PER_INVOCATION = 3;
 const TIME_BUDGET_MS = 240_000;
 /** The two trades a homeowner package sells to. Rotated by 2h slot so both
  *  get first pick across the week (same stateless trick as the feed rotor). */
