@@ -6,11 +6,11 @@
 // fresh claim link. Holds are released on claim and lazily deleted on expiry,
 // so a live row in the lookahead window is by definition still claimable.
 
-import { and, eq, gt, isNotNull, lte } from "drizzle-orm";
+import { and, eq, gt, isNotNull, lte, notInArray } from "drizzle-orm";
 import { db } from "../db";
 import { emailSend, leadHold, property, prospectCompany, smsSend } from "../db/schema";
 import { sendEmail } from "../integrations/resend";
-import { sendSms } from "../integrations/twilio";
+import { sendSms, toE164 } from "../integrations/twilio";
 import { getDefaultCompany } from "../db/queries";
 import { marketTz } from "../markets";
 import { rateLimit } from "../ratelimit";
@@ -124,10 +124,19 @@ export async function runHoldExpiryReminders(opts?: { apply?: boolean }): Promis
           lte(leadHold.expires_at, new Date(now.getTime() + HOLD_REMIND_BEFORE_HOURS * 3_600_000))
         )
       ),
+    // A carrier-rejected reminder did NOT remind anyone — only sends that
+    // weren't hard-failed count (first live run: Monarch's landline bounce
+    // stamped the hold "reminded" and blocked the email fallback forever).
     db
       .select({ ref_id: smsSend.ref_id })
       .from(smsSend)
-      .where(and(eq(smsSend.kind, KIND), isNotNull(smsSend.ref_id))),
+      .where(
+        and(
+          eq(smsSend.kind, KIND),
+          isNotNull(smsSend.ref_id),
+          notInArray(smsSend.status, ["undelivered", "failed"])
+        )
+      ),
     db.select({ ref_id: emailSend.ref_id }).from(emailSend).where(eq(emailSend.kind, KIND)),
   ]);
   const reminded = new Set([...smsReminded.map((r) => r.ref_id), ...emailReminded.map((r) => r.ref_id)]);
@@ -159,8 +168,11 @@ export async function runHoldExpiryReminders(opts?: { apply?: boolean }): Promis
       log.push(`  … ${h.company} — no prospect profile, unreachable`);
       continue;
     }
+    // Normalize BEFORE picking: a junk phone ("1.8571428571" — sourcing
+    // artifact, first live run) must route to email, not to a doomed SMS.
+    const cell = toE164(pc.phone);
     const channel = pickOutcomeChannel({
-      phone: pc.phone,
+      phone: cell,
       lineType: pc.line_type,
       email: pc.email,
       emailOk: !!pc.email, // suppression enforced centrally in sendEmail
@@ -201,15 +213,18 @@ export async function runHoldExpiryReminders(opts?: { apply?: boolean }): Promis
         log.push(`  … ${pc.name} — daily SMS cap reached`);
         continue;
       }
-      const res = await sendSms({ to: pc.phone!, body: text, kind: KIND, companyKey: pc.key, refId: h.id });
+      const res = await sendSms({ to: cell!, body: text, kind: KIND, companyKey: pc.key, refId: h.id });
       if (res.ok) {
         sent++;
         log.push(`  ✓ sms ${pc.name} — hold reminder sent`);
-      } else {
-        skipped++;
-        log.push(`  ✗ sms ${pc.name} — ${res.error}`);
+        continue;
       }
-      continue;
+      log.push(`  ✗ sms ${pc.name} — ${res.error}${pc.email ? " — falling back to email" : ""}`);
+      if (!pc.email) {
+        skipped++;
+        continue;
+      }
+      // fall through to the email path below
     }
 
     const msg = buildHoldReminderEmail({

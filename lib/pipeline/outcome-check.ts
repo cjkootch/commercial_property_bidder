@@ -10,11 +10,11 @@
 // it), email otherwise (replies land on the operator via reply-to). One
 // check-in per unlock, ever.
 
-import { and, eq, gte, isNotNull, lte } from "drizzle-orm";
+import { and, eq, gte, isNotNull, lte, notInArray } from "drizzle-orm";
 import { db } from "../db";
 import { buyer, emailSend, leadUnlock, property, prospectCompany, smsSend } from "../db/schema";
 import { sendEmail } from "../integrations/resend";
-import { isTextableLineType, sendSms } from "../integrations/twilio";
+import { isTextableLineType, sendSms, toE164 } from "../integrations/twilio";
 import { isPlaceholderEmail, signBuyerUnsub } from "../buyer-auth";
 import { getDefaultCompany } from "../db/queries";
 import { marketTz } from "../markets";
@@ -105,10 +105,18 @@ export async function runOutcomeChecks(opts?: { limit?: number; apply?: boolean 
         )
       ),
     db.select({ ref_id: emailSend.ref_id }).from(emailSend).where(eq(emailSend.kind, KIND)),
+    // Hard-failed sends don't count as checked (same lesson as hold-expiry:
+    // a bounce must not eat the one check-in this unlock ever gets).
     db
       .select({ ref_id: smsSend.ref_id })
       .from(smsSend)
-      .where(and(eq(smsSend.kind, KIND), isNotNull(smsSend.ref_id))),
+      .where(
+        and(
+          eq(smsSend.kind, KIND),
+          isNotNull(smsSend.ref_id),
+          notInArray(smsSend.status, ["undelivered", "failed"])
+        )
+      ),
   ]);
   const checked = new Set([
     ...emailChecked.map((r) => r.ref_id),
@@ -144,8 +152,10 @@ export async function runOutcomeChecks(opts?: { limit?: number; apply?: boolean 
       .where(eq(prospectCompany.buyer_id, u.buyer_id))
       .limit(1);
     const emailOk = !!b.notify && !isPlaceholderEmail(b.email);
+    // Normalized phone only — junk sourcing artifacts route to email.
+    const cell = toE164(pc?.phone ?? null);
     const channel = pickOutcomeChannel({
-      phone: pc?.phone ?? null,
+      phone: cell,
       lineType: pc?.line_type ?? null,
       email: b.email,
       emailOk,
@@ -183,7 +193,7 @@ export async function runOutcomeChecks(opts?: { limit?: number; apply?: boolean 
         continue;
       }
       const res = await sendSms({
-        to: pc!.phone!,
+        to: cell!,
         body: text,
         kind: KIND,
         companyKey: pc!.key,
