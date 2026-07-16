@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export default async function ResidentialMarketplace({
   searchParams,
 }: {
-  searchParams?: { purchased?: string; canceled?: string; err?: string };
+  searchParams?: { purchased?: string; canceled?: string; err?: string; respkg?: string };
 }) {
   const buyerId = await currentBuyerId();
   if (!buyerId) redirect("/buyers/login");
@@ -44,6 +44,13 @@ export default async function ResidentialMarketplace({
       )
     )
     .orderBy(desc(residentialPackage.created_at));
+
+  // Deep link from a pitch email/text: pin THEIR package to the top with a
+  // badge — a $29 impulse buy must not start with hunting through the shelf.
+  const pinned = /^[0-9a-f-]{36}$/i.test(searchParams?.respkg ?? "") ? searchParams!.respkg : null;
+  if (pinned) {
+    packages.sort((a, b) => (a.id === pinned ? -1 : 0) - (b.id === pinned ? -1 : 0));
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -86,7 +93,17 @@ export default async function ResidentialMarketplace({
             {packages.map((pkg) => {
               const teaser = pkg.signal_summary as PackageTeaser | null;
               return (
-                <div key={pkg.id} className="flex flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md">
+                <div
+                  key={pkg.id}
+                  className={`flex flex-col overflow-hidden rounded-2xl border bg-white shadow-sm transition hover:shadow-md ${
+                    pkg.id === pinned ? "border-brand ring-2 ring-brand/30" : "border-gray-200"
+                  }`}
+                >
+                  {pkg.id === pinned ? (
+                    <div className="bg-brand px-4 py-1.5 text-xs font-semibold text-white">
+                      The list from your message
+                    </div>
+                  ) : null}
                   <div className="p-6">
                     <div className="flex items-start justify-between">
                       <div>

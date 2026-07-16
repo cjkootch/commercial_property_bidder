@@ -71,14 +71,21 @@ export async function enrichPackageLeads(packageId: string): Promise<number> {
 export async function buildResidentialDossier(packageId: string): Promise<ResidentialDossier> {
   const rows = await packageLeads(packageId);
 
-  const leads = await Promise.all(
-    rows.map(async ({ lead }) => {
+  // This runs inside the Stripe webhook at purchase (hard response-time
+  // budget) — enrichment is sequential under a deadline; past it, cached
+  // facts only. Pitch-time enrichment (residential-demand) keeps the cache
+  // warm so the deadline almost never bites.
+  const deadline = Date.now() + 8_000;
+  const leads: ResidentialDossierLead[] = [];
+  for (const { lead } of rows) {
+    {
+      const cached = (lead.attom as AttomFacts | null)?.status === "ok" ? (lead.attom as AttomFacts) : null;
       const f =
-        (await ensureResidentialAttom(lead).catch(() => null)) ??
-        ((lead.attom as AttomFacts | null)?.status === "ok"
-          ? (lead.attom as AttomFacts)
-          : null);
-      return {
+        cached ??
+        (lead.attom_fetched_at || Date.now() > deadline
+          ? null
+          : await ensureResidentialAttom(lead).catch(() => null));
+      leads.push({
         address: lead.address,
         city: lead.city,
         state: lead.state,
@@ -96,9 +103,9 @@ export async function buildResidentialDossier(packageId: string): Promise<Reside
         purchase_date: f?.last_sale_date ?? null,
         county_value: f ? f.market_value ?? f.assessed_value : null,
         absentee: f?.absentee ?? null,
-      };
-    })
-  );
+      });
+    }
+  }
 
   leads.sort(
     (a, b) => b.score - a.score || (b.signal_date ?? "").localeCompare(a.signal_date ?? "")
