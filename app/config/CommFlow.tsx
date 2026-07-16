@@ -285,6 +285,20 @@ export function CommFlow() {
         </Step>
 
         <Step
+          n="1b"
+          title="SMS rides along — same human opener, residential step 2"
+          accent="bg-amber-600"
+          timing="pitched companies with textable numbers join the hourly SMS queue · same shared daily cap"
+        >
+          <Msg text={openerFor("Acme Lawn Care", "Fort Worth")} />
+          <div>
+            <Chip>reply → AI delivers the package pitch + link (no free-lead framing)</Chip>
+            <Chip tone="amber">silent {SMS_NUDGE_AFTER_HOURS}h → one residential follow-up</Chip>
+            <Chip tone="red">STOP → opt-out, permanent</Chip>
+          </div>
+        </Step>
+
+        <Step
           n="2"
           title="CTA → packages page → purchase"
           accent="bg-amber-600"

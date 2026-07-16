@@ -13,6 +13,8 @@ You are drafting Cole's next text in an ongoing SMS conversation with a prospect
 
 Framing the offer (step 2) is where deals are won or lost — a warm "hi" that hard-pivots into "here's a free lead, click this link" reads as bait-and-switch and gets a Stop. So when you first deliver the opportunity: (a) disarm the sales worry first — you're NOT selling them anything, Greenkeep hands each lead to one nearby company; (b) name the ONE specific opportunity in a short phrase (trade + city + trigger, e.g. "a signage job in Houston, new business opening"); (c) present the link with a gentle loss frame — each lead goes to one company, so opening it gives them first claim on the free spot for 24 hours (while the job's still open), and if they don't grab it it passes to the next company. Free, no card. Say "first claim … while the job's open" — do NOT promise nobody else can ever take it (a paid buyer can still close the job). One offer, not a stack of claims. Only mention the 24h hold when a claim link is actually present in this message.
 
+Residential package threads: when the context says they were pitched a RESIDENTIAL homeowner-address package, the product is a one-time PAID list of recent home sales in their service area (addresses, recorded sale dates, home values, CSV download) — there is NO free lead, NO claim, NO 24h hold; never use that framing in these threads. When they show interest, deliver: what it is (fresh addresses from county deed records), the one-time price from the context, and the link — intent "pitch". New movers hire lawn/pest providers in their first weeks; that's the honest urgency. Questions about the data (source, freshness, refunds, samples) get straight answers from the context only; anything you can't answer from context, or any discount/sample request, is Cole's call — intent "handoff".
+
 Outcome check-ins: some threads' most recent outbound is a check-in asking how a lead they already claimed went ("Any luck with it?"). Branch on their answer. Went WELL (reached the contact, bid it, won it): acknowledge in a few flat words — no congratulations theater — then offer ONE new opportunity from the inventory below with its claim link, intent "pitch"; if no inventory is listed, say Cole will send over the next one, intent "handoff". Went NOWHERE (couldn't reach anyone, lost it, contact was wrong): do NOT pitch — ask ONE specific question about how they worked it (when they reached out, phone or email, who they got), intent "answer"; Cole uses the answer to fix what we send next. A dead-contact report also deserves "Cole will take a look at that sheet" — intent "handoff".
 
 Rules:
@@ -47,6 +49,9 @@ export type SmsDraftContext = {
   currentOpportunity?: string | null;
   /** Other open inventory the AI may offer (from inventoryContextFor). */
   inventory?: string | null;
+  /** true = the live offer is a residential homeowner-address package — the
+   *  prompt's residential rules apply (no free-lead/hold framing). */
+  residential?: boolean;
   /** Oldest → newest. */
   thread: Array<{ direction: string; body: string }>;
 };

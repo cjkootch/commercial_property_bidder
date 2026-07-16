@@ -89,6 +89,17 @@ export function step2For(name: string, claimUrl: string): string {
   );
 }
 
+/** Step 2 for a RESIDENTIAL package thread — a paid address list, so no
+ *  free-lead / 24h-hold framing (that would be dishonest here). */
+export function resiStep2For(name: string, url: string): string {
+  return (
+    `Not selling a job lead — I run Greenkeep. We pull every recent home sale in ` +
+    `your area from county records; new owners are hiring right now and ${name} ` +
+    `could be first through the door. The full address list is one-time, CSV ` +
+    `included: ${url}\n\n${OPT_OUT_LINE}\n-Cole, Greenkeep`
+  );
+}
+
 export type QueueSuggestion = {
   companyId: string;
   companyKey: string;
@@ -105,6 +116,8 @@ export type QueueSuggestion = {
   cellLookupAt: Date | null; // last owner-cell reveal attempt (attempt-once)
   opener: string;
   claimUrl: string;
+  /** What step 2 delivers: a commercial claim link or a residential package. */
+  kind: "commercial" | "residential";
 };
 
 /** Rank first-touch candidates: engaged with email (or unreachable BY email),
@@ -154,16 +167,29 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
   const alreadyTexted = new Set(texted.map((t) => t.phone));
   const optedOut = new Set(optOuts.map((o) => o.phone));
 
-  type Agg = { opens: number; clicks: number; propertyId: string | null; claimAt: number };
+  type Agg = {
+    opens: number;
+    clicks: number;
+    propertyId: string | null;
+    claimAt: number;
+    /** Latest residential package pitch (respkg URL — stable, no token TTL). */
+    resiUrl: string | null;
+    resiAt: number;
+  };
   const byKey = new Map<string, Agg>();
   for (const o of outreach) {
-    const a = byKey.get(o.company_key) ?? { opens: 0, clicks: 0, propertyId: null, claimAt: 0 };
+    const a =
+      byKey.get(o.company_key) ??
+      { opens: 0, clicks: 0, propertyId: null, claimAt: 0, resiUrl: null, resiAt: 0 };
     if (o.opened_at || o.nudge_opened_at) a.opens++;
     if (o.clicked_at || o.nudge_clicked_at) a.clicks++;
     const at = o.sent_at?.getTime() ?? 0;
     if (o.claim_url && o.property_id && at >= a.claimAt) {
       a.propertyId = o.property_id;
       a.claimAt = at;
+    } else if (o.claim_url && !o.property_id && o.claim_url.includes("respkg=") && at >= a.resiAt) {
+      a.resiUrl = o.claim_url;
+      a.resiAt = at;
     }
     byKey.set(o.company_key, a);
   }
@@ -176,7 +202,10 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
     // candidates and get a just-in-time lookup at send time (fail-open).
     if (!isTextableLineType(c.line_type)) continue;
     const a = byKey.get(c.key);
-    if (!a?.propertyId) continue; // step 2 needs a link to deliver
+    if (!a?.propertyId && !a?.resiUrl) continue; // step 2 needs something to deliver
+    // Most recent offer wins the thread: a company pitched a residential
+    // package yesterday gets the residential step 2, not last week's job.
+    const resi = !!a.resiUrl && a.resiAt >= a.claimAt;
     // Every prospect with a phone + a lead to offer is textable — SMS is not
     // reserved for the already-engaged (operator decision 2026-07-14: "all
     // prospects get a text and email"). Score still RANKS them so the daily cap
@@ -199,7 +228,8 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
       website: c.website,
       cellLookupAt: c.cell_lookup_at,
       opener: openerFor(c.name, c.office_city),
-      claimUrl: freshClaimUrl(a.propertyId, c.name, c.trade),
+      claimUrl: resi ? a.resiUrl! : freshClaimUrl(a.propertyId!, c.name, c.trade),
+      kind: resi ? "residential" : "commercial",
     });
   }
   out.sort((a, b) => b.score - a.score);
@@ -271,6 +301,17 @@ export function nudgeTextFor(
   return (
     `Didn't hear back, so I'll just send it over — ${what}${value}. Each lead ` +
     `goes to one company; opening this gives ${name} first claim for 24h: ${claimUrl}\n\n` +
+    `${OPT_OUT_LINE}\n\n-Cole, Greenkeep`
+  );
+}
+
+/** The residential no-reply follow-up: same one-follow-up promise, but the
+ *  product is a paid homeowner-address list — no job, no claim, no 24h hold
+ *  language (that framing would be dishonest here). */
+export function resiNudgeTextFor(name: string, url: string): string {
+  return (
+    `Didn't hear back, so here it is — the new-homeowner address list for ${name}'s area ` +
+    `(recent sales, straight from county records). One-time, CSV included: ${url}\n\n` +
     `${OPT_OUT_LINE}\n\n-Cole, Greenkeep`
   );
 }
@@ -358,10 +399,11 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
       .select({
         company_key: buyerOutreach.company_key,
         property_id: buyerOutreach.property_id,
+        claim_url: buyerOutreach.claim_url,
         sent_at: buyerOutreach.sent_at,
       })
       .from(buyerOutreach)
-      .where(and(isNotNull(buyerOutreach.claim_url), isNotNull(buyerOutreach.property_id))),
+      .where(isNotNull(buyerOutreach.claim_url)),
   ]);
 
   const due = selectSmsNudges({
@@ -371,17 +413,29 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
   });
   if (due.size === 0) return [];
 
-  const offerByKey = new Map<string, { propertyId: string; at: number }>();
+  // Latest offer wins the follow-up: commercial rows carry a property id,
+  // residential package pitches carry a stable respkg URL instead.
+  const offerByKey = new Map<string, { propertyId: string | null; resiUrl: string | null; at: number }>();
   for (const o of outreach) {
+    const isResi = !o.property_id && !!o.claim_url?.includes("respkg=");
+    if (!o.property_id && !isResi) continue;
     const at = o.sent_at?.getTime() ?? 0;
     const prev = offerByKey.get(o.company_key);
-    if (!prev || at >= prev.at) offerByKey.set(o.company_key, { propertyId: o.property_id!, at });
+    if (!prev || at >= prev.at) {
+      offerByKey.set(o.company_key, {
+        propertyId: o.property_id ?? null,
+        resiUrl: isResi ? o.claim_url! : null,
+        at,
+      });
+    }
   }
 
   // The lead's city + teaser estimate power the nudge's value line ("a Houston
   // cleaning job, est. $6,600-$12,300/yr") — real numbers, fetched once for the
   // offered properties. Absent teaser → the copy degrades gracefully.
-  const offeredIds = [...new Set([...offerByKey.values()].map((o) => o.propertyId))];
+  const offeredIds = [
+    ...new Set([...offerByKey.values()].map((o) => o.propertyId).filter(Boolean) as string[]),
+  ];
   const props = offeredIds.length
     ? await db
         .select({ id: property.id, city: property.city, lead_teaser: property.lead_teaser, attom: property.attom })
@@ -401,7 +455,17 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
     const offer = offerByKey.get(c.key);
     if (!offer) continue; // nothing to deliver
     nudgedPhones.add(phone);
-    const p = propById.get(offer.propertyId);
+    if (offer.resiUrl) {
+      out.push({
+        companyId: c.id,
+        companyKey: c.key,
+        name: c.name,
+        phone,
+        text: resiNudgeTextFor(c.name, offer.resiUrl),
+      });
+      continue;
+    }
+    const p = propById.get(offer.propertyId!);
     const teaser = (p?.lead_teaser ?? null) as { annual_lo?: number; annual_hi?: number } | null;
     // Cached ATTOM county valuation (read-only here — never a fetch): sizes
     // the stakes in the nudge when the offer-time enrichment found one.
@@ -411,7 +475,7 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
       companyKey: c.key,
       name: c.name,
       phone,
-      text: nudgeTextFor(c.name, freshClaimUrl(offer.propertyId, c.name, c.trade), {
+      text: nudgeTextFor(c.name, freshClaimUrl(offer.propertyId!, c.name, c.trade), {
         city: p?.city ?? null,
         service: TRADES[asTrade(c.trade)].service,
         estLo: teaser?.annual_lo ?? null,

@@ -303,6 +303,7 @@ async function deferredAiReply(args: {
         let claimUrl: string | null = null;
         let offeredPropertyId: string | null = null;
         let currentOpportunity: string | null = null;
+        let residential = false;
         if (match) {
           const offers = await db
             .select({
@@ -316,15 +317,26 @@ async function deferredAiReply(args: {
             .limit(10);
           // One offer row grounds BOTH the link and the "current opportunity"
           // description — mixing rows made the AI describe property X while
-          // linking property Y. The link is minted fresh (stored claim_url
-          // may be past its 30-day token TTL).
-          const withClaim = offers.find((o) => o.claim_url && o.property_id);
-          if (withClaim) {
-            claimUrl = freshClaimUrl(withClaim.property_id!, match.name, match.trade);
-            offeredPropertyId = withClaim.property_id;
-            currentOpportunity = withClaim.message
-              ? `The opportunity already offered to them (from our email):\n${withClaim.message.slice(0, 500)}`
+          // linking property Y. The LATEST offer wins the thread: a company
+          // pitched a residential package yesterday must not get last week's
+          // commercial framing (and vice versa).
+          const latest = offers.find(
+            (o) => (o.claim_url && o.property_id) || o.claim_url?.includes("respkg=")
+          );
+          if (latest?.property_id && latest.claim_url) {
+            // Commercial: mint fresh (stored claim_url may be past token TTL).
+            claimUrl = freshClaimUrl(latest.property_id, match.name, match.trade);
+            offeredPropertyId = latest.property_id;
+            currentOpportunity = latest.message
+              ? `The opportunity already offered to them (from our email):\n${latest.message.slice(0, 500)}`
               : null;
+          } else if (latest?.claim_url) {
+            // Residential package: the respkg URL is stable (no token).
+            residential = true;
+            claimUrl = latest.claim_url;
+            currentOpportunity = latest.message
+              ? `They were pitched a RESIDENTIAL homeowner-address package (a paid list, NOT a job lead — no free claim, no 24h hold). The pitch we emailed:\n${latest.message.slice(0, 500)}`
+              : `They were pitched a RESIDENTIAL homeowner-address package (a paid list, NOT a job lead).`;
           }
         }
         // Inventory loads for EVERY sender — unmatched numbers get links
@@ -344,7 +356,10 @@ async function deferredAiReply(args: {
           trade: match?.trade ?? null,
           claimUrl,
           currentOpportunity,
-          inventory,
+          residential,
+          // A residential thread pitches the package, not the commercial
+          // shelf — cross-selling both in one SMS thread reads as spam.
+          inventory: residential ? null : inventory,
           thread: thread.map((m) => ({ direction: m.direction, body: m.body })),
         });
         if (draft) {
