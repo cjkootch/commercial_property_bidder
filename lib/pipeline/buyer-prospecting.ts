@@ -26,7 +26,7 @@ import { and, desc, eq, gte } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
 import { marketForCoords } from "../markets";
-import { searchLandscapers, type BuyerCandidate } from "../integrations/apollo";
+import { searchLandscapersDeep, type BuyerCandidate } from "../integrations/apollo";
 import {
   asTrade,
   DEFAULT_TRADE,
@@ -632,19 +632,34 @@ export async function runBuyerProspecting(opts?: {
     candidates = opts.candidates;
   } else if (needDiscovery) {
     // The LEAD's metro, by its coordinates — a DFW lead pulls DFW companies
-    // even though the deployment default is Houston.
+    // even though the deployment default is Houston. Discovery pages DEEP
+    // (searchLandscapersDeep): page 1 of every worked metro is exhausted by
+    // the 30-day cooldown, so we pull pages until enough not-yet-contacted
+    // names surface.
     const mkt = marketForCoords(lead.lat, lead.lng);
-    candidates = await searchLandscapers(
+    const freshName = (c: BuyerCandidate) => {
+      const k = companyKey(c.name);
+      return !accountKeys.has(k) && !cooled.has(k) && !offeredThis.has(k) && !blockedKeys.has(k);
+    };
+    candidates = await searchLandscapersDeep(
       lead.city ? `${lead.city}, ${mkt.metroSearch.split(", ")[1] ?? "Texas"}` : mkt.metroSearch,
       CANDIDATE_POOL,
-      TRADES[trade].prospectKeywords
+      TRADES[trade].prospectKeywords,
+      freshName,
+      want * 3
     );
-    // A small town yielding fewer companies than the target list can't fill the
-    // blast — merge in the metro pool (deduped) whenever the town runs short.
-    if (candidates.length < want && lead.city && lead.city.toLowerCase() !== mkt.metroCity) {
-      log.push(`Only ${candidates.length} candidate(s) in ${lead.city} — widening to the ${mkt.label}.`);
+    // A small town yielding fewer FRESH companies than the target list can't
+    // fill the blast — merge in the metro pool (deduped) when it runs short.
+    if (candidates.filter(freshName).length < want && lead.city && lead.city.toLowerCase() !== mkt.metroCity) {
+      log.push(`Only ${candidates.filter(freshName).length} fresh candidate(s) in ${lead.city} — widening to the ${mkt.label}.`);
       const seen = new Set(candidates.map((c) => companyKey(c.name)));
-      const metro = await searchLandscapers(mkt.metroSearch, CANDIDATE_POOL, TRADES[trade].prospectKeywords);
+      const metro = await searchLandscapersDeep(
+        mkt.metroSearch,
+        CANDIDATE_POOL,
+        TRADES[trade].prospectKeywords,
+        freshName,
+        want * 3
+      );
       candidates = [...candidates, ...metro.filter((c) => !seen.has(companyKey(c.name)))];
     }
   } else {

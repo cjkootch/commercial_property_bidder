@@ -80,11 +80,12 @@ const SEARCH_MEMO_TTL_MS = 2 * 3600_000;
 export async function searchLandscapers(
   location = "Houston, Texas",
   perPage = 25,
-  keywords: string[] = ["landscaping", "lawn care", "grounds maintenance"]
+  keywords: string[] = ["landscaping", "lawn care", "grounds maintenance"],
+  page = 1
 ): Promise<BuyerCandidate[]> {
   const key = getApolloKey();
   if (!key) return [];
-  const memoKey = `${location}|${perPage}|${[...keywords].sort().join(",")}`;
+  const memoKey = `${location}|${perPage}|${[...keywords].sort().join(",")}|p${page}`;
   const hit = searchMemo.get(memoKey);
   if (hit && Date.now() - hit.at < SEARCH_MEMO_TTL_MS) return [...hit.data];
   try {
@@ -94,7 +95,7 @@ export async function searchLandscapers(
       body: JSON.stringify({
         q_organization_keyword_tags: keywords,
         organization_locations: [location],
-        page: 1,
+        page,
         per_page: perPage,
       }),
     });
@@ -119,6 +120,46 @@ export async function searchLandscapers(
   } catch {
     return [];
   }
+}
+
+/** Pages of discovery to fetch at most per search (env APOLLO_MAX_PAGES). */
+export function apolloMaxPages(): number {
+  const n = Number(process.env.APOLLO_MAX_PAGES);
+  return Number.isFinite(n) && n > 0 ? n : 5;
+}
+
+/**
+ * Depth-aware discovery (2026-07-17 launch-day fix): page-1-only search hands
+ * back the SAME 100 orgs per metro forever — after weeks of outreach the
+ * whole first page is cooled down or email-less, and daily sends decayed
+ * 45→45→25→18→0 while page 2+ sat unfetched. Keep pulling pages until
+ * `wantFresh` candidates pass the caller's `isFresh` screen (name-level
+ * exclusions — cooldown, accounts, blocked) or the well runs dry, bounded by
+ * apolloMaxPages(). Per-page results ride the same 2h memo, so repeat waves
+ * don't re-spend search credits.
+ */
+export async function searchLandscapersDeep(
+  location: string,
+  perPage: number,
+  keywords: string[],
+  isFresh: (c: BuyerCandidate) => boolean,
+  wantFresh: number
+): Promise<BuyerCandidate[]> {
+  const all: BuyerCandidate[] = [];
+  const seen = new Set<string>();
+  for (let page = 1; page <= apolloMaxPages(); page++) {
+    const batch = await searchLandscapers(location, perPage, keywords, page);
+    if (!batch.length) break;
+    for (const c of batch) {
+      const k = c.name.trim().toLowerCase().replace(/\s+/g, " ");
+      if (seen.has(k)) continue;
+      seen.add(k);
+      all.push(c);
+    }
+    if (all.filter(isFresh).length >= wantFresh) break;
+    if (batch.length < perPage) break; // short page = the well is dry
+  }
+  return all;
 }
 
 // --- decision-contact enrichment (person level) -----------------------------
