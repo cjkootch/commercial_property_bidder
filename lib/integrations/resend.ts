@@ -58,6 +58,45 @@ export function htmlToText(html: string): string {
     .trim();
 }
 
+// Failure tripwire (2026-07-17 audit): sendEmail never throws and the cron
+// guard only pages on a thrown exception, so a Resend rate-limit/outage day
+// used to fail SILENTLY — the engines kept spending Apollo/scrape/ATTOM quota
+// while zero mail delivered, rows thrashed queued→sent→queued, and nothing
+// alerted. Count real send failures per UTC day; on crossing the threshold,
+// alert the operator ONCE — by SMS, because when Resend is down an email
+// alert dies with it. Set ALERT_SMS_TO (E.164) to arm the SMS channel.
+const EMAIL_FAIL_ALERT_AT = 10;
+async function noteSendFailure(error: string): Promise<void> {
+  try {
+    const { db } = await import("../db");
+    const { usageCounter } = await import("../db/schema");
+    const { sql } = await import("drizzle-orm");
+    const day = new Date(Math.floor(Date.now() / 86_400_000) * 86_400_000);
+    const [row] = await db
+      .insert(usageCounter)
+      .values({ key: "emailfail:day", window_start: day, count: 1 })
+      .onConflictDoUpdate({
+        target: [usageCounter.key, usageCounter.window_start],
+        set: { count: sql`${usageCounter.count} + 1` },
+      })
+      .returning({ count: usageCounter.count });
+    if ((row?.count ?? 0) !== EMAIL_FAIL_ALERT_AT) return; // exactly once per day
+    const body =
+      `Greenkeep ops: ${EMAIL_FAIL_ALERT_AT}+ email sends failed today ` +
+      `(latest: ${error.slice(0, 100)}). If Resend is rate-limited, the outreach ` +
+      `engines are burning Apollo/scrape spend with nothing delivered.`;
+    const to = process.env.ALERT_SMS_TO ?? null;
+    if (to) {
+      const { sendSms } = await import("./twilio");
+      await sendSms({ to, body, kind: "ops_alert" });
+    } else {
+      console.error(`[email-fail tripwire] ${body} (set ALERT_SMS_TO to get this as an SMS)`);
+    }
+  } catch {
+    // the tripwire itself must never break a send path
+  }
+}
+
 export async function sendEmail(args: {
   to: string;
   subject: string;
@@ -114,7 +153,11 @@ export async function sendEmail(args: {
       }),
     });
     const data = (await res.json().catch(() => ({}))) as { id?: string; message?: string };
-    if (!res.ok || !data.id) return { ok: false, error: data.message || `HTTP ${res.status}` };
+    if (!res.ok || !data.id) {
+      const error = data.message || `HTTP ${res.status}`;
+      await noteSendFailure(error);
+      return { ok: false, error };
+    }
     if (args.logAs) {
       try {
         const { db } = await import("../db");
@@ -133,7 +176,9 @@ export async function sendEmail(args: {
     }
     return { ok: true, id: data.id };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "send failed" };
+    const error = e instanceof Error ? e.message : "send failed";
+    await noteSendFailure(error);
+    return { ok: false, error };
   }
 }
 

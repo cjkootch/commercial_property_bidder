@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { guarded } from "@/lib/cron-guard";
 import { sendSms } from "@/lib/integrations/twilio";
-import { rateLimit } from "@/lib/ratelimit";
+import { rateLimit, rateLimitCount, releaseRateLimit } from "@/lib/ratelimit";
 import {
   suggestedTexts,
   smsNudgeTargets,
@@ -74,11 +74,18 @@ export async function GET(req: NextRequest) {
     // send window (9a-6p CT) never crosses UTC midnight, so the fixed UTC-day
     // window aligns with the Chicago-day cap.
     const reserveCapSlot = async () => (await rateLimit("smsqueue:day", cap, 86_400)).ok;
+    // A reserved slot whose send then FAILS gets refunded — otherwise a bad
+    // Twilio hour silently drains the daily cap with zero messages delivered.
+    const refundCapSlot = async () => releaseRateLimit("smsqueue:day", 86_400);
+    // Non-incrementing peek: the paid lookups below (Apollo cell reveal +
+    // Twilio line lookup) must not run for a suggestion the cap will reject.
+    const capLeft = async () => (await rateLimitCount("smsqueue:day", 86_400)) < cap;
 
     const suggestions = await suggestedTexts(budget - nudgeReserve);
     const sent: Array<{ company: string; phone: string; sid?: string; error?: string; skipped?: string }> = [];
     let skippedLandline = 0;
     for (const s of suggestions) {
+      if (!(await capLeft())) break; // don't pay for lookups past the cap
       // Cell-first: lead with the owner's mobile where Apollo can find one — a
       // text to a business main line reaches nobody. Attempt-once per company;
       // a swap resets line_type so the fresh number re-screens below.
@@ -111,6 +118,7 @@ export async function GET(req: NextRequest) {
         companyKey: s.companyKey,
         refId: s.companyId,
       });
+      if (!res.ok) await refundCapSlot();
       sent.push(
         res.ok
           ? { company: s.name, phone, sid: res.sid }
@@ -132,6 +140,7 @@ export async function GET(req: NextRequest) {
         companyKey: n.companyKey,
         refId: n.companyId,
       });
+      if (!res.ok) await refundCapSlot();
       nudged.push(
         res.ok
           ? { company: n.name, phone: n.phone, sid: res.sid }

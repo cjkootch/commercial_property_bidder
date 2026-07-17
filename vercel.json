@@ -78,19 +78,19 @@
     },
     {
       "path": "/api/cron/residential-demand",
-      "schedule": "41 14 * * 1-5"
+      "schedule": "51 14 * * 1-5"
     },
     {
       "path": "/api/cron/residential-demand",
-      "schedule": "41 16 * * 1-5"
+      "schedule": "51 16 * * 1-5"
     },
     {
       "path": "/api/cron/residential-demand",
-      "schedule": "41 18 * * 1-5"
+      "schedule": "51 18 * * 1-5"
     },
     {
       "path": "/api/cron/residential-demand",
-      "schedule": "41 20 * * 1-5"
+      "schedule": "51 20 * * 1-5"
     },
     {
       "path": "/api/cron/residential?want=200",
@@ -118,7 +118,7 @@
     },
     {
       "path": "/api/cron/buyer-alerts",
-      "schedule": "7 17 * * 1-5"
+      "schedule": "19 17 * * 1-5"
     }
   ]
 }

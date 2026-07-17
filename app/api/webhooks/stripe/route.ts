@@ -137,8 +137,18 @@ export async function POST(req: NextRequest) {
 
   // Audit gap fix: money settling must alert the operator — before this, a
   // first sale would have fired no notification at all. Fires before the
-  // fulfillment branches so credit-fallback outcomes still alert.
-  alertOperatorOfSale({
+  // fulfillment branches so credit-fallback outcomes still alert. Deduped on
+  // session id (2026-07-17 audit): Stripe retries the event on any timeout,
+  // and firing pre-idempotency meant each retry re-alerted a phantom sale.
+  // Marker failure fails OPEN — a duplicate alert beats a missed first sale.
+  const alertFresh = await db
+    .insert(usageCounter)
+    .values({ key: `stripe_alert:${session.id}`, window_start: CREDIT_MARKER_WINDOW, count: 1 })
+    .onConflictDoNothing({ target: [usageCounter.key, usageCounter.window_start] })
+    .returning()
+    .then((r) => r.length > 0)
+    .catch(() => true);
+  if (alertFresh) alertOperatorOfSale({
     what: session.metadata?.type === "residential_package"
       ? "residential address report"
       : session.metadata?.type === "postcard"
@@ -546,13 +556,22 @@ async function creditAndNotify(
       .set({ credit_cents: sql`${buyer.credit_cents} + ${amount}`, updated_at: new Date() })
       .where(eq(buyer.id, b.id));
   }
+  // Copy branches on what was bought: the sold-out/we-cap-every-job framing is
+  // true for lead unlocks but false (and confusing) for a residential
+  // double-purchase, where nothing sold out — the buyer simply already owned
+  // the report.
+  const residential = session.metadata?.type === "residential_package";
   await sendEmail({
     to: b.email,
-    subject: `That job sold out — your ${usd(amount)} credit is ready`,
+    subject: residential
+      ? `Your ${usd(amount)} account credit is ready`
+      : `That job sold out — your ${usd(amount)} credit is ready`,
     html:
       `<p>${b.company_name} — ${reason}. Your payment is now a <strong>${usd(amount)} credit</strong> on your account.</p>` +
       `<p>It applies automatically: it auto-applies to any open job at or below that amount in <a href="${appUrl()}/buyers">your dashboard</a> — no card needed — and it never expires.</p>` +
-      `<p style="color:#888;font-size:12px">We cap every job at a fixed number of companies and never oversell — that's why spots can go fast.</p>`,
+      (residential
+        ? ""
+        : `<p style="color:#888;font-size:12px">We cap every job at a fixed number of companies and never oversell — that's why spots can go fast.</p>`),
     tags: { kind: "lead_credit" },
   }).catch(() => null);
   return NextResponse.json({ received: true, credited: amount, reason });

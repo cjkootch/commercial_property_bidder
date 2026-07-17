@@ -62,6 +62,44 @@ export async function rateLimit(key: string, limit: number, windowSec: number): 
   }
 }
 
+/**
+ * Non-incrementing read of the current window's count. Use to peek "is there
+ * budget left?" BEFORE spending money (paid lookups) on work that a later
+ * rateLimit() reservation might reject. Fail-soft: a DB error reads as 0 so a
+ * hiccup can't wedge the whole pipeline shut.
+ */
+export async function rateLimitCount(key: string, windowSec: number): Promise<number> {
+  try {
+    const ws = windowStart(windowSec);
+    const [row] = await db
+      .select({ count: usageCounter.count })
+      .from(usageCounter)
+      .where(sql`${usageCounter.key} = ${key} and ${usageCounter.window_start} = ${ws}`)
+      .limit(1);
+    return row?.count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Refund one hit in the current window — for a reserved slot whose action then
+ * FAILED (e.g. a cap slot consumed but the Twilio send errored, which would
+ * otherwise silently drain the daily budget on a bad-provider day). Floors at
+ * 0; best-effort (an unrefunded slot is safe, just conservative).
+ */
+export async function releaseRateLimit(key: string, windowSec: number): Promise<void> {
+  try {
+    const ws = windowStart(windowSec);
+    await db
+      .update(usageCounter)
+      .set({ count: sql`greatest(${usageCounter.count} - 1, 0)` })
+      .where(sql`${usageCounter.key} = ${key} and ${usageCounter.window_start} = ${ws}`);
+  } catch {
+    // best-effort
+  }
+}
+
 /** Best-effort client IP for server actions / route handlers behind Vercel.
  *  SECURITY ASSUMPTION: takes the LEFTMOST x-forwarded-for entry, which is
  *  client-spoofable in general — it is only trustworthy because Vercel's edge

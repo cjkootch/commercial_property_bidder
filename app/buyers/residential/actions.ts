@@ -4,10 +4,11 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, residentialPackage, residentialUnlock, suppression } from "@/lib/db/schema";
+import { buyer, residentialPackage, residentialUnlock } from "@/lib/db/schema";
 import { currentBuyerId } from "@/app/buyers/actions";
 import { createPackageCheckout } from "@/lib/integrations/stripe";
 import { rateLimit, clientIp } from "@/lib/ratelimit";
+import { transactionsBlocked } from "@/lib/suppression";
 
 function baseUrl(): string {
   const envBase = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
@@ -33,8 +34,10 @@ export async function startResidentialPackageCheckout(packageId: string): Promis
   const rl = await rateLimit(`buyercheckout:ip:${clientIp()}`, 20, 3600);
   if (!rl.ok) fail("Too many attempts — try again in a bit.");
 
-  const [supp] = await db.select().from(suppression).where(eq(suppression.email, row!.email)).limit(1);
-  if (supp) fail("This account can't make purchases — contact us.");
+  // Bounce/complaint suppression blocks purchases; a mere marketing
+  // unsubscribe must NOT (lib/suppression) — cold prospects who opted out of
+  // email and later chose to convert were being turned away at checkout.
+  if (await transactionsBlocked(row!.email)) fail("This account can't make purchases — contact us.");
 
   const [pkg] = await db
     .select()

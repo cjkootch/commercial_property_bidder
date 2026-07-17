@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, leadUnlock, suppression } from "@/lib/db/schema";
+import { buyer, leadUnlock, residentialUnlock, suppression } from "@/lib/db/schema";
 import { verifyBuyerUnsub } from "@/lib/buyer-auth";
 
 // One-click unsubscribe (linked from alert emails + List-Unsubscribe header).
@@ -32,15 +32,26 @@ export async function GET(req: NextRequest) {
   // customer opting out of alerts must not lose the ability to buy. Their
   // marketing stops via notify=false + account exclusion. (CAN-SPAM: every
   // non-customer gets a durable opt-out.)
+  // "Customer" means ANY paid-side unlock — commercial lead sheets OR
+  // residential address reports. Counting only leadUnlock (pre-2026-07-17 bug)
+  // suppressed residential-only purchasers, which then hard-blocked them from
+  // buying again via the checkout suppression gate.
   const isCustomer =
     updated.length > 0 &&
-    (
+    ((
       await db
         .select({ id: leadUnlock.id })
         .from(leadUnlock)
         .where(eq(leadUnlock.buyer_id, updated[0].id))
         .limit(1)
-    ).length > 0;
+    ).length > 0 ||
+      (
+        await db
+          .select({ id: residentialUnlock.id })
+          .from(residentialUnlock)
+          .where(eq(residentialUnlock.buyer_id, updated[0].id))
+          .limit(1)
+      ).length > 0);
   if (!isCustomer) {
     await db
       .insert(suppression)

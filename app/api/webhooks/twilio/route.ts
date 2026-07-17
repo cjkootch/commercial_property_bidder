@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { waitUntil } from "@vercel/functions";
-import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, like, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, pendingSms, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
 import { sendSms, smsStatusRank, verifyTwilioSignature } from "@/lib/integrations/twilio";
@@ -312,11 +312,20 @@ async function deferredAiReply(args: {
               message: buyerOutreach.message,
             })
             .from(buyerOutreach)
-            // sent_at NOT NULL: Postgres sorts NULLs FIRST under DESC, and
-            // skipped/queued rows (never actually delivered) would otherwise
-            // outrank the real latest offer and mis-frame the AI thread.
-            .where(and(eq(buyerOutreach.company_key, match.key), isNotNull(buyerOutreach.sent_at)))
-            .orderBy(desc(buyerOutreach.sent_at))
+            // Same visibility + recency rule as suggestedTexts (2026-07-17
+            // audit): sent rows PLUS never-emailed respkg rows — a phone-only
+            // company's residential pitch lives on a "skipped" row (sent_at
+            // NULL) that IS the live offer, and hiding it here made the AI
+            // reply with commercial framing while the opener sold the package.
+            // COALESCE dates those rows by created_at; plain sent_at DESC
+            // would sort their NULLs first (the original NULLS-first bug).
+            .where(
+              and(
+                eq(buyerOutreach.company_key, match.key),
+                or(isNotNull(buyerOutreach.sent_at), like(buyerOutreach.claim_url, "%respkg=%"))
+              )
+            )
+            .orderBy(desc(sql`coalesce(${buyerOutreach.sent_at}, ${buyerOutreach.created_at})`))
             .limit(10);
           // One offer row grounds BOTH the link and the "current opportunity"
           // description — mixing rows made the AI describe property X while

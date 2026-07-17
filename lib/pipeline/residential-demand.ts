@@ -166,19 +166,27 @@ export async function runResidentialDemandGen(opts: {
   // Politeness cooldown spans ALL outreach (commercial campaigns included).
   const since = new Date(Date.now() - COOLDOWN_DAYS * 86400_000);
   const recent = await db
-    .select({ key: schema.buyerOutreach.company_key })
+    .select({ key: schema.buyerOutreach.company_key, email: schema.buyerOutreach.email })
     .from(schema.buyerOutreach)
     .where(and(gte(schema.buyerOutreach.created_at, since), eq(schema.buyerOutreach.status, "sent")));
   const cooled = new Set(recent.map((r) => r.key));
+  // Cooldown by EMAIL too (2026-07-17 audit): company_key is a normalized
+  // NAME — the same shop under two Apollo spellings dodged the name-keyed
+  // cooldown, letting the residential and commercial engines cold-email the
+  // same inbox on the same day. buyer_outreach spans both engines, so the
+  // email set closes the gap across products and spellings.
+  const cooledEmails = new Set(
+    recent.map((r) => r.email?.toLowerCase()).filter(Boolean) as string[]
+  );
   // One pitch per company per package, ever (no partial-unique-index cover
   // here — residential rows carry property_id NULL — so dedupe by query).
-  const pitchedThis = new Set(
-    (
-      await db
-        .select({ key: schema.buyerOutreach.company_key })
-        .from(schema.buyerOutreach)
-        .where(like(schema.buyerOutreach.claim_url, `%respkg=${pkg.id}%`))
-    ).map((r) => r.key)
+  const pitchedRows = await db
+    .select({ key: schema.buyerOutreach.company_key, email: schema.buyerOutreach.email })
+    .from(schema.buyerOutreach)
+    .where(like(schema.buyerOutreach.claim_url, `%respkg=${pkg.id}%`));
+  const pitchedThis = new Set(pitchedRows.map((r) => r.key));
+  const pitchedEmails = new Set(
+    pitchedRows.map((r) => r.email?.toLowerCase()).filter(Boolean) as string[]
   );
   const suppressed = new Set(
     (await db.select({ email: schema.suppression.email }).from(schema.suppression)).map((r) =>
@@ -252,10 +260,18 @@ export async function runResidentialDemandGen(opts: {
       : { email: null, phone: null, contact_form_url: null };
     const email = contact.email ?? graphEmail.get(key) ?? null;
     if (email && suppressed.has(email.toLowerCase())) continue;
+    // Same-inbox guard: two name spellings, one email = one company. Skip if
+    // that inbox was touched in the cooldown window (either engine) or is
+    // already in this run's pitch list.
+    if (email && (cooledEmails.has(email.toLowerCase()) || pitchedEmails.has(email.toLowerCase()))) {
+      log.push(`  × ${c.name} — same inbox already contacted (email-level dedupe)`);
+      continue;
+    }
     if (!email) skippedNoEmail++;
 
     qualified.push({ c, key, coords, distance, email, phone: contact.phone, form: contact.contact_form_url });
     pitchedThis.add(key);
+    if (email) pitchedEmails.add(email.toLowerCase());
     log.push(
       `  ${email ? "✓" : "·"} ${c.name}${distance != null ? ` (${distance.toFixed(0)} mi)` : ""}` +
         `${email ? "" : " — no email, recorded as skipped"}`
