@@ -8,6 +8,8 @@ import { currentBuyerId } from "@/app/buyers/actions";
 import { startResidentialPackageCheckout } from "./actions";
 import { BuyerHeader } from "@/components/buyers/BuyerHeader";
 import type { PackageTeaser } from "@/lib/residential/teaser";
+import { resiMaxBuyers } from "@/lib/residential/availability";
+import { asTrade } from "@/lib/leads/trades";
 import { usd } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +32,19 @@ export default async function ResidentialMarketplace({
         .where(eq(residentialUnlock.buyer_id, me.id))
     ).map((r) => r.pkg)
   );
+
+  // Per-trade cap: spots taken on each package for MY trade (NULL-trade
+  // history rows count against every trade — lib/residential/availability).
+  const myTrade = asTrade(me.trade);
+  const cap = resiMaxBuyers();
+  const takenByPkg = new Map<string, number>();
+  for (const u of await db
+    .select({ pkg: residentialUnlock.residential_package_id, trade: residentialUnlock.trade })
+    .from(residentialUnlock)) {
+    if (u.trade === null || u.trade === myTrade) {
+      takenByPkg.set(u.pkg, (takenByPkg.get(u.pkg) ?? 0) + 1);
+    }
+  }
 
   const co = await getDefaultCompany();
   const brand = co?.name ?? "Greenkeep";
@@ -94,6 +109,8 @@ export default async function ResidentialMarketplace({
           <div className="grid gap-6 md:grid-cols-2">
             {packages.map((pkg) => {
               const teaser = pkg.signal_summary as PackageTeaser | null;
+              const spotsLeft = Math.max(0, cap - (takenByPkg.get(pkg.id) ?? 0));
+              const buyable = pkg.status === "published" && spotsLeft > 0;
               return (
                 <div
                   key={pkg.id}
@@ -119,9 +136,13 @@ export default async function ResidentialMarketplace({
                         <p className="text-sm font-medium text-brand">{pkg.geography_label}</p>
                       </div>
                       <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                        pkg.status === "sold_out" ? "bg-gray-100 text-gray-600" : "bg-brand/10 text-brand"
+                        !buyable && !owned.has(pkg.id) ? "bg-gray-100 text-gray-600" : "bg-brand/10 text-brand"
                       }`}>
-                        {pkg.status === "sold_out" ? "SOLD OUT" : "AVAILABLE"}
+                        {pkg.status === "sold_out"
+                          ? "SOLD OUT"
+                          : spotsLeft <= 0
+                            ? "SOLD OUT FOR YOUR TRADE"
+                            : `${spotsLeft} OF ${cap} SPOTS LEFT`}
                       </span>
                     </div>
 
@@ -151,7 +172,8 @@ export default async function ResidentialMarketplace({
 
                     <p className="mt-6 text-xs text-gray-500 leading-relaxed">
                       Includes property addresses, signal dates, and estimated home values.
-                      Verified high-intent movers only.
+                      Verified high-intent movers only. Capped at {cap} companies per trade —
+                      never oversold.
                     </p>
                   </div>
                   <div className="mt-auto border-t border-gray-100 bg-gray-50 p-4">
@@ -164,7 +186,7 @@ export default async function ResidentialMarketplace({
                         >
                           View report
                         </Link>
-                      ) : pkg.status === "published" ? (
+                      ) : buyable ? (
                         <form action={startResidentialPackageCheckout.bind(null, pkg.id)}>
                           <button className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand/90">
                             Get the report
@@ -172,7 +194,7 @@ export default async function ResidentialMarketplace({
                         </form>
                       ) : (
                         <button disabled className="rounded-lg bg-gray-300 px-4 py-2 text-sm font-semibold text-white shadow-sm cursor-not-allowed">
-                          Sold Out
+                          {pkg.status === "sold_out" ? "Sold Out" : "Sold out for your trade"}
                         </button>
                       )}
                     </div>

@@ -27,6 +27,7 @@ import { sendEmail } from "../integrations/resend";
 import { signBuyerUnsub } from "../buyer-auth";
 import { haversineMiles } from "../sourcing/criteria";
 import { companyKey, upsertProspectCompany } from "../leads/companies";
+import { packageSpotsLeft, resiMaxBuyers } from "../residential/availability";
 import {
   toHtml,
   siteBase,
@@ -75,6 +76,7 @@ export function buildPackagePitch(o: {
     `- ${o.pkg.lead_count} addresses, each with the recorded sale date, estimated home value, and lot size\n` +
     `- Recorded at the county over the past months, every date shown, nothing hidden — not ` +
     `the recycled lists everyone else is working\n` +
+    `- Capped: at most ${resiMaxBuyers()} ${t.noun} ever get this list — once those spots are gone, it's gone\n` +
     `- ${price} one-time for the full list + CSV download for your route planner\n\n` +
     `Be first through those doors: ${o.ctaUrl}\n\n` +
     `We're ${o.brand} — we also run capped commercial job leads for ${t.noun} in Texas, if that's more your book.\n\n` +
@@ -122,6 +124,15 @@ export async function runResidentialDemandGen(opts: {
   }
   if (doSend && pkg.status !== "published") {
     log.push(`Package is '${pkg.status}' — publish it before pitching (the CTA must be buyable).`);
+    return { package: pkg.id, ...empty };
+  }
+  // Per-trade sales cap: pitching a list this trade can no longer buy wastes
+  // the wave's Apollo/scrape budget AND the pitch would promise spots that
+  // don't exist. The autopilot's rotation just moves on to the next package.
+  if ((await packageSpotsLeft(pkg.id, trade)) <= 0) {
+    log.push(
+      `Package is sold out for ${trade} (${resiMaxBuyers()}-per-trade cap) — skipping this trade's pitches.`
+    );
     return { package: pkg.id, ...empty };
   }
   const teaser = pkg.signal_summary as PackageTeaser | null;

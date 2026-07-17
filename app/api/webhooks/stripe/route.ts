@@ -22,6 +22,7 @@ import {
   confirmUnlockWithinCap,
   leadAvailability,
 } from "@/lib/leads/availability";
+import { confirmResidentialWithinCap, packageSpotsLeft } from "@/lib/residential/availability";
 import { sendEmail } from "@/lib/integrations/resend";
 import { getDefaultCompany } from "@/lib/db/queries";
 
@@ -325,6 +326,17 @@ export async function POST(req: NextRequest) {
       return creditAndNotify(session, b, "the report you paid for is no longer listed");
     }
 
+    // Per-trade cap: sold out between checkout and payment → credit, don't
+    // ghost (the same never-oversell contract as lead unlocks).
+    const resiTrade = asTrade(b.trade);
+    if ((await packageSpotsLeft(packageId, resiTrade)) <= 0) {
+      return creditAndNotify(
+        session,
+        b,
+        "the last spot for your trade on this list went to another company moments before your payment"
+      );
+    }
+
     const { buildResidentialDossier } = await import("@/lib/residential/dossier");
     const dossier = await buildResidentialDossier(packageId).catch(() => null);
     const [unlock] = await db
@@ -334,6 +346,7 @@ export async function POST(req: NextRequest) {
         residential_package_id: packageId,
         kind: "paid",
         price_cents: session.amount_total ?? 0,
+        trade: resiTrade,
         stripe_session_id: session.id,
         dossier,
       })
@@ -344,6 +357,16 @@ export async function POST(req: NextRequest) {
     if (!unlock) {
       // Buyer already owns this report (double-pay) — duplicate becomes credit.
       return creditAndNotify(session, b, "you already had this report, so we converted the duplicate charge");
+    }
+    // Two payments racing for the last spot both pass the pre-insert check;
+    // the deterministic recount keeps the first cap-many rows and the loser's
+    // payment becomes credit (no transactions on the Neon HTTP driver).
+    if (!(await confirmResidentialWithinCap(unlock.id, packageId, resiTrade))) {
+      return creditAndNotify(
+        session,
+        b,
+        "the last spot for your trade on this list went to another company moments before your payment"
+      );
     }
 
     const link = `${appUrl()}/buyers/residential/${packageId}`;
@@ -496,6 +519,11 @@ async function handleExpiredCheckout(session: CheckoutSession | undefined) {
       .limit(1);
     if (!pkg || pkg.status !== "published") {
       return NextResponse.json({ received: true, skipped: "package unavailable" });
+    }
+    // "It's still available" must be live-true: skip the nudge when their
+    // trade's spots sold out since the cart was abandoned.
+    if ((await packageSpotsLeft(packageId!, asTrade(b.trade))) <= 0) {
+      return NextResponse.json({ received: true, skipped: "sold out for trade" });
     }
     itemLabel = pkg.name; // package names are public teaser content
     link = `${appUrl()}/buyers/residential`;

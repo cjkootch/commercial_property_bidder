@@ -8,6 +8,8 @@ import { buyer, residentialPackage, residentialUnlock } from "@/lib/db/schema";
 import { currentBuyerId } from "@/app/buyers/actions";
 import { createPackageCheckout } from "@/lib/integrations/stripe";
 import { rateLimit, clientIp } from "@/lib/ratelimit";
+import { packageSpotsLeft, resiMaxBuyers } from "@/lib/residential/availability";
+import { asTrade } from "@/lib/leads/trades";
 import { transactionsBlocked } from "@/lib/suppression";
 
 function baseUrl(): string {
@@ -57,6 +59,16 @@ export async function startResidentialPackageCheckout(packageId: string): Promis
     )
     .limit(1);
   if (mine) redirect(`/buyers/residential/${packageId}`);
+
+  // Per-trade cap (never-oversell, same as commercial): the pitch promises at
+  // most N companies per trade get each list — enforce it before Stripe. The
+  // webhook re-checks at delivery, so a race here degrades to account credit.
+  const spots = await packageSpotsLeft(packageId, asTrade(row!.trade));
+  if (spots <= 0) {
+    fail(
+      `This list has sold out for your trade — we cap every list at ${resiMaxBuyers()} companies per trade. Similar lists are below.`
+    );
+  }
 
   const base = baseUrl();
   const res = await createPackageCheckout({

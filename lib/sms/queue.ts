@@ -13,6 +13,7 @@ import { signBuyerClaim } from "@/lib/buyer-auth";
 import { DEFAULT_TZ, marketTimezones } from "@/lib/markets";
 import { asTrade, TRADES } from "@/lib/leads/trades";
 import { usdShort, type AttomFacts } from "@/lib/integrations/attom";
+import { resiMaxBuyers } from "@/lib/residential/availability";
 
 /** Claim links for texts are minted FRESH at suggestion/send time — a stored
  *  buyer_outreach.claim_url may be older than the 30-day token TTL, and a
@@ -95,8 +96,8 @@ export function resiStep2For(name: string, url: string): string {
   return (
     `Not selling a job lead — I run Greenkeep. We pull every recent home sale in ` +
     `your area from county records; new owners are hiring right now and ${name} ` +
-    `could be first through the door. The full address list is one-time, CSV ` +
-    `included: ${url}\n\n${OPT_OUT_LINE}\n-Cole, Greenkeep`
+    `could be first through the door. At most ${resiMaxBuyers()} companies in your ` +
+    `trade ever get each list. One-time, CSV included: ${url}\n\n${OPT_OUT_LINE}\n-Cole, Greenkeep`
   );
 }
 
@@ -320,7 +321,8 @@ export function nudgeTextFor(
 export function resiNudgeTextFor(name: string, url: string): string {
   return (
     `Didn't hear back, so here it is — the new-homeowner address list for ${name}'s area ` +
-    `(recent sales, straight from county records). One-time, CSV included: ${url}\n\n` +
+    `(recent sales, straight from county records). At most ${resiMaxBuyers()} companies in ` +
+    `your trade get it. One-time, CSV included: ${url}\n\n` +
     `${OPT_OUT_LINE}\n\n-Cole, Greenkeep`
   );
 }
