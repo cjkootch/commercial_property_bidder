@@ -5,7 +5,7 @@
 // a short human opener, then — once they reply — the pitch with their claim
 // link, where Greenkeep is identified and the casual opt-out is offered.
 
-import { isNotNull, isNull, and, inArray } from "drizzle-orm";
+import { isNotNull, isNull, and, inArray, like, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, property, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
 import { toE164, isTextableLineType } from "@/lib/integrations/twilio";
@@ -153,13 +153,17 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
         claim_url: buyerOutreach.claim_url,
         property_id: buyerOutreach.property_id,
         sent_at: buyerOutreach.sent_at,
+        created_at: buyerOutreach.created_at,
         opened_at: buyerOutreach.opened_at,
         clicked_at: buyerOutreach.clicked_at,
         nudge_opened_at: buyerOutreach.nudge_opened_at,
         nudge_clicked_at: buyerOutreach.nudge_clicked_at,
       })
       .from(buyerOutreach)
-      .where(isNotNull(buyerOutreach.sent_at)),
+      // Sent rows AND residential package rows: a phone-only company gets a
+      // "skipped" respkg row (no email to send) whose URL is still the live
+      // offer — without this they'd be unreachable on BOTH channels.
+      .where(or(isNotNull(buyerOutreach.sent_at), like(buyerOutreach.claim_url, "%respkg=%"))),
     db.select({ phone: smsSend.phone }).from(smsSend),
     db.select({ phone: smsOptOut.phone }).from(smsOptOut),
   ]);
@@ -187,9 +191,14 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
     if (o.claim_url && o.property_id && at >= a.claimAt) {
       a.propertyId = o.property_id;
       a.claimAt = at;
-    } else if (o.claim_url && !o.property_id && o.claim_url.includes("respkg=") && at >= a.resiAt) {
-      a.resiUrl = o.claim_url;
-      a.resiAt = at;
+    } else if (o.claim_url && !o.property_id && o.claim_url.includes("respkg=")) {
+      // Never-emailed rows have no sent_at — their creation time still
+      // establishes offer recency for the latest-offer-wins rule.
+      const resiAt = (o.sent_at ?? o.created_at)?.getTime() ?? 0;
+      if (resiAt >= a.resiAt) {
+        a.resiUrl = o.claim_url;
+        a.resiAt = resiAt;
+      }
     }
     byKey.set(o.company_key, a);
   }

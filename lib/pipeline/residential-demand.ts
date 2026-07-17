@@ -307,6 +307,10 @@ export async function runResidentialDemandGen(opts: {
         message: `SUBJECT[${subjectVariant}]: ${msg.subject}\n\n${msg.body}`,
         status: q.email ? "queued" : "skipped",
       })
+      // The respkg partial-unique index is the concurrency arbiter: a
+      // parallel run that already inserted this company's row wins, and we
+      // skip — never a second email.
+      .onConflictDoNothing()
       .returning();
     if (!row) continue;
     await upsertProspectCompany({

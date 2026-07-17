@@ -34,6 +34,15 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   let dossier = unlock.dossier as ResidentialDossier | null;
   if (!dossier?.leads?.length) {
     dossier = await buildResidentialDossier(params.id).catch(() => null);
+    // Persist like the report page does — otherwise a CSV-only buyer re-runs
+    // the full build on every download.
+    if (dossier?.leads?.length) {
+      await db
+        .update(residentialUnlock)
+        .set({ dossier, updated_at: new Date() })
+        .where(eq(residentialUnlock.id, unlock.id))
+        .catch(() => {});
+    }
   }
   if (!dossier?.leads?.length) return new NextResponse("Report not ready", { status: 503 });
 

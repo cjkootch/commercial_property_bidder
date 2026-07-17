@@ -414,6 +414,13 @@
       "when": 1784231841550,
       "tag": "0058_worried_charles_xavier",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1784248207012,
+      "tag": "0059_first_sabretooth",
+      "breakpoints": true
     }
   ]
 }

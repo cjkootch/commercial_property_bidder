@@ -100,8 +100,14 @@ export default async function ResidentialMarketplace({
                   }`}
                 >
                   {pkg.id === pinned ? (
-                    <div className="bg-brand px-4 py-1.5 text-xs font-semibold text-white">
-                      The list from your message
+                    <div
+                      className={`px-4 py-1.5 text-xs font-semibold text-white ${
+                        pkg.status === "published" ? "bg-brand" : "bg-gray-500"
+                      }`}
+                    >
+                      {pkg.status === "published"
+                        ? "The list from your message"
+                        : "The list from your message just sold out — similar lists below"}
                     </div>
                   ) : null}
                   <div className="p-6">

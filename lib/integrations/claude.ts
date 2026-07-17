@@ -125,6 +125,9 @@ export async function draftSmsReply(ctx: SmsDraftContext): Promise<SmsDraft | nu
             `Company: ${ctx.companyName ?? "unknown"}` +
             (ctx.city ? ` (${ctx.city})` : "") +
             (ctx.trade ? `\nTrade: ${ctx.trade}` : "") +
+            (ctx.residential
+              ? "\n*** RESIDENTIAL PACKAGE THREAD — apply the residential rules; NEVER use free-lead/claim/24h-hold framing. ***"
+              : "") +
             (ctx.claimUrl ? `\nClaim link for their opportunity: ${ctx.claimUrl}` : "\nNo claim link available.") +
             (ctx.currentOpportunity ? `\n\n${ctx.currentOpportunity}` : "") +
             (ctx.inventory ? `\n\n${ctx.inventory}` : "") +
