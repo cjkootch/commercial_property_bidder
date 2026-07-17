@@ -410,6 +410,7 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
         property_id: buyerOutreach.property_id,
         claim_url: buyerOutreach.claim_url,
         sent_at: buyerOutreach.sent_at,
+        created_at: buyerOutreach.created_at,
       })
       .from(buyerOutreach)
       .where(isNotNull(buyerOutreach.claim_url)),
@@ -428,7 +429,11 @@ export async function smsNudgeTargets(limit: number): Promise<SmsNudgeTarget[]> 
   for (const o of outreach) {
     const isResi = !o.property_id && !!o.claim_url?.includes("respkg=");
     if (!o.property_id && !isResi) continue;
-    const at = o.sent_at?.getTime() ?? 0;
+    // Residential recency falls back to created_at — phone-only companies get
+    // a "skipped" respkg row (never emailed, sent_at NULL) that IS the live
+    // offer. Same rule as suggestedTexts; without it the nudge and the opener
+    // could pick OPPOSITE products for one company (2026-07-17 audit).
+    const at = (o.sent_at ?? (isResi ? o.created_at : null))?.getTime() ?? 0;
     const prev = offerByKey.get(o.company_key);
     if (!prev || at >= prev.at) {
       offerByKey.set(o.company_key, {

@@ -68,6 +68,15 @@ export type BuyerCandidate = {
  * Apollo company search. Used only for OUR OWN outreach targeting — Apollo data
  * never ships inside a sold lead. Returns [] without a key or on error.
  */
+// Short-TTL memo (2026-07-17 audit): the demand engines re-issue IDENTICAL
+// company searches — every campaign in the same metro, every residential wave
+// against the same package shelf — up to ~42/day, each returning the same
+// 100-org page. Vercel reuses warm function containers, so a module-level
+// cache gets real hits across the 3 campaigns of one invocation AND across
+// waves, roughly halving Apollo search spend. Cold starts just miss and pay.
+const searchMemo = new Map<string, { at: number; data: BuyerCandidate[] }>();
+const SEARCH_MEMO_TTL_MS = 2 * 3600_000;
+
 export async function searchLandscapers(
   location = "Houston, Texas",
   perPage = 25,
@@ -75,6 +84,9 @@ export async function searchLandscapers(
 ): Promise<BuyerCandidate[]> {
   const key = getApolloKey();
   if (!key) return [];
+  const memoKey = `${location}|${perPage}|${[...keywords].sort().join(",")}`;
+  const hit = searchMemo.get(memoKey);
+  if (hit && Date.now() - hit.at < SEARCH_MEMO_TTL_MS) return [...hit.data];
   try {
     const res = await fetch("https://api.apollo.io/api/v1/mixed_companies/search", {
       method: "POST",
@@ -89,7 +101,7 @@ export async function searchLandscapers(
     if (!res.ok) return [];
     const data = (await res.json()) as { organizations?: ApolloOrg[]; accounts?: ApolloOrg[] };
     const orgs = [...(data.organizations ?? []), ...(data.accounts ?? [])];
-    return orgs
+    const out = orgs
       .filter((o) => o.name?.trim())
       .map((o) => ({
         name: o.name!.trim(),
@@ -97,6 +109,13 @@ export async function searchLandscapers(
         city: (o as { city?: string }).city ?? null,
         state: (o as { state?: string }).state ?? null,
       }));
+    // Only cache useful pages — an empty result may be a transient error and
+    // must not poison two hours of discovery for that metro.
+    if (out.length > 0) {
+      if (searchMemo.size > 50) searchMemo.clear(); // tiny bound, tiny data
+      searchMemo.set(memoKey, { at: Date.now(), data: out });
+    }
+    return [...out];
   } catch {
     return [];
   }

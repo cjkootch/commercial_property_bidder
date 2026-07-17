@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, gte, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { alertOperatorOfSignup } from "@/lib/email/operator-alerts";
-import { buyer, chatMessage, claimEvent, leadActivity, leadUnlock, property, suppression } from "@/lib/db/schema";
+import { buyer, chatMessage, claimEvent, leadActivity, leadUnlock, property } from "@/lib/db/schema";
 import {
   BUYER_COOKIE,
   BUYER_SESSION_MAX_AGE,
@@ -38,6 +38,7 @@ import { sendEmail } from "@/lib/integrations/resend";
 import { magicLinkEmail } from "@/lib/email/transactional";
 import { getDefaultCompany } from "@/lib/db/queries";
 import { rateLimit, clientIp, LIMITS } from "@/lib/ratelimit";
+import { transactionsBlocked } from "@/lib/suppression";
 
 function baseUrl(): string {
   const envBase = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
@@ -255,13 +256,8 @@ export async function claimFreeLead(propertyId: string): Promise<void> {
   // Same gates as paid checkout: suppressed accounts can't consume inventory,
   // and claims are rate-limited (each burns a sellable spot + a dossier build).
   const [meCheck] = await db.select().from(buyer).where(eq(buyer.id, buyerId!)).limit(1);
-  if (meCheck) {
-    const [sup] = await db
-      .select()
-      .from(suppression)
-      .where(eq(suppression.email, meCheck.email))
-      .limit(1);
-    if (sup) fail("This account can't make claims. Contact support via the chat.");
+  if (meCheck && (await transactionsBlocked(meCheck.email))) {
+    fail("This account can't make claims. Contact support via the chat.");
   }
   const rl = await rateLimit(`freeclaim:buyer:${buyerId}`, 10, 3600);
   if (!rl.ok) fail("Too many attempts — try again in a bit.");
@@ -342,16 +338,10 @@ async function tryFreeUnlock(
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
   if (!prop || (!prop.parcel_geojson && leadKind(prop.name) !== "rfp")) return false;
   const [buyerRow] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
-  // Suppressed companies can't consume inventory through a claim token —
-  // same gate as the marketplace free-claim and paid checkout.
-  if (buyerRow) {
-    const [sup] = await db
-      .select()
-      .from(suppression)
-      .where(eq(suppression.email, buyerRow.email))
-      .limit(1);
-    if (sup) return false;
-  }
+  // Bounced/complained companies can't consume inventory through a claim
+  // token — same gate as the marketplace free-claim and paid checkout. A mere
+  // marketing unsubscribe doesn't block (lib/suppression).
+  if (buyerRow && (await transactionsBlocked(buyerRow.email))) return false;
   const buyerLoc: [number, number] | null =
     buyerRow?.lng != null && buyerRow?.lat != null ? [buyerRow.lng, buyerRow.lat] : null;
 
@@ -557,8 +547,7 @@ export async function startFirstLookCheckout(): Promise<void> {
   const [row] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
   if (!row) redirect("/buyers/login");
   const fail = (msg: string): never => redirect(`/buyers?err=${encodeURIComponent(msg)}`);
-  const [supp] = await db.select().from(suppression).where(eq(suppression.email, row.email)).limit(1);
-  if (supp) fail("This account can't make purchases — contact us.");
+  if (await transactionsBlocked(row.email)) fail("This account can't make purchases — contact us.");
   const base = baseUrl();
   const res = await createFirstLookCheckout({
     amountCents: firstLookPriceCents(),
@@ -640,8 +629,7 @@ export async function startCheckout(propertyId: string, kind: "paid" | "exclusiv
   const rl = await rateLimit(`buyercheckout:ip:${clientIp()}`, 20, 3600);
   if (!rl.ok) fail("Too many attempts — try again in a bit.");
 
-  const [supp] = await db.select().from(suppression).where(eq(suppression.email, row.email)).limit(1);
-  if (supp) fail("This account can't make purchases — contact us.");
+  if (await transactionsBlocked(row.email)) fail("This account can't make purchases — contact us.");
 
   const [prop] = await db.select().from(property).where(eq(property.id, propertyId)).limit(1);
   if (!prop) fail("Lead not found.");

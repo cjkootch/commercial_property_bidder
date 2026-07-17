@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, like, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsSend } from "@/lib/db/schema";
 import { sendSms, toE164, isTextableLineType } from "@/lib/integrations/twilio";
@@ -148,10 +148,12 @@ export async function draftAiReply(formData: FormData): Promise<void> {
   let residential = false;
   let currentOpportunity: string | null = null;
   if (match) {
-    // Mirror the webhook's latest-offer rules: only genuinely-SENT rows
-    // (NULL sent_at sorts FIRST under DESC — a queued/skipped row must not
-    // win), residential respkg rows flip the framing, and commercial links
-    // are minted FRESH (a stored claim_url may be past its 30-day TTL).
+    // Mirror the webhook's latest-offer rules: sent rows PLUS never-emailed
+    // respkg rows (a phone-only company's residential pitch is a "skipped"
+    // row with NULL sent_at — still the live offer), recency by
+    // COALESCE(sent_at, created_at) so those rows date by creation instead of
+    // sorting NULLs first, residential respkg rows flip the framing, and
+    // commercial links are minted FRESH (stored claim_url may be past TTL).
     const offers = await db
       .select({
         claim_url: buyerOutreach.claim_url,
@@ -159,8 +161,13 @@ export async function draftAiReply(formData: FormData): Promise<void> {
         message: buyerOutreach.message,
       })
       .from(buyerOutreach)
-      .where(and(eq(buyerOutreach.company_key, match.key), isNotNull(buyerOutreach.sent_at)))
-      .orderBy(desc(buyerOutreach.sent_at))
+      .where(
+        and(
+          eq(buyerOutreach.company_key, match.key),
+          or(isNotNull(buyerOutreach.sent_at), like(buyerOutreach.claim_url, "%respkg=%"))
+        )
+      )
+      .orderBy(desc(sql`coalesce(${buyerOutreach.sent_at}, ${buyerOutreach.created_at})`))
       .limit(10);
     const latest = offers.find(
       (o) => (o.claim_url && o.property_id) || o.claim_url?.includes("respkg=")

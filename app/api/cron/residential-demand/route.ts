@@ -14,9 +14,17 @@ import { asTrade, type Trade } from "@/lib/leads/trades";
 //  - Autopilot (no packageId; the cron): rotates coverage across PUBLISHED
 //    packages, always pitching the least-pitched one first, alternating the
 //    two homeowner trades (lawn/landscaping and pest). Its own daily send
-//    ledger (resi_demand_sent:<day>, cap RESI_DEMAND_DAILY_CAP, default 90 —
+//    ledger (resi_demand_sent:<day>, cap RESI_DEMAND_DAILY_CAP, default 150 —
 //    deliberately additive to the commercial engine's budget, not shared).
 //    Kill switch: RESI_DEMAND_AUTOPILOT=0 turns runs into dry runs.
+//
+// SCHEDULING INVARIANT (vercel.json): this engine fires at :51 and the
+// commercial demand engine at :07 — the two cold-email engines must NEVER
+// share a minute. Both read a "recently contacted" snapshot (30-day sent
+// cooldown + email set) before sending; run them concurrently and each reads
+// the snapshot before the other commits, producing cross-engine double-sends
+// to the same company. Sequential minutes make the shared cooldown correct.
+// (:51 also keeps the waves off the :41 feeds-ingest minute.)
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 

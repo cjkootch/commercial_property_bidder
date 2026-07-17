@@ -531,17 +531,25 @@ export async function runBuyerProspecting(opts?: {
   // records, not touches, and must not block a company for 30 days.
   const since = new Date(Date.now() - COOLDOWN_DAYS * 86400_000);
   const recent = await db
-    .select({ key: schema.buyerOutreach.company_key })
+    .select({ key: schema.buyerOutreach.company_key, email: schema.buyerOutreach.email })
     .from(schema.buyerOutreach)
     .where(and(gte(schema.buyerOutreach.created_at, since), eq(schema.buyerOutreach.status, "sent")));
   const cooled = new Set(recent.map((r) => r.key));
-  const offeredThis = new Set(
-    (
-      await db
-        .select({ key: schema.buyerOutreach.company_key })
-        .from(schema.buyerOutreach)
-        .where(eq(schema.buyerOutreach.property_id, lead.id))
-    ).map((r) => r.key)
+  // Cooldown by EMAIL too (2026-07-17 audit): company_key is a normalized
+  // NAME, and Apollo surfaces the same shop under multiple spellings ("ABC
+  // Lawn" / "ABC Lawn Care LLC") — name-only cooldown let the same inbox get
+  // a commercial and a residential cold email the same day. Both engines
+  // share buyer_outreach, so this closes the gap across products.
+  const cooledEmails = new Set(
+    recent.map((r) => r.email?.toLowerCase()).filter(Boolean) as string[]
+  );
+  const offeredRows = await db
+    .select({ key: schema.buyerOutreach.company_key, email: schema.buyerOutreach.email })
+    .from(schema.buyerOutreach)
+    .where(eq(schema.buyerOutreach.property_id, lead.id));
+  const offeredThis = new Set(offeredRows.map((r) => r.key));
+  const offeredEmails = new Set(
+    offeredRows.map((r) => r.email?.toLowerCase()).filter(Boolean) as string[]
   );
 
   const suppressed = new Set(
@@ -606,6 +614,7 @@ export async function runBuyerProspecting(opts?: {
         form: k.form,
       });
       offeredThis.add(k.key);
+      offeredEmails.add(k.email.toLowerCase());
       log.push(
         `  ↺ ${k.name} (${k.distance.toFixed(0)} mi) — known contact, new lead in their area`
       );
@@ -711,6 +720,13 @@ export async function runBuyerProspecting(opts?: {
     const enriched = !contact.email ? graphEmail.get(key) ?? null : null;
     const email = contact.email ?? enriched;
     if (email && suppressed.has(email.toLowerCase())) continue;
+    // Same-inbox guard: a different name spelling resolving to an email we've
+    // already touched (30-day cooldown, either engine) or already queued this
+    // run/lead is the same company — skip, don't double-mail.
+    if (email && (cooledEmails.has(email.toLowerCase()) || offeredEmails.has(email.toLowerCase()))) {
+      log.push(`  × ${c.name} — same inbox already contacted (email-level dedupe)`);
+      continue;
+    }
     const commercial = await looksCommercial(c.website);
     if (!email) skippedNoEmail++;
 
@@ -725,6 +741,7 @@ export async function runBuyerProspecting(opts?: {
       form: contact.contact_form_url,
     });
     offeredThis.add(key); // guard against duplicate names inside one pool
+    if (email) offeredEmails.add(email.toLowerCase());
     log.push(
       `  ${email ? "✓" : "·"} ${c.name}${distance != null ? ` (${distance.toFixed(0)} mi)` : ""}` +
         `${commercial ? " [commercial]" : commercial === false ? " [resi?]" : ""}` +
