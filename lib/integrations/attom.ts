@@ -17,7 +17,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
 import { property, residentialLead, usageCounter } from "../db/schema";
-import { rateLimit, windowStart } from "../ratelimit";
+import { rateLimit, releaseRateLimit, windowStart } from "../ratelimit";
 import { marketForCoords } from "../markets";
 
 const BASE = "https://api.gateway.attomdata.com/propertyapi/v1.0.0";
@@ -145,10 +145,22 @@ export async function attomGet(path: string, params: Record<string, string>): Pr
   const key = getAttomKey();
   if (!key) return { ok: false, error: "ATTOM_API_KEY not set" };
 
+  // rateLimit() increments THEN checks — a refused attempt must refund its
+  // slots or phantom attempts eat the budget (2026-07-17: the daily brake
+  // tripped mid-wave and every subsequent enrichment attempt still burned a
+  // TRIAL slot with zero HTTP — the trial ledger inflated ~150 calls in one
+  // day and would have exhausted itself in days). Only real calls count.
   const trial = await rateLimit("attom:trial", ATTOM_TRIAL_CAP(), TRIAL_WINDOW_SEC);
-  if (!trial.ok) return { ok: false, error: `trial call budget exhausted (${trial.count})`, budget: true };
+  if (!trial.ok) {
+    await releaseRateLimit("attom:trial", TRIAL_WINDOW_SEC);
+    return { ok: false, error: `trial call budget exhausted (${trial.count})`, budget: true };
+  }
   const day = await rateLimit("attom:day", ATTOM_DAILY_CAP(), 86_400);
-  if (!day.ok) return { ok: false, error: "daily ATTOM brake tripped", budget: true };
+  if (!day.ok) {
+    await releaseRateLimit("attom:trial", TRIAL_WINDOW_SEC);
+    await releaseRateLimit("attom:day", 86_400);
+    return { ok: false, error: "daily ATTOM brake tripped", budget: true };
+  }
 
   try {
     const sp = new URLSearchParams(params);
