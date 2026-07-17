@@ -312,7 +312,10 @@ async function deferredAiReply(args: {
               message: buyerOutreach.message,
             })
             .from(buyerOutreach)
-            .where(eq(buyerOutreach.company_key, match.key))
+            // sent_at NOT NULL: Postgres sorts NULLs FIRST under DESC, and
+            // skipped/queued rows (never actually delivered) would otherwise
+            // outrank the real latest offer and mis-frame the AI thread.
+            .where(and(eq(buyerOutreach.company_key, match.key), isNotNull(buyerOutreach.sent_at)))
             .orderBy(desc(buyerOutreach.sent_at))
             .limit(10);
           // One offer row grounds BOTH the link and the "current opportunity"
