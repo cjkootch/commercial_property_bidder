@@ -51,6 +51,25 @@ type GeoJsonFeature = {
   geometry?: { type: string; coordinates: unknown } | null;
 };
 
+/** Street-suffix abbreviations both sources use interchangeably. */
+const SUFFIX: Record<string, string> = {
+  street: "st", drive: "dr", lane: "ln", road: "rd", avenue: "ave", court: "ct",
+  circle: "cir", trail: "trl", parkway: "pkwy", boulevard: "blvd", place: "pl",
+  terrace: "ter", highway: "hwy", cove: "cv", crossing: "xing",
+};
+
+/** Canonical street line: lowercase, punctuation stripped, suffixes folded to
+ *  their abbreviation — so "123 Main Street" and "123 MAIN ST" collide. */
+export function canonAddr(address: string): string {
+  return address
+    .toLowerCase()
+    .replace(/[^a-z0-9\s#]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => SUFFIX[w] ?? w)
+    .join(" ");
+}
+
 const str = (v: unknown): string | null => {
   if (v === null || v === undefined) return null;
   const s = String(v).trim();
@@ -269,8 +288,13 @@ export function normalizeAttomSale(f: GeoJsonFeature): ResidentialCandidate | nu
   const account = str(p.identifier?.attomid) ?? str(p.identifier?.id);
   const address = str(p.address?.line1);
   const city = str(p.address?.locality);
-  const zip = str(p.address?.postal1);
-  const saleDateIso = str(p.sale?.saletransdate);
+  // ZIP+4 would fragment package grouping into phantom geographies.
+  const zipRaw = str(p.address?.postal1);
+  const zip = zipRaw?.match(/^\d{5}/)?.[0] ?? null;
+  // STRICT date shape: county sources go through epochToIso which guarantees
+  // YYYY-MM-DD; ATTOM does not — a datetime here would concat into an
+  // Invalid Date at insert and abort the whole sourcing run.
+  const saleDateIso = str(p.sale?.saletransdate)?.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? null;
   const amt = Number(p.sale?.amount?.saleamt);
   const lat = Number(p.location?.latitude);
   const lng = Number(p.location?.longitude);
@@ -352,17 +376,26 @@ export async function runResidentialSourcing(opts?: {
     .from(schema.residentialLead);
   const have = new Set<string>();
   // Cross-source guard: ATTOM lands a sale months before the county layer
-  // republishes the SAME sale under a different account — address + sale
-  // month is the identity that survives the source switch.
-  const haveAddr = new Set<string>();
-  const addrKey = (address: string | null, iso: string | null) =>
-    address && iso ? `${address.toLowerCase().replace(/\s+/g, " ")}|${iso.slice(0, 7)}` : null;
+  // republishes the SAME sale under a different account (often a slightly
+  // different recorded date and abbreviation — "St" vs "Street"). Identity
+  // that survives the switch: canonicalized street line + sale dates within
+  // ~3 months of each other.
+  const haveAddr = new Map<string, number[]>();
+  const addrDup = (address: string | null, iso: string | null, register: boolean): boolean => {
+    if (!address || !iso) return false;
+    const key = canonAddr(address);
+    const t = new Date(`${iso.slice(0, 10)}T12:00:00Z`).getTime();
+    if (!Number.isFinite(t)) return false;
+    const dates = haveAddr.get(key) ?? [];
+    const dup = dates.some((d) => Math.abs(d - t) < 92 * 86_400_000);
+    if (register && !dup) haveAddr.set(key, [...dates, t]);
+    return dup;
+  };
   for (const r of existing) {
     if (r.hcad) have.add(`hcad:${r.hcad}`);
     if (r.tad) have.add(`tad:${r.tad}`);
     if (r.attom) have.add(`attom:${r.attom}`);
-    const k = addrKey(r.address, r.signal_date?.toISOString() ?? null);
-    if (k) haveAddr.add(k);
+    addrDup(r.address, r.signal_date?.toISOString() ?? null, true);
   }
 
   let scanned = 0;
@@ -405,11 +438,11 @@ export async function runResidentialSourcing(opts?: {
     for (const c of candidates) {
       if (sourceAdded >= want) break;
       const key = `${c.sourceKey}:${c.account}`;
-      const aKey = addrKey(c.address, c.saleDateIso);
-      if (have.has(key) || (aKey && haveAddr.has(aKey))) {
+      if (have.has(key) || addrDup(c.address, c.saleDateIso, false)) {
         sourceDupes++;
         continue;
       }
+      try {
       await db.insert(schema.residentialLead).values({
         company_id: co.id,
         address: c.address,
@@ -430,9 +463,13 @@ export async function runResidentialSourcing(opts?: {
         notes: `${source.label} deed transfer ${c.saleDateIso} (${c.account})`,
         raw_source: { [c.sourceKey]: c.account, sale_date: c.saleDateIso },
       });
+      } catch (e) {
+        // One malformed row must not starve every source after it.
+        log.push(`  insert failed (${c.address}): ${e instanceof Error ? e.message : String(e)}`);
+        continue;
+      }
       have.add(key);
-      const newAKey = addrKey(c.address, c.saleDateIso);
-      if (newAKey) haveAddr.add(newAKey);
+      addrDup(c.address, c.saleDateIso, true);
       sourceAdded++;
     }
     added += sourceAdded;

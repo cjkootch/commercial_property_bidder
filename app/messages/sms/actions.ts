@@ -2,11 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsSend } from "@/lib/db/schema";
 import { sendSms, toE164, isTextableLineType } from "@/lib/integrations/twilio";
-import { openerFor, queueSentToday, TEXT_QUEUE_DAILY_CAP } from "@/lib/sms/queue";
+import { freshClaimUrl, openerFor, queueSentToday, TEXT_QUEUE_DAILY_CAP } from "@/lib/sms/queue";
 import { draftSmsReply } from "@/lib/integrations/claude";
 import { ensureOwnerCell } from "@/lib/sms/cell";
 import { ensureLineTypeScreened } from "@/lib/sms/screen";
@@ -145,14 +145,35 @@ export async function draftAiReply(formData: FormData): Promise<void> {
   );
 
   let claimUrl: string | null = null;
+  let residential = false;
+  let currentOpportunity: string | null = null;
   if (match) {
+    // Mirror the webhook's latest-offer rules: only genuinely-SENT rows
+    // (NULL sent_at sorts FIRST under DESC — a queued/skipped row must not
+    // win), residential respkg rows flip the framing, and commercial links
+    // are minted FRESH (a stored claim_url may be past its 30-day TTL).
     const offers = await db
-      .select({ claim_url: buyerOutreach.claim_url, sent_at: buyerOutreach.sent_at })
+      .select({
+        claim_url: buyerOutreach.claim_url,
+        property_id: buyerOutreach.property_id,
+        message: buyerOutreach.message,
+      })
       .from(buyerOutreach)
-      .where(eq(buyerOutreach.company_key, match.key))
+      .where(and(eq(buyerOutreach.company_key, match.key), isNotNull(buyerOutreach.sent_at)))
       .orderBy(desc(buyerOutreach.sent_at))
       .limit(10);
-    claimUrl = offers.find((o) => o.claim_url)?.claim_url ?? null;
+    const latest = offers.find(
+      (o) => (o.claim_url && o.property_id) || o.claim_url?.includes("respkg=")
+    );
+    if (latest?.property_id && latest.claim_url) {
+      claimUrl = freshClaimUrl(latest.property_id, match.name, match.trade);
+    } else if (latest?.claim_url) {
+      residential = true;
+      claimUrl = latest.claim_url;
+      currentOpportunity = latest.message
+        ? `They were pitched a RESIDENTIAL homeowner-address package (a paid list, NOT a job lead). The pitch we emailed:\n${latest.message.slice(0, 500)}`
+        : null;
+    }
   }
 
   const draft = await draftSmsReply({
@@ -160,6 +181,8 @@ export async function draftAiReply(formData: FormData): Promise<void> {
     city: match?.office_city ?? null,
     trade: match?.trade ?? null,
     claimUrl,
+    residential,
+    currentOpportunity,
     thread,
   });
   const q = draft

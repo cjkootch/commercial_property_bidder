@@ -23,9 +23,11 @@ import { marketForCoords } from "../markets";
 const BASE = "https://api.gateway.attomdata.com/propertyapi/v1.0.0";
 
 export const ATTOM_TRIAL_CAP = () => Number(process.env.ATTOM_TRIAL_CAP) || 950;
-// 40/day leaves room for a package publish (16–45 leads) plus the day's
-// claims while still capping a runaway bug at ~4% of the trial per day.
-export const ATTOM_DAILY_CAP = () => Number(process.env.ATTOM_DAILY_CAP) || 40;
+// 100/day for the launch ramp: pitch-time enrichment warms each package
+// before its first email (12 package-campaigns/day × ~20 leads), plus
+// sourcing (~6) and claims. Still a hard runaway ceiling; the whole shelf
+// enriches within ~3 days and daily spend then drops to sourcing + claims.
+export const ATTOM_DAILY_CAP = () => Number(process.env.ATTOM_DAILY_CAP) || 100;
 /** ~13 months — one fixed window that outlives the trial, so the lifetime
  *  ledger can't silently reset mid-trial the way a 30d window could. */
 const TRIAL_WINDOW_SEC = 400 * 86_400;

@@ -434,6 +434,14 @@ export const buyerOutreach = pgTable("buyer_outreach", {
   uniqueIndex("buyer_outreach_property_company_uniq")
     .on(t.property_id, t.company_key)
     .where(sql`property_id is not null`),
+  // Residential twin of the guard above: one package pitch row per company
+  // per package URL. property_id is NULL on these rows, so the commercial
+  // index can't protect them — without this, overlapping runs (cron +
+  // operator ?send=1) could each insert-and-flip their own row and email the
+  // same company twice.
+  uniqueIndex("buyer_outreach_respkg_company_uniq")
+    .on(t.company_key, t.claim_url)
+    .where(sql`claim_url like '%respkg=%'`),
 ]);
 
 // --- prospect_company ------------------------------------------------------

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "buyer_outreach_respkg_company_uniq" ON "buyer_outreach" USING btree ("company_key","claim_url") WHERE claim_url like '%respkg=%';
