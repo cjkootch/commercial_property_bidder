@@ -30,6 +30,9 @@ describe("buildPackagePitch", () => {
     expect(m.body.toLowerCase()).toContain("past months");
     expect(m.body.toLowerCase()).not.toContain("this week");
     expect(m.body.toLowerCase()).not.toContain("today");
+    // The scarcity line must match the ENFORCED per-trade cap (default 3) —
+    // it became true code the night it entered the copy (2026-07-17).
+    expect(m.body).toContain("at most 3 landscaping companies");
   });
 
   it("B variant leads with the who-just-bought angle", () => {

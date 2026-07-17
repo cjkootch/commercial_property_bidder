@@ -1130,6 +1130,11 @@ export const residentialUnlock = pgTable(
       .references(() => residentialPackage.id),
     kind: text("kind").notNull().default("paid"), // free | paid | exclusive
     price_cents: integer("price_cents").notNull().default(0),
+    // Buyer's trade AT PURCHASE (lib/leads/trades) — the per-trade sales cap
+    // (RESI_MAX_BUYERS, default 3) counts against this snapshot, not the live
+    // buyer row, so a buyer flipping trades later can't shift history. NULL
+    // (pre-cap rows) conservatively counts against EVERY trade.
+    trade: text("trade"),
     stripe_session_id: text("stripe_session_id"),
     dossier: jsonb("dossier"),
     ...timestamps,

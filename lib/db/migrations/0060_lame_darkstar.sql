@@ -1,0 +1,1 @@
+ALTER TABLE "residential_unlock" ADD COLUMN "trade" text;
