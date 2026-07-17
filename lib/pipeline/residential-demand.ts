@@ -19,7 +19,7 @@ import { and, eq, gte, like } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
 import { marketForCoords } from "../markets";
-import { searchLandscapers, type BuyerCandidate } from "../integrations/apollo";
+import { searchLandscapersDeep, type BuyerCandidate } from "../integrations/apollo";
 import { asTrade, TRADES, type Trade } from "../leads/trades";
 import { scrapeBusinessContact } from "../integrations/contact";
 import { geocodeAddress } from "../integrations/geocoding";
@@ -213,18 +213,33 @@ export async function runResidentialDemandGen(opts: {
     )
   );
 
-  // ---- 3. Candidates: Apollo near the package's metro.
+  // ---- 3. Candidates: Apollo near the package's metro. Discovery pages
+  // DEEP (searchLandscapersDeep): after weeks of outreach, page 1 of every
+  // worked metro is cooled or email-less — launch morning delivered 4 of 150
+  // pitches before this pulled pages 2+.
   const mkt = marketForCoords(centroid[1], centroid[0]);
   const anchorCity = teaser?.cities?.[0];
-  let candidates: BuyerCandidate[] = await searchLandscapers(
+  const freshName = (c: BuyerCandidate) => {
+    const k = companyKey(c.name);
+    return !accountKeys.has(k) && !cooled.has(k) && !pitchedThis.has(k) && !blockedKeys.has(k);
+  };
+  let candidates: BuyerCandidate[] = await searchLandscapersDeep(
     anchorCity ? `${anchorCity}, ${mkt.metroSearch.split(", ")[1] ?? "Texas"}` : mkt.metroSearch,
     CANDIDATE_POOL,
-    TRADES[trade].prospectKeywords
+    TRADES[trade].prospectKeywords,
+    freshName,
+    want * 3
   );
-  if (candidates.length < want && anchorCity && anchorCity.toLowerCase() !== mkt.metroCity) {
-    log.push(`Only ${candidates.length} candidate(s) in ${anchorCity} — widening to the ${mkt.label}.`);
+  if (candidates.filter(freshName).length < want && anchorCity && anchorCity.toLowerCase() !== mkt.metroCity) {
+    log.push(`Only ${candidates.filter(freshName).length} fresh candidate(s) in ${anchorCity} — widening to the ${mkt.label}.`);
     const seen = new Set(candidates.map((c) => companyKey(c.name)));
-    const metro = await searchLandscapers(mkt.metroSearch, CANDIDATE_POOL, TRADES[trade].prospectKeywords);
+    const metro = await searchLandscapersDeep(
+      mkt.metroSearch,
+      CANDIDATE_POOL,
+      TRADES[trade].prospectKeywords,
+      freshName,
+      want * 3
+    );
     candidates = [...candidates, ...metro.filter((c) => !seen.has(companyKey(c.name)))];
   }
   if (!candidates.length) {
