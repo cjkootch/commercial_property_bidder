@@ -56,19 +56,27 @@ export function buildPackagePitch(o: {
 }): { subject: string; body: string } {
   const t = TRADES[o.trade];
   const price = usd(o.pkg.price_cents);
+  // Confidence rules (2026-07-17): every strong claim is grounded in the
+  // MECHANISM (a recorded deed, first-weeks hiring, dates shown) — never in
+  // invented performance ("our leads close", fake testimonials). Puffery
+  // about the signal is fine; fabricated results are not.
   const subject =
     o.subjectVariant === "B"
-      ? `Who just bought a home in ${o.geography} — ${o.pkg.lead_count} verified addresses`
+      ? `Who just bought a home in ${o.geography} — reach them before anyone else`
       : `${o.pkg.lead_count} new homeowners in ${o.geography} for ${price}`;
   const body =
     `Hi ${o.company},\n\n` +
-    `New homeowners hire ${t.service} providers in their first months — before they have anyone. ` +
-    `We pulled every recent single-family sale in ${o.geography} from county deed records and packaged the addresses:\n\n` +
+    `${o.pkg.lead_count} families just bought homes in ${o.geography}. A recorded deed is the ` +
+    `highest-intent signal in ${t.service} — new owners pick their providers in the first ` +
+    `weeks, before they have anyone, and the first company at the door usually keeps the ` +
+    `account for years. We pulled every recent single-family sale straight from county deed ` +
+    `records and packaged the addresses:\n\n` +
     `${o.pkg.name}\n` +
     `- ${o.pkg.lead_count} addresses, each with the recorded sale date, estimated home value, and lot size\n` +
-    `- Sourced from official county records over the past months (every date shown, nothing hidden)\n` +
+    `- Recorded at the county over the past months, every date shown, nothing hidden — not ` +
+    `the recycled lists everyone else is working\n` +
     `- ${price} one-time for the full list + CSV download for your route planner\n\n` +
-    `See it here: ${o.ctaUrl}\n\n` +
+    `Be first through those doors: ${o.ctaUrl}\n\n` +
     `We're ${o.brand} — we also run capped commercial job leads for ${t.noun} in Texas, if that's more your book.\n\n` +
     `Reply to this email with any questions${o.replyEmail ? ` (${o.replyEmail})` : ""}.`;
   return { subject, body };

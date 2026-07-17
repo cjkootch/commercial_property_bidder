@@ -60,7 +60,9 @@ export default async function ResidentialMarketplace({
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Residential Opportunity Reports</h1>
           <p className="mt-2 text-lg text-gray-600">
-            New homeowner and new construction signals for local landscapers and outdoor service providers.
+            Families who just bought a home — the highest-intent signal in home services. New
+            owners pick their lawn and pest providers in the first weeks; these lists put you at
+            the door first, with the recorded sale date on every address.
           </p>
         </div>
 

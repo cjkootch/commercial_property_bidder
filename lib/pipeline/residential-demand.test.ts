@@ -43,8 +43,13 @@ describe("buildPackagePitch", () => {
       replyEmail: null,
       ctaUrl: "https://x",
     });
-    expect(m.subject).toBe("Who just bought a home in Fort Worth — 418 verified addresses");
+    expect(m.subject).toBe("Who just bought a home in Fort Worth — reach them before anyone else");
     // Trade voice: pest copy speaks pest, not landscaping.
     expect(m.body).toContain("pest control");
+    // Confidence stays mechanism-grounded: intent claims about the SIGNAL are
+    // fine; fabricated performance/social proof is not.
+    expect(m.body.toLowerCase()).not.toContain("our buyers");
+    expect(m.body.toLowerCase()).not.toContain("killing it");
+    expect(m.body.toLowerCase()).not.toContain("close rate");
   });
 });
