@@ -68,8 +68,21 @@ export function withinTcpaHours(now: Date, tz: string = DEFAULT_TZ): boolean {
   return h >= 8 && h < 21;
 }
 
-export function openerFor(name: string, city: string | null): string {
-  return `Hi, is this ${name}${city ? ` in ${city}` : ""}?\n\nThanks,\n-Cole`;
+/** Step 1. Rewritten 2026-07-18 (operator direction, off launch-day reply
+ *  data): the identity-check opener ("Hi, is this X?") is replaced by a
+ *  direct, answerable OFFER question — the pitch in one line. Kind matters
+ *  for honesty: "free lead" is only true on the commercial side; a company
+ *  whose live offer is a PAID residential list gets the list question
+ *  instead (a free-lead opener there is bait-and-switch and earns Stops). */
+export function openerFor(
+  name: string,
+  city: string | null,
+  kind: "commercial" | "residential" = "commercial"
+): string {
+  if (kind === "residential") {
+    return `Hey, would you like the addresses of homeowners who just bought houses${city ? ` near ${city}` : " in your area"}?`;
+  }
+  return "Hey, would you like a free lead on a large commercial job?";
 }
 
 /** The casual opt-out line — used once per conversation, in step 2. Twilio
@@ -237,7 +250,7 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
       lineType: c.line_type,
       website: c.website,
       cellLookupAt: c.cell_lookup_at,
-      opener: openerFor(c.name, c.office_city),
+      opener: openerFor(c.name, c.office_city, resi ? "residential" : "commercial"),
       claimUrl: resi ? a.resiUrl! : freshClaimUrl(a.propertyId!, c.name, c.trade),
       kind: resi ? "residential" : "commercial",
     });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   nudgeTextFor,
+  openerFor,
   resiNudgeTextFor,
   resiStep2For,
   OPT_OUT_LINE,
@@ -157,5 +158,21 @@ describe("residential SMS copy", () => {
     expect(t).toContain("https://x.example/r?respkg=abc");
     expect(t).not.toMatch(/free lead|24h|first claim/i);
     expect(t).toContain("Just let me know");
+  });
+});
+
+describe("openerFor (2026-07-18 direct-offer rewrite)", () => {
+  it("commercial opener is the one-line free-lead question", () => {
+    expect(openerFor("Acme Cleaning", "Houston")).toBe(
+      "Hey, would you like a free lead on a large commercial job?"
+    );
+  });
+
+  it("residential opener NEVER says free — the follow-up is a paid list", () => {
+    const t = openerFor("Acme Lawn", "Fort Worth", "residential");
+    expect(t).toContain("homeowners who just bought");
+    expect(t).toContain("near Fort Worth");
+    expect(t.toLowerCase()).not.toContain("free");
+    expect(openerFor("Acme Lawn", null, "residential")).toContain("in your area");
   });
 });
