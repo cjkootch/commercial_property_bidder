@@ -104,9 +104,31 @@ export async function sendQueuedText(formData: FormData): Promise<void> {
     redirect(`/messages/sms?q=${encodeURIComponent(`daily cap reached (${cap})`)}`);
   }
 
+  // Opener kind follows the company's LATEST live offer (same rule as the
+  // queue/webhook): a residential-package company must not get the
+  // commercial "free lead" question.
+  const offerRows = await db
+    .select({ claim_url: buyerOutreach.claim_url, property_id: buyerOutreach.property_id })
+    .from(buyerOutreach)
+    .where(
+      and(
+        eq(buyerOutreach.company_key, p.key),
+        or(isNotNull(buyerOutreach.sent_at), like(buyerOutreach.claim_url, "%respkg=%"))
+      )
+    )
+    .orderBy(desc(sql`coalesce(${buyerOutreach.sent_at}, ${buyerOutreach.created_at})`))
+    .limit(10);
+  const latestOffer = offerRows.find(
+    (o) => (o.claim_url && o.property_id) || o.claim_url?.includes("respkg=")
+  );
+  const openerKind =
+    latestOffer && !latestOffer.property_id && latestOffer.claim_url?.includes("respkg=")
+      ? ("residential" as const)
+      : ("commercial" as const);
+
   const res = await sendSms({
     to: toPhone,
-    body: openerFor(p.name, p.office_city),
+    body: openerFor(p.name, p.office_city, openerKind),
     kind: "text_queue",
     companyKey: p.key,
     refId: p.id,

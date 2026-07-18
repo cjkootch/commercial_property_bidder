@@ -132,7 +132,7 @@ export function CommFlow() {
             <h3 className="font-semibold text-gray-900">Text (SMS)</h3>
           </div>
 
-          <Step n="1" title="Opener — the human hello" accent="bg-brand" timing={`autopilot: ${smsCron} · ~${perRun}/run · ≤${cap}/day shared cap`}>
+          <Step n="1" title="Opener — the direct offer question" accent="bg-brand" timing={`autopilot: ${smsCron} · ~${perRun}/run · ≤${cap}/day shared cap`}>
             <Msg text={openerFor("Acme Cleaning", "Houston")} />
             <div>
               <Chip>never-texted only</Chip>
@@ -286,11 +286,11 @@ export function CommFlow() {
 
         <Step
           n="1b"
-          title="SMS rides along — same human opener, residential step 2"
+          title="SMS rides along — direct-offer opener (residential variant), residential step 2"
           accent="bg-amber-600"
           timing="pitched companies with textable numbers join the hourly SMS queue · same shared daily cap"
         >
-          <Msg text={openerFor("Acme Lawn Care", "Fort Worth")} />
+          <Msg text={openerFor("Acme Lawn Care", "Fort Worth", "residential")} />
           <div>
             <Chip>reply → AI delivers the package pitch + link (no free-lead framing)</Chip>
             <Chip tone="amber">silent {SMS_NUDGE_AFTER_HOURS}h → one residential follow-up</Chip>
