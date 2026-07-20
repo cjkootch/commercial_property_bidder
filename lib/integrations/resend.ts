@@ -193,28 +193,39 @@ export function verifyResendSignature(
   rawBody: string,
   headers: { id: string | null; timestamp: string | null; signature: string | null }
 ): boolean {
-  const secret = getResendWebhookSecret();
-  if (!secret) return true; // no secret configured (dev) — accept
+  const secretEnv = getResendWebhookSecret();
+  if (!secretEnv) return true; // no secret configured (dev) — accept
   const { id, timestamp, signature } = headers;
   if (!id || !timestamp || !signature) return false;
 
-  const secretBytes = Buffer.from(secret.replace(/^whsec_/, ""), "base64");
+  // MULTIPLE secrets, comma-separated (2026-07-20 incident): each Resend
+  // webhook has its OWN signing secret, and Resend puts receiving events
+  // (email.received) on a separate webhook from sending events. Single-secret
+  // verification made the second webhook 401 on every delivery until Resend
+  // auto-disabled it — inbound reply alerts silently dead since Jul 15. Any
+  // configured secret verifying the payload is a pass.
   const signedContent = `${id}.${timestamp}.${rawBody}`;
-  const expected = crypto
-    .createHmac("sha256", secretBytes)
-    .update(signedContent)
-    .digest("base64");
-
-  // svix-signature is space-separated "v1,<sig>" entries; any match passes.
-  return signature.split(" ").some((part) => {
-    const sig = part.includes(",") ? part.split(",")[1] : part;
-    try {
-      return (
-        sig.length === expected.length &&
-        crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
-      );
-    } catch {
-      return false;
-    }
-  });
+  return secretEnv
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .some((secret) => {
+      const secretBytes = Buffer.from(secret.replace(/^whsec_/, ""), "base64");
+      const expected = crypto
+        .createHmac("sha256", secretBytes)
+        .update(signedContent)
+        .digest("base64");
+      // svix-signature is space-separated "v1,<sig>" entries; any match passes.
+      return signature.split(" ").some((part) => {
+        const sig = part.includes(",") ? part.split(",")[1] : part;
+        try {
+          return (
+            sig.length === expected.length &&
+            crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
+          );
+        } catch {
+          return false;
+        }
+      });
+    });
 }
