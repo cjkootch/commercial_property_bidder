@@ -7,6 +7,7 @@ import { sendSms, smsStatusRank, verifyTwilioSignature } from "@/lib/integration
 import { draftSmsReply } from "@/lib/integrations/claude";
 import { inventoryContextFor } from "@/lib/sms/ai-context";
 import { freshClaimUrl, withinTcpaHours } from "@/lib/sms/queue";
+import { isOptOutPhrase } from "@/lib/sms/optout";
 import { marketTz } from "@/lib/markets";
 import type { SmsIntent } from "@/lib/integrations/claude";
 import { sendEmail } from "@/lib/integrations/resend";
@@ -105,7 +106,13 @@ export async function POST(req: NextRequest) {
   // operator is paged); a false negative is a compliance violation.
   const words = body.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter(Boolean);
   const lead = (words[0] === "please" ? words[1] : words[0]) ?? "";
+  // Two detectors, one ledger: leading STOP-style keyword, or a removal
+  // request phrased as a sentence ("Remove us from your list" — 2026-07-20:
+  // the AI closed that thread politely but nothing wrote sms_opt_out, so the
+  // promise had no enforcement).
   const isStop = STOP_WORDS.has(lead);
+  const isStopPhrase = !isStop && isOptOutPhrase(body);
+  const optingOut = isStop || isStopPhrase;
   // "YES"/"START" are opt-in keywords ONLY for a number that actually opted
   // out — a mid-conversation "Yes" is the conversion signal, not bookkeeping.
   const [optedOutRow] = await db
@@ -114,10 +121,20 @@ export async function POST(req: NextRequest) {
     .where(eq(smsOptOut.phone, from))
     .limit(1);
   const isStart = START_WORDS.has(lead) && !!optedOutRow;
-  if (isStop) {
+  if (optingOut) {
+    // Phrase-based opt-outs get ONE confirmation (carrier auto-confirms STOP,
+    // nothing confirms a sentence) — sent BEFORE the ledger insert, because
+    // sendSms refuses opted-out numbers. Skipped if already opted out.
+    if (isStopPhrase && !optedOutRow) {
+      await sendSms({
+        to: from,
+        body: "Done — you won't hear from us again.",
+        kind: "optout_confirm",
+      }).catch(() => null);
+    }
     await db
       .insert(smsOptOut)
-      .values({ phone: from, reason: `replied ${body.toUpperCase()}` })
+      .values({ phone: from, reason: isStop ? `replied ${body.toUpperCase()}` : `opt-out phrase: ${body.slice(0, 80)}` })
       .onConflictDoNothing();
   } else if (isStart) {
     await db.delete(smsOptOut).where(eq(smsOptOut.phone, from));
@@ -198,7 +215,7 @@ export async function POST(req: NextRequest) {
   // to their latest message. Cap: AI_REPLY_CAP per thread, then the human
   // takes over. Kill switch: SMS_AI_AUTOREPLY=0. STOP/opt-in keywords are
   // never answered, and sendSms refuses opted-out numbers regardless.
-  if (!isStop && !isStart && !optedOutRow) {
+  if (!optingOut && !isStart && !optedOutRow) {
     waitUntil(deferredAiReply({ from, body, inboundSid, match: match ?? null, base }));
   } else {
     // STOP/START/still-opted-out messages never enter the AI pipeline (no
@@ -207,7 +224,13 @@ export async function POST(req: NextRequest) {
     const to = process.env.ALERT_EMAIL;
     if (to) {
       const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-      const what = isStop ? "🚫 STOP" : isStart ? "✅ re-opted in (START)" : "💬 (opted-out number)";
+      const what = isStop
+        ? "🚫 STOP"
+        : isStopPhrase
+          ? "🚫 opt-out phrase (auto-confirmed + ledgered)"
+          : isStart
+            ? "✅ re-opted in (START)"
+            : "💬 (opted-out number)";
       waitUntil(
         sendEmail({
           to,
