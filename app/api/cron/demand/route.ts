@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { usageCounter } from "@/lib/db/schema";
 import { guarded } from "@/lib/cron-guard";
 import { runBuyerProspecting } from "@/lib/pipeline/buyer-prospecting";
+import { maybeLowVolumeAlert } from "@/lib/pipeline/low-volume";
 import { TRADES, type Trade } from "@/lib/leads/trades";
 
 // The autonomous daily demand engine (quality-plan item #1): reach and
@@ -96,6 +97,17 @@ export async function GET(req: NextRequest) {
       await recordSent(summary.sent);
       results.push({ trade, lead: summary.lead, sent: summary.sent });
     }
+
+    // After the day's last run (20:07 UTC), a starved day pages the operator
+    // once — the launch-week 45→45→25→18→0 decay ran green the whole way down.
+    await maybeLowVolumeAlert({
+      engine: "commercial-demand",
+      sent: used,
+      cap,
+      lastRunHourUtc: 20,
+      enabled: !off,
+      hint: "Usual suspects: fresh-lead shelf empty (sourcing), discovery pool exhausted or email-less, or scrape failures — read this run's JSON log.",
+    });
 
     return Response.json({
       autopilot: !off,

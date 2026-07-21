@@ -46,6 +46,21 @@ export async function alertOperatorOfSale(p: {
   ].filter(Boolean));
 }
 
+/** An outreach engine finished its day far under cap with every run "green"
+ *  — the 2026-07-17 failure mode (sends decayed to zero over a week of
+ *  healthy-looking cron runs). Volume is the signal; success logs are not. */
+export async function alertOperatorOfLowVolume(p: {
+  engine: string;
+  sent: number;
+  cap: number;
+  hint: string;
+}): Promise<void> {
+  await alertOperator(`📉 ${p.engine}: ${p.sent}/${p.cap} sent today`, [
+    `The ${p.engine} engine finished its last run of the day at ${p.sent} of ${p.cap} — no run failed, but the volume starved.`,
+    p.hint,
+  ]);
+}
+
 /** A new buyer account appeared (claim flow or public signup). */
 export async function alertOperatorOfSignup(p: {
   company: string;

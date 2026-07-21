@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { guarded } from "@/lib/cron-guard";
 import { runResidentialDemandGen } from "@/lib/pipeline/residential-demand";
+import { maybeLowVolumeAlert } from "@/lib/pipeline/low-volume";
 import { asTrade, type Trade } from "@/lib/leads/trades";
 
 // Residential demand autopilot (2026-07-16 growth directive: "residential
@@ -146,6 +147,18 @@ export async function GET(req: NextRequest) {
       await recordSent(summary.sent);
       results.push({ package: summary.package, trade, sent: summary.sent });
     }
+
+    // After the day's last wave (20:51 UTC), a starved day pages the operator
+    // once — green runs with no volume are the failure mode that hid the
+    // launch-day supply collapse.
+    await maybeLowVolumeAlert({
+      engine: "residential-demand",
+      sent: used,
+      cap,
+      lastRunHourUtc: 20,
+      enabled: !off,
+      hint: "Usual suspects: discovery finding only no-email companies (Apollo enrichment pending), shelf sold out for the rotation's trades, or scrape/geocode failures — read this run's JSON log.",
+    });
 
     return Response.json({
       autopilot: !off,
