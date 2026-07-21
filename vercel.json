@@ -65,8 +65,8 @@
       "schedule": "37 12 * * 1"
     },
     {
-      "path": "/api/cron/enrich-emails?apply=1&limit=40",
-      "schedule": "7 12 * * 1"
+      "path": "/api/cron/enrich-emails?apply=1&limit=170",
+      "schedule": "27 15-20 * * 1-5"
     },
     {
       "path": "/api/cron/nudges?apply=1",

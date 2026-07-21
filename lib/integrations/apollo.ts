@@ -61,6 +61,8 @@ export type BuyerCandidate = {
   website: string | null;
   city: string | null;
   state: string | null;
+  /** Present when discovery came from Google Places — Apollo has no phones. */
+  phone?: string | null;
 };
 
 /**

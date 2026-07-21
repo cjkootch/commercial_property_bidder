@@ -31,10 +31,20 @@ export async function runEmailEnrichment(opts?: {
   const apply = opts?.apply ?? false;
   const log: string[] = [];
 
+  // Attempt-once: email_lookup_at stamps every scanned company (hit or miss)
+  // so the hourly cron drains the BACKLOG instead of re-paying Apollo for the
+  // same no-hit companies each run. New discoveries arrive with NULL and
+  // queue naturally.
   const targets = await db
     .select()
     .from(prospectCompany)
-    .where(and(isNull(prospectCompany.email), isNotNull(prospectCompany.website)))
+    .where(
+      and(
+        isNull(prospectCompany.email),
+        isNotNull(prospectCompany.website),
+        isNull(prospectCompany.email_lookup_at)
+      )
+    )
     .limit(limit);
 
   const suppressed = new Set(
@@ -48,6 +58,16 @@ export async function runEmailEnrichment(opts?: {
     const trace: string[] = [];
     const hit = await findCompanyEmail(c.name, { domain, ...(opts?.debug ? { trace } : {}) });
     if (opts?.debug) for (const t of trace) log.push(`    [${c.name}] ${t}`);
+    if (apply) {
+      try {
+        await db
+          .update(prospectCompany)
+          .set({ email_lookup_at: new Date(), updated_at: new Date() })
+          .where(eq(prospectCompany.id, c.id));
+      } catch {
+        // best-effort stamp — a miss here just means one re-scan later
+      }
+    }
     if (!hit) {
       log.push(`  · ${c.name} — no Apollo email`);
       continue;

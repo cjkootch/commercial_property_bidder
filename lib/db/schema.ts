@@ -482,6 +482,10 @@ export const prospectCompany = pgTable("prospect_company", {
   // the reveal credit at most once per company; a found cell overwrites phone
   // and resets line_type to NULL for a fresh JIT screen.
   cell_lookup_at: timestamp("cell_lookup_at", { withTimezone: true }),
+  // Set when email enrichment has tried Apollo for this company's address.
+  // Attempt-once (2026-07-21, hourly enrichment): without this, every run
+  // re-spends credits on the same no-hit companies forever.
+  email_lookup_at: timestamp("email_lookup_at", { withTimezone: true }),
   claim_views: integer("claim_views").notNull().default(0),
   last_claim_view_at: timestamp("last_claim_view_at", { withTimezone: true }),
   // Set when a signup arrives via a claim token carrying this company name.
