@@ -20,6 +20,7 @@ import { db } from "../db";
 import * as schema from "../db/schema";
 import { marketForCoords } from "../markets";
 import { searchLandscapersDeep, type BuyerCandidate } from "../integrations/apollo";
+import { searchPlacesCompanies } from "../integrations/places";
 import { asTrade, TRADES, type Trade } from "../leads/trades";
 import { scrapeBusinessContact } from "../integrations/contact";
 import { geocodeAddress } from "../integrations/geocoding";
@@ -242,6 +243,19 @@ export async function runResidentialDemandGen(opts: {
     );
     candidates = [...candidates, ...metro.filter((c) => !seen.has(companyKey(c.name)))];
   }
+  // Google Places fallback (2026-07-21): the residential trades are exactly
+  // the small route-based shops Apollo's B2B graph misses — Places finds
+  // them, WITH phones (the SMS lane is residential's strongest channel).
+  if (candidates.filter(freshName).length < want) {
+    const q = `${TRADES[trade].prospectKeywords[0]} companies in ${anchorCity ?? mkt.metroSearch}`;
+    const places = await searchPlacesCompanies(q, 20);
+    const seenAll = new Set(candidates.map((c) => companyKey(c.name)));
+    const fresh = places
+      .map((p) => ({ name: p.name, website: p.website, city: p.city, state: p.state, phone: p.phone }))
+      .filter((c) => !seenAll.has(companyKey(c.name)));
+    if (fresh.length) log.push(`Apollo pool thin — Google Places added ${fresh.length} candidate(s).`);
+    candidates = [...candidates, ...fresh];
+  }
   if (!candidates.length) {
     log.push("No candidates metro-wide — check APOLLO_API_KEY.");
     return { package: pkg.id, ...empty };
@@ -303,7 +317,7 @@ export async function runResidentialDemandGen(opts: {
     }
     if (!email) skippedNoEmail++;
 
-    qualified.push({ c, key, coords, distance, email, phone: contact.phone, form: contact.contact_form_url });
+    qualified.push({ c, key, coords, distance, email, phone: contact.phone ?? c.phone ?? null, form: contact.contact_form_url });
     pitchedThis.add(key);
     if (email) pitchedEmails.add(email.toLowerCase());
     log.push(

@@ -27,6 +27,7 @@ import { db } from "../db";
 import * as schema from "../db/schema";
 import { marketForCoords } from "../markets";
 import { searchLandscapersDeep, type BuyerCandidate } from "../integrations/apollo";
+import { searchPlacesCompanies } from "../integrations/places";
 import {
   asTrade,
   DEFAULT_TRADE,
@@ -662,6 +663,19 @@ export async function runBuyerProspecting(opts?: {
       );
       candidates = [...candidates, ...metro.filter((c) => !seen.has(companyKey(c.name)))];
     }
+    // Google Places fallback (2026-07-21): Apollo's page-deep pool exhausts
+    // in worked metros — Places covers the small route-based shops Apollo's
+    // B2B graph misses, and every result carries a phone (SMS-lane fuel).
+    if (candidates.filter(freshName).length < want) {
+      const q = `${TRADES[trade].prospectKeywords[0]} companies in ${lead.city ?? mkt.metroSearch}`;
+      const places = await searchPlacesCompanies(q, 20);
+      const seen = new Set(candidates.map((c) => companyKey(c.name)));
+      const fresh = places
+        .map((p) => ({ name: p.name, website: p.website, city: p.city, state: p.state, phone: p.phone }))
+        .filter((c) => !seen.has(companyKey(c.name)));
+      if (fresh.length) log.push(`Apollo pool thin — Google Places added ${fresh.length} candidate(s).`);
+      candidates = [...candidates, ...fresh];
+    }
   } else {
     log.push("Known contacts fill the list — skipping discovery this run.");
   }
@@ -752,7 +766,9 @@ export async function runBuyerProspecting(opts?: {
       distance,
       commercial,
       email,
-      phone: contact.phone,
+      // Places-discovered companies carry a phone even when their site hides
+      // one from the scraper — the SMS lane reaches them either way.
+      phone: contact.phone ?? c.phone ?? null,
       form: contact.contact_form_url,
     });
     offeredThis.add(key); // guard against duplicate names inside one pool
