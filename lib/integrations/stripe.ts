@@ -151,6 +151,52 @@ export async function createPackageCheckout(opts: {
   }
 }
 
+/**
+ * GUEST checkout for a residential package (2026-07-22 "we're asking too
+ * much" funnel fix): no account required — Stripe collects the email, the
+ * webhook finds-or-creates the buyer and delivers the report with a magic
+ * login link. metadata.buyer_id stays EMPTY (the webhook's guest branch keys
+ * on that); metadata.trade carries the buyer's self-declared trade for the
+ * per-trade sales cap.
+ */
+export async function createGuestPackageCheckout(opts: {
+  amountCents: number;
+  packageName: string;
+  packageId: string;
+  trade: string;
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<CheckoutResult> {
+  const key = getStripeKey();
+  if (!key) return { ok: false, error: "Payments not configured (STRIPE_SECRET_KEY)." };
+  const params = new URLSearchParams({
+    mode: "payment",
+    success_url: opts.successUrl,
+    cancel_url: opts.cancelUrl,
+    "line_items[0][quantity]": "1",
+    "line_items[0][price_data][currency]": "usd",
+    "line_items[0][price_data][unit_amount]": String(opts.amountCents),
+    "line_items[0][price_data][product_data][name]": opts.packageName.slice(0, 120),
+    "metadata[type]": "residential_package",
+    "metadata[residential_package_id]": opts.packageId,
+    "metadata[buyer_id]": "",
+    "metadata[trade]": opts.trade,
+    expires_at: String(Math.floor(Date.now() / 1000) + 3 * 3600),
+  });
+  try {
+    const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
+    const data = (await res.json()) as { url?: string; error?: { message?: string } };
+    if (!res.ok || !data.url) return { ok: false, error: data.error?.message ?? `Stripe error (${res.status}).` };
+    return { ok: true, url: data.url };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Stripe request failed." };
+  }
+}
+
 /** Create a one-time-payment Checkout Session for a lead unlock. */
 export async function createLeadCheckout(opts: {
   amountCents: number;

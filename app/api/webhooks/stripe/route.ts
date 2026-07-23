@@ -13,7 +13,7 @@ import {
   suppression,
   usageCounter,
 } from "@/lib/db/schema";
-import { signBuyerUnsub } from "@/lib/buyer-auth";
+import { signBuyerLogin, signBuyerUnsub } from "@/lib/buyer-auth";
 import { refundPayment, verifyStripeSignature } from "@/lib/integrations/stripe";
 import { buildDossier } from "@/lib/leads/dossier";
 import { asTrade } from "@/lib/leads/trades";
@@ -54,6 +54,8 @@ type CheckoutSession = {
     unlock_id?: string;
     prospect_id?: string;
     residential_package_id?: string;
+    /** Guest checkout: the buyer's self-declared trade (no account yet). */
+    trade?: string;
   };
 };
 
@@ -302,7 +304,36 @@ export async function POST(req: NextRequest) {
   if (session.metadata?.type === "residential_package") {
     const packageId = session.metadata?.residential_package_id;
     if (!packageId) return NextResponse.json({ received: true, skipped: "no package" });
-    const [b] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
+    // GUEST checkout (empty buyer_id, 2026-07-22): Stripe collected the
+    // email; the account is a RESULT of buying, not a prerequisite. Find or
+    // create the buyer from the payment details, then fulfill identically.
+    let b: typeof buyer.$inferSelect | undefined;
+    let guest = false;
+    if (buyerId) {
+      [b] = await db.select().from(buyer).where(eq(buyer.id, buyerId)).limit(1);
+    } else {
+      guest = true;
+      const cd = (session as { customer_details?: { email?: string | null; name?: string | null } })
+        .customer_details;
+      const email = cd?.email?.trim().toLowerCase();
+      if (email) {
+        [b] = await db.select().from(buyer).where(eq(buyer.email, email)).limit(1);
+        if (!b) {
+          const guestTrade = asTrade(session.metadata?.trade);
+          [b] = await db
+            .insert(buyer)
+            .values({
+              email,
+              company_name: cd?.name?.trim() || email.split("@")[0],
+              trade: guestTrade,
+            })
+            .onConflictDoNothing({ target: buyer.email })
+            .returning();
+          // Concurrent webhook already created them — re-read.
+          if (!b) [b] = await db.select().from(buyer).where(eq(buyer.email, email)).limit(1);
+        }
+      }
+    }
     if (!b) {
       const refunded = await refundPayment(session.payment_intent);
       if (!refunded)
@@ -369,14 +400,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const link = `${appUrl()}/buyers/residential/${packageId}`;
+    // Guests have no session cookie — their link signs them in and lands on
+    // the report (7-day token: a delivery email must survive being opened
+    // days later). Account holders get the direct link as before.
+    const reportPath = `/buyers/residential/${packageId}`;
+    const link = guest
+      ? `${appUrl()}/buyers/verify?token=${encodeURIComponent(signBuyerLogin(b.email, 7 * 24 * 3600))}&next=${encodeURIComponent(reportPath)}`
+      : `${appUrl()}${reportPath}`;
     await sendEmail({
       to: b.email,
       subject: `Your residential report is ready — ${pkg.name}`,
       html:
         `<p>Payment received — the full address list is unlocked for ${b.company_name}.</p>` +
         `<p><a href="${link}">Open your report</a></p>` +
-        `<p style="color:#888;font-size:12px">Every address with its signal, date, estimated home value, and lot size — plus a CSV download for your route planner.</p>`,
+        `<p style="color:#888;font-size:12px">Every address with its signal, date, estimated home value, and lot size — plus a CSV download for your route planner.` +
+        (guest
+          ? ` This link signs you in automatically. If it expires, enter ${b.email} at ${appUrl()}/buyers/login for a fresh one.`
+          : "") +
+        `</p>`,
       tags: { kind: "residential_unlock" },
     }).catch(() => null);
     return NextResponse.json({ received: true, residential_unlock: unlock.id });

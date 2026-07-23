@@ -25,7 +25,12 @@ export async function GET(req: NextRequest) {
     const q = email ? "error=1" : "expired=1";
     return NextResponse.redirect(new URL(`/buyers/login?${q}`, req.url));
   }
-  const res = NextResponse.redirect(new URL("/buyers", req.url));
+  // Optional post-login destination (guest purchase-delivery links land on
+  // their report, not the generic dashboard). Same-origin relative paths
+  // only — "//evil.com" and absolute URLs are open-redirect vectors.
+  const next = req.nextUrl.searchParams.get("next");
+  const dest = next && next.startsWith("/") && !next.startsWith("//") ? next : "/buyers";
+  const res = NextResponse.redirect(new URL(dest, req.url));
   res.cookies.set(BUYER_COOKIE, signBuyerSession(row.id), {
     httpOnly: true,
     sameSite: "lax",

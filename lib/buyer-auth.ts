@@ -85,8 +85,11 @@ export function isPlaceholderEmail(email: string | null | undefined): boolean {
   return !!email && email.toLowerCase().endsWith(`@${PLACEHOLDER_EMAIL_DOMAIN}`);
 }
 
-export function signBuyerLogin(email: string): string {
-  return sign({ kind: "login", email: email.toLowerCase().trim(), exp: nowSec() + LOGIN_TTL });
+export function signBuyerLogin(email: string, ttlSec: number = LOGIN_TTL): string {
+  // Default 30min (interactive magic links). Guest purchase-delivery emails
+  // pass a longer TTL — the report link must survive being opened tonight or
+  // next week; email possession IS the auth model of a passwordless product.
+  return sign({ kind: "login", email: email.toLowerCase().trim(), exp: nowSec() + ttlSec });
 }
 export function verifyBuyerLogin(token: string | null | undefined): string | null {
   const p = verify(token);
