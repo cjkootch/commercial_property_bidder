@@ -29,6 +29,7 @@ import { signBuyerUnsub } from "../buyer-auth";
 import { haversineMiles } from "../sourcing/criteria";
 import { companyKey, upsertProspectCompany } from "../leads/companies";
 import { packageSpotsLeft, resiMaxBuyers } from "../residential/availability";
+import { fmtSaleDate, packageSampleLeads } from "../residential/samples";
 import {
   toHtml,
   siteBase,
@@ -55,9 +56,22 @@ export function buildPackagePitch(o: {
   brand: string;
   replyEmail: string | null;
   ctaUrl: string;
+  /** 3 free sample addresses (2026-07-22 "asking too much" fix) — the pitch
+   *  IS the sample; a recipient can drive past these houses today. */
+  samples?: Array<{ address: string; saleDate: Date | null }>;
 }): { subject: string; body: string } {
   const t = TRADES[o.trade];
   const price = usd(o.pkg.price_cents);
+  const sampleBlock = o.samples?.length
+    ? `. Here are ${o.samples.length} of them, free — go look:\n` +
+      o.samples
+        .map((s) => {
+          const d = fmtSaleDate(s.saleDate);
+          return `- ${s.address}${d ? ` (closed ${d})` : ""}`;
+        })
+        .join("\n") +
+      `\n\nThe other ${Math.max(0, o.pkg.lead_count - o.samples.length)} are in the report:\n\n`
+    : `:\n\n`;
   // Confidence rules (2026-07-17): every strong claim is grounded in the
   // MECHANISM (a recorded deed, first-weeks hiring, dates shown) — never in
   // invented performance ("our leads close", fake testimonials). Puffery
@@ -72,7 +86,8 @@ export function buildPackagePitch(o: {
     `highest-intent signal in ${t.service} — new owners pick their providers in the first ` +
     `weeks, before they have anyone, and the first company at the door usually keeps the ` +
     `account for years. We pulled every recent single-family sale straight from county deed ` +
-    `records and packaged the addresses:\n\n` +
+    `records and packaged the addresses` +
+    sampleBlock +
     `${o.pkg.name}\n` +
     `- ${o.pkg.lead_count} addresses, each with the recorded sale date, estimated home value, and lot size\n` +
     `- Recorded at the county over the past months, every date shown, nothing hidden — not ` +
@@ -331,7 +346,16 @@ export async function runResidentialDemandGen(opts: {
 
   // ---- 5. Queue + send.
   const base = siteBase();
-  const ctaUrl = `${base}/buyers/signup?respkg=${pkg.id}&trade=${trade}`;
+  // CTA lands on the PUBLIC preview page (2026-07-22 "asking too much" fix):
+  // no signup wall — look, then card. The respkg= query param is preserved
+  // verbatim: every detector in the system (queue kind, webhook framing,
+  // pitchedThis dedupe, the partial unique index) keys on claim_url
+  // containing "respkg=<id>", not on the path.
+  const ctaUrl = `${base}/residential/${pkg.id}?respkg=${pkg.id}&trade=${trade}`;
+  // The 3 freshest addresses ride IN the pitch as a free sample — identical
+  // for every recipient (packageSampleLeads is deterministic), so a package
+  // leaks 3 addresses total, not 3 per email.
+  const samples = await packageSampleLeads(pkg.id, 3).catch(() => []);
   let queued = 0;
   let sent = 0;
   let variantIdx = 0;
@@ -346,6 +370,7 @@ export async function runResidentialDemandGen(opts: {
       subjectVariant,
       company: q.c.name,
       pkg,
+      samples,
       geography,
       trade,
       brand: co.name,

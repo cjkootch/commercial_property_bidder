@@ -35,6 +35,43 @@ describe("buildPackagePitch", () => {
     expect(m.body).toContain("at most 3 landscaping companies");
   });
 
+  it("free sample addresses ride in the pitch (2026-07-22 'asking too much' fix)", () => {
+    const m = buildPackagePitch({
+      subjectVariant: "A",
+      company: "Green Lawns LLC",
+      pkg: PKG,
+      geography: "Fort Worth",
+      trade: "landscaping",
+      brand: "Greenkeep",
+      replyEmail: null,
+      ctaUrl: "https://x",
+      samples: [
+        { address: "1418 Maple Hollow Dr", saleDate: new Date("2026-07-08T12:00:00Z") },
+        { address: "2205 Bent Creek Ln", saleDate: new Date("2026-07-03T12:00:00Z") },
+        { address: "909 Kestrel Ct", saleDate: null },
+      ],
+    });
+    expect(m.body).toContain("Here are 3 of them, free");
+    expect(m.body).toContain("1418 Maple Hollow Dr (closed 7/8)");
+    expect(m.body).toContain("909 Kestrel Ct"); // date-less row renders without a date
+    expect(m.body).toContain("The other 415 are in the report");
+  });
+
+  it("no samples → the classic pitch, no dangling sample copy", () => {
+    const m = buildPackagePitch({
+      subjectVariant: "A",
+      company: "X",
+      pkg: PKG,
+      geography: "Fort Worth",
+      trade: "landscaping",
+      brand: "Greenkeep",
+      replyEmail: null,
+      ctaUrl: "https://x",
+    });
+    expect(m.body).not.toContain("go look");
+    expect(m.body).toContain("packaged the addresses:");
+  });
+
   it("B variant leads with the who-just-bought angle", () => {
     const m = buildPackagePitch({
       subjectVariant: "B",
