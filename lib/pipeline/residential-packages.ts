@@ -114,13 +114,37 @@ export async function runResidentialPackaging(): Promise<ResidentialPackagingSum
     const finalKey = list.length >= MIN_PACKAGE_LEADS ? key : `${geoOf(list[0])}${BUNDLE}`;
     groups.set(finalKey, [...(groups.get(finalKey) ?? []), ...list]);
   }
+
+  // FRESH-CITY rollup (2026-07-24: ZIP fragmentation left every bundle under
+  // the floor and the shelf EMPTY). Fresh leads (sale ≤45d) stuck in thin
+  // ZIP bundles combine into one city-wide bundle — a fresh multi-ZIP city
+  // list is an honest product ("just bought in Fort Worth" is true). STALE
+  // leads stay held: the operator's standing hold on catch-all packaging of
+  // old leads applies to them, not to fresh supply.
+  const FRESH_ROLLUP_DAYS = 45;
+  const CITYFRESH = "|CITYFRESH";
+  const ageDays = (d: Date | null) => (d ? (Date.now() - d.getTime()) / 86400_000 : 999);
+  for (const [key, list] of [...groups.entries()]) {
+    if (list.length >= MIN_PACKAGE_LEADS || key.endsWith(CITYFRESH)) continue;
+    const stay: schema.ResidentialLead[] = [];
+    for (const lead of list) {
+      const isFresh = !!lead.signal_date && ageDays(lead.signal_date) <= FRESH_ROLLUP_DAYS;
+      if (isFresh && lead.city) {
+        const ck = `c:${lead.city.toLowerCase()}${CITYFRESH}`;
+        groups.set(ck, [...(groups.get(ck) ?? []), lead]);
+      } else {
+        stay.push(lead);
+      }
+    }
+    if (stay.length) groups.set(key, stay);
+    else groups.delete(key);
+  }
   log.push(`${leads.length} lead(s) across ${groups.size} candidate bundle(s)`);
   if (unplaceable) log.push(`${unplaceable} lead(s) held — no ZIP or city to label a report with`);
 
   let packages = 0;
   let published = 0;
   let held = 0;
-  const ageDays = (d: Date | null) => (d ? (Date.now() - d.getTime()) / 86400_000 : 999);
 
   for (const [key, groupLeads] of groups.entries()) {
     const pricing = pricePackage(
@@ -135,14 +159,16 @@ export async function runResidentialPackaging(): Promise<ResidentialPackagingSum
       log.push(`  · held ${groupLeads.length} in ${key} — under the ${MIN_PACKAGE_LEADS}-address floor`);
       continue;
     }
-    const zip = groupLeads[0].zip;
+    // A CITYFRESH rollup spans many ZIPs — its honest label is the city.
+    const isCityFresh = key.endsWith(CITYFRESH);
+    const zip = isCityFresh ? null : groupLeads[0].zip;
     const city = groupLeads[0].city;
     // A GEOBUNDLE spans many subdivisions — naming it after the first lead's
     // subdivision would mislabel the product. Only subdivision-keyed groups
     // carry the subdivision name.
     const isBundle = key.endsWith(BUNDLE);
     const sub =
-      isBundle || /^abst\b/i.test(groupLeads[0].subdivision_name ?? "")
+      isBundle || isCityFresh || /^abst\b/i.test(groupLeads[0].subdivision_name ?? "")
         ? null
         : groupLeads[0].subdivision_name;
     // ZIP in the bundle name: two ZIP bundles in one city otherwise collide
