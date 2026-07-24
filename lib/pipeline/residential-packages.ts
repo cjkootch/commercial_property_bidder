@@ -4,23 +4,73 @@
 // operator's explicit approval, same posture as campaign sends. Shared by the
 // weekly cron (/api/cron/residential) and scripts/build-residential-packages.
 
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import * as schema from "../db/schema";
 import { buildPackageTeaser } from "../residential/teaser";
 import { MIN_PACKAGE_LEADS, pricePackage } from "../residential/economics";
+import { notifyBuyersOfPackagePublish } from "../residential/alerts";
+
+// 2026-07-24 self-feeding shelf (operator: "yes lets go"): FRESH packages
+// auto-publish — the week the shelf went stale, every reachable company had
+// been pitched everything and volume starved at the top of a working
+// pipeline. A package whose newest sale is recent enough that the pitch's
+// "just bought" claim is TRUE publishes itself; anything staler stays a
+// draft for operator judgment. Kill switch: RESI_AUTO_PUBLISH=0.
+const AUTO_PUBLISH_MAX_AGE_DAYS = 30;
+/** Published packages whose NEWEST sale is older than this get archived —
+ *  the sample dates in the pitch would advertise their staleness. */
+const ARCHIVE_AFTER_DAYS = 60;
 
 export type ResidentialPackagingSummary = {
   leads: number;
   packages: number;
+  published: number;
+  archived: number;
   held: number;
   log: string[];
 };
+
+/** Archive published packages whose newest member sale has gone stale. Their
+ *  unlock/report pages keep working; they just stop being pitched or sold. */
+export async function archiveStalePackages(log: string[]): Promise<number> {
+  const cutoff = new Date(Date.now() - ARCHIVE_AFTER_DAYS * 86400_000);
+  const rows = await db
+    .select({
+      id: schema.residentialPackage.id,
+      name: schema.residentialPackage.name,
+      newest: sql<string | null>`max(${schema.residentialLead.signal_date})`,
+    })
+    .from(schema.residentialPackage)
+    .innerJoin(
+      schema.residentialPackageMembership,
+      eq(schema.residentialPackageMembership.package_id, schema.residentialPackage.id)
+    )
+    .innerJoin(
+      schema.residentialLead,
+      eq(schema.residentialPackageMembership.residential_lead_id, schema.residentialLead.id)
+    )
+    .where(eq(schema.residentialPackage.status, "published"))
+    .groupBy(schema.residentialPackage.id, schema.residentialPackage.name);
+  const stale = rows.filter((r) => !r.newest || new Date(r.newest) < cutoff);
+  if (stale.length === 0) return 0;
+  await db
+    .update(schema.residentialPackage)
+    .set({ status: "archived", updated_at: new Date() })
+    .where(inArray(schema.residentialPackage.id, stale.map((r) => r.id)));
+  for (const r of stale) {
+    log.push(`  ⌛ archived ${r.name} — newest sale ${r.newest?.slice(0, 10) ?? "unknown"} is past ${ARCHIVE_AFTER_DAYS}d`);
+  }
+  return stale.length;
+}
 
 export async function runResidentialPackaging(): Promise<ResidentialPackagingSummary> {
   const log: string[] = [];
   const [co] = await db.select().from(schema.company).limit(1);
   if (!co) throw new Error("No company found. Run `npm run db:seed` first.");
+
+  // Retire what's gone stale before shelving what's fresh.
+  const archived = await archiveStalePackages(log).catch(() => 0);
 
   const leads = await db
     .select()
@@ -28,7 +78,7 @@ export async function runResidentialPackaging(): Promise<ResidentialPackagingSum
     .where(inArray(schema.residentialLead.status, ["sourced", "qualified"]));
   if (leads.length === 0) {
     log.push("No unpackaged residential leads.");
-    return { leads: 0, packages: 0, held: 0, log };
+    return { leads: 0, packages: 0, published: 0, archived, held: 0, log };
   }
 
   // Group by geography+subdivision; thin subdivision groups fall into their
@@ -68,6 +118,7 @@ export async function runResidentialPackaging(): Promise<ResidentialPackagingSum
   if (unplaceable) log.push(`${unplaceable} lead(s) held — no ZIP or city to label a report with`);
 
   let packages = 0;
+  let published = 0;
   let held = 0;
   const ageDays = (d: Date | null) => (d ? (Date.now() - d.getTime()) / 86400_000 : 999);
 
@@ -125,11 +176,33 @@ export async function runResidentialPackaging(): Promise<ResidentialPackagingSum
         .where(eq(schema.residentialLead.id, lead.id));
     }
     packages++;
-    log.push(
-      `  ✓ ${name} — ${groupLeads.length} addresses, $${Math.round(pricing.price_cents / 100)}`
+
+    // Auto-publish when the newest sale is fresh enough that the pitch's
+    // "just bought" claim is literally true; staler bundles stay drafts for
+    // the operator. Publish alerts (radius-gated buyer emails) fire on the
+    // same path the manual publish button uses.
+    const newest = groupLeads.reduce<Date | null>(
+      (a, l) => (l.signal_date && (!a || l.signal_date > a) ? l.signal_date : a),
+      null
     );
+    const fresh = newest ? ageDays(newest) <= AUTO_PUBLISH_MAX_AGE_DAYS : false;
+    if (fresh && process.env.RESI_AUTO_PUBLISH !== "0") {
+      await db
+        .update(schema.residentialPackage)
+        .set({ status: "published", updated_at: new Date() })
+        .where(eq(schema.residentialPackage.id, pkg.id));
+      published++;
+      await notifyBuyersOfPackagePublish(pkg.id).catch(() => null);
+      log.push(
+        `  ✓ ${name} — ${groupLeads.length} addresses, $${Math.round(pricing.price_cents / 100)} — PUBLISHED (newest sale ${newest?.toISOString().slice(0, 10)})`
+      );
+    } else {
+      log.push(
+        `  ✓ ${name} — ${groupLeads.length} addresses, $${Math.round(pricing.price_cents / 100)} — draft (newest sale ${newest ? newest.toISOString().slice(0, 10) : "unknown"})`
+      );
+    }
   }
   held += unplaceable;
   if (held) log.push(`${held} lead(s) held for next cycle (thin bundles).`);
-  return { leads: leads.length, packages, held, log };
+  return { leads: leads.length, packages, published, archived, held, log };
 }

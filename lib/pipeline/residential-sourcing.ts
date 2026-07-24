@@ -238,11 +238,17 @@ export async function fetchRecentTarrantSales(opts: {
 // METERED (trial budget): one call returns up to 100 sales, so a full run is
 // ~4-6 calls — the cheapest fresh-mover supply we have. Anchored per metro.
 
+// 2026-07-24 faucet widen (operator: "yes lets go" — the shelf starved at 54
+// leads/week): San Antonio + Austin anchors join, pages go 2→3. Worst case
+// 4 anchors × 3 pages = 12 ATTOM calls/run, 3 runs/week — well inside the
+// daily brake and trivial against the trial ledger.
 const ATTOM_ANCHORS = [
   { label: "Tarrant", lat: 32.7555, lng: -97.3308, radius: 25 },
   { label: "Harris", lat: 29.7604, lng: -95.3698, radius: 25 },
+  { label: "Bexar", lat: 29.4241, lng: -98.4936, radius: 25 },
+  { label: "Travis", lat: 30.2672, lng: -97.7431, radius: 25 },
 ];
-const ATTOM_MAX_PAGES_PER_ANCHOR = 2;
+const ATTOM_MAX_PAGES_PER_ANCHOR = 3;
 
 export async function fetchAttomSales(opts: {
   sinceDays: number;
