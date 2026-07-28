@@ -39,6 +39,9 @@ export type OrlandoPermitSummary = {
   scanned: number;
   candidates: number;
   added: number;
+  /** True when the loop stopped on its time budget rather than finishing, so a
+   *  short run is distinguishable from a genuinely empty permit feed. */
+  truncated?: boolean;
   log: string[];
 };
 
@@ -48,6 +51,12 @@ export async function runOrlandoPermitSourcing(opts?: {
   sinceDays?: number;
   /** false = characterize only (geocode/parcel/size) without inserting. */
   apply?: boolean;
+  /** Epoch ms after which the row loop stops and returns what it has. SODA
+   *  returns up to 200 permits and each surviving row costs a geocode plus a
+   *  parcel lookup, both network — at want=20 this walked far enough to blow
+   *  the 300s function ceiling and get killed mid-run. Bounded runs are
+   *  resumable on the next cron; killed ones just lose their work. */
+  deadlineAt?: number;
 }): Promise<OrlandoPermitSummary> {
   const want = opts?.want ?? 8;
   const minCost = opts?.minCost ?? 150_000; // commercial floor (FL runs lower than TX TABS).
@@ -86,8 +95,14 @@ export async function runOrlandoPermitSourcing(opts?: {
 
   const cfgRow = await getActiveConfig(co.id);
   let added = 0;
+  let truncated = false;
   for (const p of rows) {
     if (added >= want) break;
+    if (opts?.deadlineAt && Date.now() > opts.deadlineAt) {
+      truncated = true;
+      log.push(`⏱ time budget spent after ${added} added — remaining permits roll to the next run`);
+      break;
+    }
     const cost = Number(p.estimated_cost) || 0;
     const label = (p.project_name || p.permit_address || "Commercial permit").trim();
     if (!p.permit_number) continue;
@@ -151,5 +166,5 @@ export async function runOrlandoPermitSourcing(opts?: {
     );
   }
 
-  return { scanned: rows.length, candidates: rows.length, added, log };
+  return { scanned: rows.length, candidates: rows.length, added, truncated, log };
 }

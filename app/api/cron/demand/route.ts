@@ -78,9 +78,11 @@ export async function GET(req: NextRequest) {
     const rotated = [...trades.slice(offset), ...trades.slice(0, offset)];
 
     let ran = 0;
+    let truncated = false;
+    const deadlineAt = started + TIME_BUDGET_MS;
     for (const trade of rotated) {
       if (ran >= RUNS_PER_INVOCATION) break;
-      if (Date.now() - started > TIME_BUDGET_MS) break;
+      if (Date.now() > deadlineAt) break;
       if (used >= cap) break;
 
       const summary = await runBuyerProspecting({
@@ -89,7 +91,12 @@ export async function GET(req: NextRequest) {
         want: Math.min(30, cap - used),
         send: off ? undefined : true,
         dryRun: off ? true : undefined,
+        // Hand the budget DOWN. Checking it only between runs cannot stop a
+        // single run from overrunning, and one run walks up to want*3
+        // candidates with a fetch, a geocode and a scrape apiece.
+        deadlineAt,
       });
+      if (summary.truncated) truncated = true;
       // No fresh uncampaigned lead for this trade — try the next, free.
       if (!summary.lead) continue;
       ran++;
@@ -113,6 +120,11 @@ export async function GET(req: NextRequest) {
       autopilot: !off,
       dailyCap: cap,
       sentToday: used,
+      // Visible in the cron log: a run that stopped on its budget did NOT
+      // cover the shelf, and a thin day caused by truncation needs a different
+      // response than a thin day caused by no inventory.
+      truncated,
+      elapsedMs: Date.now() - started,
       runs: results,
     });
   });
