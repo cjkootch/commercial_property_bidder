@@ -54,11 +54,20 @@ describe("isTextableLineType", () => {
     // 2026-07-13: every fixedVoip we texted bounced (carrier err 30006).
     expect(isTextableLineType("fixedVoip")).toBe(false);
   });
-  it("fails open on unknown / unscreened numbers", () => {
-    // A lookup outage or carrier-unmapped type must never silence the queue.
-    expect(isTextableLineType("unknown")).toBe(true);
+  it("fails open on UNSCREENED numbers (null), so a lookup outage can't silence the queue", () => {
     expect(isTextableLineType(null)).toBe(true);
     expect(isTextableLineType(undefined)).toBe(true);
+    // A carrier value we don't recognize is also not a reason to block.
+    expect(isTextableLineType("someNewCarrierType")).toBe(true);
+  });
+  it('SKIPS a number Twilio classified as "unknown"', () => {
+    // Changed 2026-07-28. This test previously asserted true, on the reasoning
+    // that unknown "fails open like an outage" — but the two cases are not the
+    // same. NULL means we never asked (could be an outage): fail open. The
+    // literal "unknown" means Twilio DID look and could not classify the
+    // number, which is a negative signal. Texting those anyway ran 85.7%
+    // undelivered across the 449 companies carrying the verdict.
+    expect(isTextableLineType("unknown")).toBe(false);
   });
 });
 

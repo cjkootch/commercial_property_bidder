@@ -10,7 +10,7 @@
 // the number "unknown" and still textable — a screen must never silence the
 // whole queue.
 
-import { and, isNotNull, isNull, eq } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { prospectCompany } from "@/lib/db/schema";
 import { lookupLineType, toE164 } from "@/lib/integrations/twilio";
@@ -43,18 +43,40 @@ export type ScreenSummary = {
   failed: number;
 };
 
-/** Backfill: screen up to `limit` never-screened, phone-bearing, unblocked
- *  companies. Sequential (Lookup is cheap but rate-limited; ordering keeps the
- *  spend legible in logs). Idempotent — a cached row is skipped by the WHERE. */
+/** How stale an "unknown" verdict must be before it's worth paying to re-ask.
+ *  Lookup's coverage improves and numbers get ported, so an unknown from weeks
+ *  ago is not evidence about the number today. */
+export const UNKNOWN_RECHECK_AFTER_DAYS =
+  Number(process.env.UNKNOWN_RECHECK_AFTER_DAYS) || 14;
+
+/** Backfill: screen up to `limit` phone-bearing, unblocked companies that are
+ *  either never-screened OR carrying a stale "unknown" verdict. Sequential
+ *  (Lookup is cheap but rate-limited; ordering keeps the spend legible in logs).
+ *
+ *  The "unknown" re-check exists because that verdict is now DISQUALIFYING
+ *  (see isTextableLineType — those numbers ran 85.7% undelivered). Without a
+ *  path back, one bad screening day would strand a company on the no-text list
+ *  permanently, and 87 phone-only companies would be unreachable on every
+ *  channel forever. A verdict that can condemn must be re-askable. */
 export async function screenUnscreenedLines(limit: number): Promise<ScreenSummary> {
+  const staleBefore = new Date(Date.now() - UNKNOWN_RECHECK_AFTER_DAYS * 86_400_000);
   const rows = await db
     .select({ id: prospectCompany.id, phone: prospectCompany.phone })
     .from(prospectCompany)
     .where(
       and(
         isNotNull(prospectCompany.phone),
-        isNull(prospectCompany.line_type),
-        isNull(prospectCompany.blocked_at)
+        isNull(prospectCompany.blocked_at),
+        or(
+          isNull(prospectCompany.line_type),
+          and(
+            eq(prospectCompany.line_type, "unknown"),
+            or(
+              isNull(prospectCompany.line_type_checked_at),
+              lt(prospectCompany.line_type_checked_at, staleBefore)
+            )
+          )
+        )
       )
     )
     .limit(limit);
