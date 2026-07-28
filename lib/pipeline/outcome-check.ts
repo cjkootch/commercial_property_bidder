@@ -65,14 +65,22 @@ export function outcomeSmsFor(o: { city: string | null; trade: string }): string
 
 /** Pure channel pick: SMS beats email when the buyer's linked prospect
  *  company has a number we'd text (cached line screen, fail-open on
- *  unscreened — this is a warm relationship, not cold outreach). */
+ *  unscreened — this is a warm relationship, not cold outreach).
+ *
+ *  `smsOk` is the carrier's own verdict from a previous send (see
+ *  lib/sms/undeliverable). It defaults true so existing callers keep working,
+ *  but passing it is what makes this fall back to EMAIL instead of retrying a
+ *  number the carrier has already rejected. hold_expiry ran at 82% undelivered
+ *  without it — 13 messages to 3 dead numbers — while the buyer's email address
+ *  sat right there unused. */
 export function pickOutcomeChannel(o: {
   phone: string | null;
   lineType: string | null;
   email: string | null;
   emailOk: boolean;
+  smsOk?: boolean;
 }): "sms" | "email" | null {
-  if (o.phone && isTextableLineType(o.lineType)) return "sms";
+  if (o.phone && o.smsOk !== false && isTextableLineType(o.lineType)) return "sms";
   if (o.email && o.emailOk) return "email";
   return null;
 }

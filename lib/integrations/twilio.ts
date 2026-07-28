@@ -72,9 +72,17 @@ export type LineType = string;
  *  batch: every fixedVoip number we texted bounced with carrier error 30006 —
  *  fixedVoip is location-bound office phone systems (RingCentral/8x8/PBX) that
  *  don't accept consumer A2P SMS. nonFixedVoip (Google Voice / TextNow, i.e. an
- *  owner's VoIP cell) stays textable, as does mobile; unknown/unscreened fails
- *  OPEN (a lookup outage must never silence the queue). */
-const NON_TEXTABLE_LINE_TYPES = new Set(["landline", "tollFree", "fixedVoip"]);
+ *  owner's VoIP cell) stays textable, as does mobile.
+ *
+ *  "unknown" is on the list from the 2026-07-28 review, and the distinction it
+ *  turns on is worth stating: a NULL line_type means we never asked, which can
+ *  be a Lookup outage, so it stays textable — a screen must never silence the
+ *  queue. The literal string "unknown" means we DID ask and Twilio could not
+ *  classify the number, which is a negative signal, not a missing one. Texting
+ *  those anyway ran 85.7% undelivered across the 449 companies carrying that
+ *  verdict. Absence of evidence and evidence of absence are different things,
+ *  and the original predicate conflated them. */
+const NON_TEXTABLE_LINE_TYPES = new Set(["landline", "tollFree", "fixedVoip", "unknown"]);
 export function isTextableLineType(lineType: string | null | undefined): boolean {
   return !lineType || !NON_TEXTABLE_LINE_TYPES.has(lineType);
 }

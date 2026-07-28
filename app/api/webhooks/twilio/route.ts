@@ -8,6 +8,7 @@ import { draftSmsReply } from "@/lib/integrations/claude";
 import { inventoryContextFor } from "@/lib/sms/ai-context";
 import { freshClaimUrl, withinTcpaHours } from "@/lib/sms/queue";
 import { isOptOutPhrase } from "@/lib/sms/optout";
+import { clearUndeliverable, recordSmsFailure } from "@/lib/sms/undeliverable";
 import { marketTz } from "@/lib/markets";
 import type { SmsIntent } from "@/lib/integrations/claude";
 import { sendEmail } from "@/lib/integrations/resend";
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
     // Callbacks arrive out of order — never downgrade (a late "sent" must not
     // overwrite "delivered"). Rank guard in the WHERE keeps it one atomic
     // statement (no transactions on the Neon HTTP driver).
-    await db
+    const updated = await db
       .update(smsSend)
       .set({
         status,
@@ -73,7 +74,17 @@ export async function POST(req: NextRequest) {
                 when 'queued' then 1 when 'accepted' then 1 when 'sending' then 1
                 else 0 end < ${smsStatusRank(status)}`
         )
-      );
+      )
+      .returning({ phone: smsSend.phone });
+
+    // A permanent carrier verdict condemns the NUMBER, not just this message —
+    // otherwise the next campaign rediscovers it and fails again. Read the phone
+    // off the updated row rather than params.To: the rank guard above means an
+    // out-of-order callback may match nothing, and we must not condemn a number
+    // on a stale event we just declined to apply.
+    if (updated.length) {
+      await recordSmsFailure(updated[0].phone, params.ErrorCode);
+    }
     return new Response(null, { status: 204 });
   }
 
@@ -174,6 +185,12 @@ export async function POST(req: NextRequest) {
     companies
       .filter((c) => (c.phone ?? "").replace(/\D/g, "").replace(/^1/, "") === digits)
       .sort((a, b) => a.key.localeCompare(b.key))[0];
+
+  // Self-healing: an inbound message is proof the number is alive, so any
+  // "unreachable" verdict against it was wrong (bad lookup, ported line, handset
+  // back on) and must be lifted. Note this clears the DELIVERABILITY ledger
+  // only — a STOP is a consent decision and is never undone by an inbound.
+  await clearUndeliverable([from]);
 
   const [inserted] = await db
     .insert(smsSend)

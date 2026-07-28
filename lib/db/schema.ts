@@ -603,6 +603,34 @@ export const smsOptOut = pgTable("sms_opt_out", {
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// --- sms_undeliverable -----------------------------------------------------
+// Numbers a carrier has told us are PERMANENTLY unreachable (30005 "unknown
+// destination handset", 30006 "landline or unreachable carrier"). The email
+// side has had bounce -> suppression since day one; SMS recorded the error code
+// on the send row and then did nothing with it, so every later campaign
+// rediscovered the same dead numbers and failed again. That is how outbound sat
+// at 27% undelivered: hold_expiry sent 13 messages to 3 dead numbers, and
+// lead_alert sent 3 to one.
+//
+// DELIBERATELY SEPARATE from sms_opt_out. STOP is a CONSENT verdict — legally
+// binding, cleared only by START. This is a DELIVERABILITY verdict — reversible
+// on evidence, since a number that later texts us demonstrably works. Merging
+// them would repeat the exact bug the email suppression list had, where a
+// marketing opt-out silently blocked transactional mail.
+export const smsUndeliverable = pgTable("sms_undeliverable", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  phone: text("phone").notNull().unique(), // E.164
+  /** Twilio error code that condemned it, kept so a future policy change can
+   *  re-open one class of failure without wiping the whole ledger. */
+  error_code: text("error_code"),
+  reason: text("reason"),
+  /** Bumped on every repeat failure — a number climbing this counter means
+   *  something upstream is still handing it to a sender. */
+  fail_count: integer("fail_count").notNull().default(1),
+  first_failed_at: timestamp("first_failed_at", { withTimezone: true }).notNull().defaultNow(),
+  last_failed_at: timestamp("last_failed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // --- pending_sms ---------------------------------------------------------
 // TCPA quiet-hours defer queue. An inbound at 11pm can't get an 11pm marketing
 // auto-reply (8am–9pm recipient-local rule), but the warm hand-raiser must not

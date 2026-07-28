@@ -9,6 +9,7 @@ import { isNotNull, isNull, and, inArray, like, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyerOutreach, property, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
 import { toE164, isTextableLineType } from "@/lib/integrations/twilio";
+import { loadUndeliverable } from "@/lib/sms/undeliverable";
 import { signBuyerClaim } from "@/lib/buyer-auth";
 import { DEFAULT_TZ, marketTimezones } from "@/lib/markets";
 import { asTrade, TRADES } from "@/lib/leads/trades";
@@ -138,7 +139,7 @@ export type QueueSuggestion = {
  *  phone on file, never texted, not opted out/blocked/converted, and holding
  *  a live claim link for step 2 to deliver. */
 export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> {
-  const [companies, outreach, texted, optOuts] = await Promise.all([
+  const [companies, outreach, texted, optOuts, undeliverable] = await Promise.all([
     db
       .select({
         id: prospectCompany.id,
@@ -180,6 +181,7 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
       .where(or(isNotNull(buyerOutreach.sent_at), like(buyerOutreach.claim_url, "%respkg=%"))),
     db.select({ phone: smsSend.phone }).from(smsSend),
     db.select({ phone: smsOptOut.phone }).from(smsOptOut),
+    loadUndeliverable(),
   ]);
 
   const alreadyTexted = new Set(texted.map((t) => t.phone));
@@ -221,6 +223,9 @@ export async function suggestedTexts(limit: number): Promise<QueueSuggestion[]> 
   for (const c of companies) {
     const phone = toE164(c.phone);
     if (!phone || alreadyTexted.has(phone) || optedOut.has(phone)) continue;
+    // A carrier has already told us this number cannot receive SMS. Retrying it
+    // is the loop that put outbound at 27% undelivered.
+    if (undeliverable.has(phone)) continue;
     // Known landlines are dropped up front; unscreened (null) numbers stay
     // candidates and get a just-in-time lookup at send time (fail-open).
     if (!isTextableLineType(c.line_type)) continue;
