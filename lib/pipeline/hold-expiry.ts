@@ -19,6 +19,7 @@ import { freshClaimUrl, TEXT_QUEUE_DAILY_CAP, withinSmsSendWindow } from "../sms
 import { signBuyerUnsub } from "../buyer-auth";
 import { siteBase, toHtml } from "./buyer-prospecting";
 import { pickOutcomeChannel } from "./outcome-check";
+import { loadUndeliverable } from "../sms/undeliverable";
 
 /** How close to expiry the reminder fires. Wide enough that an hourly cron
  *  inside the send window always gets a shot at a 24h hold. */
@@ -108,7 +109,7 @@ export async function runHoldExpiryReminders(opts?: { apply?: boolean }): Promis
   const log: string[] = [];
   const now = new Date();
 
-  const [holds, smsReminded, emailReminded] = await Promise.all([
+  const [holds, smsReminded, emailReminded, undeliverable] = await Promise.all([
     db
       .select({
         id: leadHold.id,
@@ -138,6 +139,7 @@ export async function runHoldExpiryReminders(opts?: { apply?: boolean }): Promis
         )
       ),
     db.select({ ref_id: emailSend.ref_id }).from(emailSend).where(eq(emailSend.kind, KIND)),
+    loadUndeliverable(),
   ]);
   const reminded = new Set([...smsReminded.map((r) => r.ref_id), ...emailReminded.map((r) => r.ref_id)]);
   const due = selectExpiringHolds(holds, reminded, now).slice(0, HOLD_REMIND_MAX_PER_RUN);
@@ -176,6 +178,9 @@ export async function runHoldExpiryReminders(opts?: { apply?: boolean }): Promis
       lineType: pc.line_type,
       email: pc.email,
       emailOk: !!pc.email, // suppression enforced centrally in sendEmail
+      // Carrier already rejected this number — route to email instead of
+      // spending another send on it.
+      smsOk: !cell || !undeliverable.has(cell),
     });
     if (!channel) {
       skipped++;

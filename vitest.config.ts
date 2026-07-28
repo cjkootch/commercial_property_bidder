@@ -9,5 +9,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["**/*.test.ts"],
+    // crm-extract/ is a standalone extraction packet destined for a different
+    // project, not part of this app. It has its own passing suite; run it with
+    // `npx vitest run --config crm-extract/vitest.config.ts`.
+    exclude: ["**/node_modules/**", "**/dist/**", "crm-extract/**"],
   },
 });

@@ -15,6 +15,7 @@ import { db } from "../db";
 import * as schema from "../db/schema";
 import { sendEmail } from "../integrations/resend";
 import { sendSms, toE164, isTextableLineType } from "../integrations/twilio";
+import { loadUndeliverable } from "../sms/undeliverable";
 import { openInventoryFor } from "../sms/ai-context";
 import { OPT_OUT_LINE, withinSmsSendWindow, TEXT_QUEUE_DAILY_CAP } from "../sms/queue";
 import { signBuyerUnsub } from "../buyer-auth";
@@ -86,7 +87,7 @@ export type LongTailSummary = {
 
 export async function runLongTail(limit = 40): Promise<LongTailSummary> {
   const now = new Date();
-  const [companies, outreach, sms, emailLog, suppressed, optOuts] = await Promise.all([
+  const [companies, outreach, sms, emailLog, suppressed, optOuts, undeliverable] = await Promise.all([
     db
       .select({
         key: schema.prospectCompany.key,
@@ -131,6 +132,7 @@ export async function runLongTail(limit = 40): Promise<LongTailSummary> {
       .from(schema.emailSend),
     db.select({ email: schema.suppression.email }).from(schema.suppression),
     db.select({ phone: schema.smsOptOut.phone }).from(schema.smsOptOut),
+    loadUndeliverable(),
   ]);
 
   const suppressedSet = new Set(suppressed.map((s) => s.email.toLowerCase()));
@@ -189,7 +191,9 @@ export async function runLongTail(limit = 40): Promise<LongTailSummary> {
       blocked: !!c.blocked_at,
       converted: !!c.buyer_id,
       suppressed: !!addr && suppressedSet.has(addr),
-      optedOut: !!phone && optedOutSet.has(phone),
+      // A carrier-condemned number is as unreachable as an opted-out one for
+      // channel selection; the long tail then falls through to email.
+      optedOut: !!phone && (optedOutSet.has(phone) || undeliverable.has(phone)),
       lastTouchAt: last ? new Date(last) : null,
       touches: (addr ? emailTailByAddr.get(addr) ?? 0 : 0) + (phone ? smsTailByPhone.get(phone) ?? 0 : 0),
       website: c.website,

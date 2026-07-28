@@ -327,8 +327,14 @@ export default async function CompanyProfilePage({
             <ul className="mt-3 space-y-1.5">
               {smsThread.map((m) => (
                 <li key={m.id} className={`flex ${m.direction === "in" ? "justify-start" : "justify-end"}`}>
+                  {/* min-w-0 is load-bearing: a flex item defaults to
+                      min-width:auto, which refuses to shrink below its content
+                      and overrides max-w-*, so a long message bled straight
+                      through the card. whitespace-pre-wrap keeps the line breaks
+                      the operator typed; break-words handles a pasted URL or any
+                      other unbreakable run. */}
                   <div
-                    className={`max-w-md rounded-lg px-3 py-1.5 text-sm ${
+                    className={`min-w-0 max-w-[85%] whitespace-pre-wrap break-words rounded-lg px-3 py-1.5 text-sm sm:max-w-md ${
                       m.direction === "in" ? "bg-gray-100 text-gray-800" : "bg-brand/10 text-gray-800"
                     }`}
                   >
@@ -402,7 +408,10 @@ export default async function CompanyProfilePage({
                         <summary className="cursor-pointer text-xs text-brand hover:underline">
                           view email
                         </summary>
-                        <pre className="mt-2 max-w-xl whitespace-pre-wrap rounded-md bg-gray-50 p-3 text-xs leading-relaxed text-gray-700">
+                        {/* break-words as well as pre-wrap: these bodies carry
+                            claim URLs, and a long URL has no whitespace to wrap
+                            at, so pre-wrap alone still overflows the cell. */}
+                        <pre className="mt-2 max-w-xl whitespace-pre-wrap break-words rounded-md bg-gray-50 p-3 text-xs leading-relaxed text-gray-700">
                           {o.message}
                         </pre>
                       </details>

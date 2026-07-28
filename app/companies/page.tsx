@@ -1,4 +1,4 @@
-import { desc } from "drizzle-orm";
+import { desc, ilike, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buyer, buyerOutreach, prospectCompany } from "@/lib/db/schema";
 import { TRADES, asTrade } from "@/lib/leads/trades";
@@ -16,9 +16,39 @@ const fmt = (d: Date | null) =>
 export default async function CompaniesPage({
   searchParams,
 }: {
-  searchParams: { trade?: string };
+  searchParams: { trade?: string; q?: string };
 }) {
-  const profiles = await db.select().from(prospectCompany).orderBy(desc(prospectCompany.updated_at)).limit(1000);
+  const q = (searchParams.q ?? "").trim();
+  // Phone search on digits only, so "832-909-1591", "(832) 909 1591" and
+  // "8329091591" all find the same company however the number was stored.
+  // 7+ digits keeps a short numeric name fragment from matching every phone.
+  const digits = q.replace(/\D/g, "");
+  const search = q
+    ? or(
+        ilike(prospectCompany.name, `%${q}%`),
+        ilike(prospectCompany.email, `%${q}%`),
+        ilike(prospectCompany.website, `%${q}%`),
+        ilike(prospectCompany.office_city, `%${q}%`),
+        ilike(prospectCompany.key, `%${q}%`),
+        ...(digits.length >= 7
+          ? [
+              sql`regexp_replace(coalesce(${prospectCompany.phone}, ''), '[^0-9]', '', 'g') like ${
+                "%" + digits + "%"
+              }`,
+            ]
+          : [])
+      )
+    : undefined;
+
+  // Search runs in SQL, not over the loaded page: the 1000-row cap below is a
+  // display limit for the default call list, and a search that only looked
+  // inside it would silently fail to find anything older.
+  const profiles = await db
+    .select()
+    .from(prospectCompany)
+    .where(search)
+    .orderBy(desc(prospectCompany.updated_at))
+    .limit(q ? 200 : 1000);
   // Campaign rows only: operator 1:1 replies (claim_url NULL) carry tracking
   // too, but a personal reply must not inflate the funnel or the call-list
   // score (an auto-fired open on a reply is not campaign engagement).
@@ -61,8 +91,17 @@ export default async function CompaniesPage({
     })
     .sort((a, b) => b.score - a.score || (b.f.lastSent?.getTime() ?? 0) - (a.f.lastSent?.getTime() ?? 0));
 
-  const tradeCounts = new Map<string, number>();
-  for (const p of profiles) tradeCounts.set(p.trade, (tradeCounts.get(p.trade) ?? 0) + 1);
+  // Counted in SQL over the WHOLE table, not over `profiles` — otherwise the
+  // chips would report the search result's makeup (and, before search existed,
+  // silently capped at the 1000 most recently updated).
+  const tradeCountRows = await db
+    .select({ trade: prospectCompany.trade, n: sql<number>`count(*)::int` })
+    .from(prospectCompany)
+    .groupBy(prospectCompany.trade);
+  const tradeCounts = new Map(tradeCountRows.map((r) => [r.trade, r.n]));
+  const totalCount = tradeCountRows.reduce((sum, r) => sum + r.n, 0);
+
+  const withQ = (base: string) => (q ? `${base}${base.includes("?") ? "&" : "?"}q=${encodeURIComponent(q)}` : base);
 
   return (
     <div>
@@ -72,12 +111,43 @@ export default async function CompaniesPage({
         never-claimed companies first, converted accounts last.
       </p>
 
+      {/* Plain GET form: the search lives in the URL, so a result set is
+          shareable, bookmarkable and survives a refresh. No client JS. */}
+      <form method="GET" action="/companies" className="mt-3 flex flex-wrap items-center gap-2">
+        {tradeFilter ? <input type="hidden" name="trade" value={tradeFilter} /> : null}
+        <input
+          type="search"
+          name="q"
+          defaultValue={q}
+          placeholder="Search name, email, phone, city, or website…"
+          aria-label="Search companies"
+          className="w-full max-w-sm rounded-lg border border-gray-300 px-3 py-1.5 text-sm placeholder:text-gray-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"
+        />
+        <button className="rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90">
+          Search
+        </button>
+        {q ? (
+          <a
+            href={tradeFilter ? `/companies?trade=${tradeFilter}` : "/companies"}
+            className="text-sm text-gray-500 hover:text-gray-700 hover:underline"
+          >
+            Clear
+          </a>
+        ) : null}
+        {q ? (
+          <span className="text-xs text-gray-400">
+            {rows.length} match{rows.length === 1 ? "" : "es"} for &ldquo;{q}&rdquo;
+            {profiles.length === 200 ? " (showing first 200)" : ""}
+          </span>
+        ) : null}
+      </form>
+
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-        <a href="/companies" className={`rounded-full px-2.5 py-1 font-semibold ${!tradeFilter ? "bg-brand text-white" : "border border-gray-300 text-gray-600 hover:bg-gray-50"}`}>
-          All ({profiles.length})
+        <a href={withQ("/companies")} className={`rounded-full px-2.5 py-1 font-semibold ${!tradeFilter ? "bg-brand text-white" : "border border-gray-300 text-gray-600 hover:bg-gray-50"}`}>
+          All ({totalCount})
         </a>
         {[...tradeCounts.entries()].map(([t, n]) => (
-          <a key={t} href={`/companies?trade=${t}`} className={`rounded-full px-2.5 py-1 font-semibold ${tradeFilter === t ? "bg-brand text-white" : "border border-gray-300 text-gray-600 hover:bg-gray-50"}`}>
+          <a key={t} href={withQ(`/companies?trade=${t}`)} className={`rounded-full px-2.5 py-1 font-semibold ${tradeFilter === t ? "bg-brand text-white" : "border border-gray-300 text-gray-600 hover:bg-gray-50"}`}>
             {TRADES[asTrade(t)].label} ({n})
           </a>
         ))}
@@ -163,7 +233,9 @@ export default async function CompaniesPage({
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">
-                  Profiles appear as campaigns send (and backfill from past sends).
+                  {q
+                    ? `No company matches “${q}”.`
+                    : "Profiles appear as campaigns send (and backfill from past sends)."}
                 </td>
               </tr>
             ) : null}
