@@ -581,6 +581,21 @@ export const smsSend = pgTable("sms_send", {
   ref_id: text("ref_id"),
   /** The counterparty's number, E.164 (their phone for both directions). */
   phone: text("phone").notNull(),
+  /** WHICH OF OUR NUMBERS this message was on, E.164. Outbound: the From
+   *  Twilio actually used — with a Messaging Service the sender is chosen from
+   *  a pool (local + toll-free) and stuck to the recipient, so it is not
+   *  knowable from config. Inbound: the To, i.e. the number they texted.
+   *
+   *  Named for the direction-independent question rather than From/To, because
+   *  those swap meaning per direction and the question worth answering is
+   *  always "which of our numbers was this thread on?".
+   *
+   *  Added 2026-07-28: with two numbers in the pool it was impossible to tell
+   *  which one carried any given conversation, which made "can we hand the
+   *  toll-free to another project?" unanswerable from our own data — it had to
+   *  be reconstructed from Twilio's console. Null on every row written before
+   *  this column existed. */
+  our_number: text("our_number"),
   body: text("body").notNull(),
   twilio_sid: text("twilio_sid"),
   // queued | sent | delivered | undelivered | failed | received

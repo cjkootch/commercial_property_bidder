@@ -74,39 +74,62 @@ export function autosendEnabled(): boolean {
   return process.env.PROSPECTING_AUTOSEND === "1" || process.env.PROSPECTING_AUTOSEND === "true";
 }
 
-/** Homepage mentions commercial-type work? Null when the site can't be read. */
-export async function looksCommercial(website: string | null): Promise<boolean | null> {
+const COMMERCIAL_RE =
+  /commercial|HOA|property\s*manage|office\s*park|retail\s*center|industrial|municipal/i;
+
+/**
+ * Fetch a homepage ONCE. Both site predicates below and the contact scraper
+ * used to fetch the same URL independently — three identical requests per
+ * candidate, each with its own 8s timeout, all sequential. At want=30 the
+ * candidate loop runs up to 90 companies, so the worst case was ~90 x 24s of
+ * pure network wait inside a 300s function. That is why /api/cron/demand was
+ * being killed at the ceiling. Fetch once, reuse the HTML.
+ */
+export async function fetchHomepage(
+  website: string | null | undefined,
+  ms = 8000
+): Promise<string | null> {
   if (!website) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(website, {
       signal: controller.signal,
       headers: { "User-Agent": "Mozilla/5.0 (compatible; GreenkeepBot/1.0)" },
-    }).finally(() => clearTimeout(timer));
+    });
     if (!res.ok) return null;
-    const html = (await res.text()).slice(0, 200_000);
-    return /commercial|HOA|property\s*manage|office\s*park|retail\s*center|industrial|municipal/i.test(html);
+    return (await res.text()).slice(0, 200_000);
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
+/** PURE. Homepage mentions commercial-type work? Null when there is no HTML to
+ *  judge — "couldn't read the site" is not the same as "not commercial". */
+export function htmlLooksCommercial(html: string | null): boolean | null {
+  return html == null ? null : COMMERCIAL_RE.test(html);
+}
 
-/** Does the site's homepage read like a company IN this trade? */
+/** PURE. Does this homepage read like a company IN this trade? Unreadable
+ *  sites are NOT vendors — this gate keeps wrong-vertical pitches out, so it
+ *  fails closed where the commercial check above fails to null. */
+export function htmlMatchesVendor(html: string | null, re: RegExp): boolean {
+  return html == null ? false : re.test(html);
+}
+
+/** Homepage mentions commercial-type work? Null when the site can't be read.
+ *  Convenience wrapper — inside the candidate loop, prefer fetchHomepage() once
+ *  plus the pure predicates. */
+export async function looksCommercial(website: string | null): Promise<boolean | null> {
+  return htmlLooksCommercial(await fetchHomepage(website));
+}
+
+/** Does the site's homepage read like a company IN this trade? Wrapper; see
+ *  the note on looksCommercial. */
 export async function siteMatchesVendor(website: string, re: RegExp): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    const res = await fetch(website, {
-      signal: controller.signal,
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; GreenkeepBot/1.0)" },
-    }).finally(() => clearTimeout(timer));
-    if (!res.ok) return false;
-    return re.test((await res.text()).slice(0, 200_000));
-  } catch {
-    return false;
-  }
+  return htmlMatchesVendor(await fetchHomepage(website), re);
 }
 
 // --- area alerts: re-offer NEW leads to known contacts ----------------------
@@ -430,6 +453,11 @@ export type ProspectingRunSummary = {
   queued: number;
   sent: number;
   skippedNoEmail: number;
+  /** True when the candidate loop stopped on its time budget rather than
+   *  finishing. Reported so a short run is DISTINGUISHABLE from a run that
+   *  legitimately found nothing — the two look identical in the numbers, and
+   *  conflating them is how a starving pipeline reads as a healthy one. */
+  truncated?: boolean;
   log: string[];
 };
 
@@ -450,6 +478,13 @@ export async function runBuyerProspecting(opts?: {
   /** Operator prune list: normalized name fragments to drop from the run
    *  (cron ?exclude=cetane,sawin) — the human eyeball is the final gate. */
   excludeKeys?: string[];
+  /** Epoch ms after which the candidate loop stops taking on new work and
+   *  returns what it has. The caller's own budget check only runs BETWEEN
+   *  runs, which cannot help when a single run is the thing that overruns —
+   *  each candidate can cost a homepage fetch plus a geocode plus a scrape,
+   *  and the loop walks up to want*3 of them. Without this the run is
+   *  unbounded and the platform kills the function mid-write. */
+  deadlineAt?: number;
 }): Promise<ProspectingRunSummary> {
   const want = opts?.want ?? WANT_COMPANIES;
   const trade = opts?.trade ?? DEFAULT_TRADE;
@@ -690,8 +725,17 @@ export async function runBuyerProspecting(opts?: {
   // own state is blank, so a stateless "Winter Park" geocodes in Florida.
   const leadState = marketForCoords(lead.lat, lead.lng).state ?? "TX";
   let attempts = Math.min(candidates.length, want * 3);
+  let ranOutOfTime = false;
   for (const c of candidates) {
     if (qualified.filter((q) => q.email).length >= want || attempts <= 0) break;
+    // Stop taking on new candidates once the budget is spent. Returning a
+    // short run is strictly better than being killed at the ceiling: the
+    // sends already made are recorded, and the caller's summary is truthful.
+    if (opts?.deadlineAt && Date.now() > opts.deadlineAt) {
+      ranOutOfTime = true;
+      log.push(`  ⏱ time budget spent — stopping with ${qualified.length} qualified`);
+      break;
+    }
     const key = companyKey(c.name);
     if (accountKeys.has(key) || cooled.has(key) || offeredThis.has(key)) continue;
     if (blockedKeys.has(key)) {
@@ -722,12 +766,13 @@ export async function runBuyerProspecting(opts?: {
     }
     attempts--;
 
-    // Vertical gate: Apollo keyword search pulls in adjacent verticals
-    // (software vendors, suppliers, the odd vet clinic) — a wrong-trade
-    // pitch is spam. Name check is free; the homepage settles the rest.
+    // ONE homepage fetch per candidate, shared by the vendor gate, the
+    // commercial signal, and the contact scraper below. Only fetched when the
+    // free name check doesn't already settle the vertical.
     const vendorRe = TRADES[trade].vendorSignal;
     let vendor = vendorRe.test(c.name);
-    if (!vendor && c.website) vendor = await siteMatchesVendor(c.website, vendorRe);
+    const homeHtml = vendor && !c.website ? null : await fetchHomepage(c.website);
+    if (!vendor) vendor = htmlMatchesVendor(homeHtml, vendorRe);
     if (!vendor) {
       log.push(`  \u00d7 ${c.name} \u2014 skipped, no ${trade} signal (wrong vertical)`);
       continue;
@@ -756,7 +801,7 @@ export async function runBuyerProspecting(opts?: {
       log.push(`  × ${c.name} — same inbox already contacted (email-level dedupe)`);
       continue;
     }
-    const commercial = await looksCommercial(c.website);
+    const commercial = htmlLooksCommercial(homeHtml);
     if (!email) skippedNoEmail++;
 
     qualified.push({
@@ -942,6 +987,7 @@ export async function runBuyerProspecting(opts?: {
     queued,
     sent,
     skippedNoEmail,
+    truncated: ranOutOfTime,
     log,
   };
 }

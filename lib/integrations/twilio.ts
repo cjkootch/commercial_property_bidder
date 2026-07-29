@@ -173,7 +173,16 @@ export async function sendSms(args: {
         body: params.toString(),
       }
     );
-    const data = (await res.json()) as { sid?: string; status?: string; message?: string };
+    const data = (await res.json()) as {
+      sid?: string;
+      status?: string;
+      message?: string;
+      /** The sender Twilio actually used. With a Messaging Service this is
+       *  chosen from the pool, so it is the only place the real sender appears
+       *  — it can be null while the message is still queued, in which case the
+       *  status callback backfills it. */
+      from?: string | null;
+    };
     if (!res.ok || !data.sid) {
       return { ok: false, error: data.message ?? `Twilio HTTP ${res.status}` };
     }
@@ -186,6 +195,7 @@ export async function sendSms(args: {
         buyer_id: args.buyerId ?? null,
         ref_id: args.refId ?? null,
         phone: to,
+        our_number: data.from ?? c.from ?? null,
         body,
         twilio_sid: data.sid,
         status: data.status ?? "queued",

@@ -18,11 +18,16 @@ export async function GET(req: NextRequest) {
     const v = Number(sp.get(k));
     return Number.isFinite(v) && v > 0 ? v : d;
   };
+  // Stop taking on new permits 60s before the platform would kill the function.
+  // A bounded run returns its work and the rest rolls to the next cron; a killed
+  // one just loses the tail silently, which is how this ran red on 2026-07-28.
+  const started = Date.now();
   const summary = await runOrlandoPermitSourcing({
     want: num("want", 5),
     minCost: num("minCost", 150_000),
     sinceDays: num("sinceDays", 14),
     apply: sp.get("apply") !== "0",
+    deadlineAt: started + (maxDuration - 60) * 1000,
   });
-  return Response.json(summary);
+  return Response.json({ ...summary, elapsedMs: Date.now() - started });
 }

@@ -57,6 +57,11 @@ export async function POST(req: NextRequest) {
       .set({
         status,
         error_code: params.ErrorCode || null,
+        // Backfill the sender: with a Messaging Service the create response can
+        // still be queued with no From, and the callback is the first place the
+        // pool's choice is definitely known. coalesce so a later callback never
+        // overwrites a sender we already recorded.
+        ...(params.From ? { our_number: sql`coalesce(${smsSend.our_number}, ${params.From})` } : {}),
         ...(status === "delivered" ? { delivered_at: new Date() } : {}),
       })
       .where(
@@ -199,6 +204,10 @@ export async function POST(req: NextRequest) {
       kind: "inbound",
       company_key: match?.key ?? null,
       phone: from,
+      // Which of OUR numbers they texted. This is the side that matters for a
+      // number hand-off: a prospect still replying to a number we gave away is
+      // the case that silently loses messages, including STOP.
+      our_number: params.To || null,
       body,
       twilio_sid: inboundSid,
       status: "received",

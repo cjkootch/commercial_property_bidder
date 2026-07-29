@@ -1,0 +1,1 @@
+ALTER TABLE "sms_send" ADD COLUMN "our_number" text;
