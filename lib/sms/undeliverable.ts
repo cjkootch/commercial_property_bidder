@@ -24,8 +24,22 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { smsUndeliverable } from "@/lib/db/schema";
 
-/** Carrier verdicts that mean "this number will never receive SMS". */
-export const PERMANENT_SMS_ERROR_CODES = new Set(["30005", "30006"]);
+/** Verdicts that mean "this number will never receive SMS".
+ *
+ *  21211 is a SUBMIT-time rejection rather than a delivery failure: Twilio
+ *  refuses the request outright because the destination isn't a valid number.
+ *  It belongs here for the same reason as the others — it can never become
+ *  true — and it is by far the loudest: 3,122 events in 30 days against 481
+ *  logged sends, because a rejected send never wrote a row and so nothing
+ *  remembered not to try again.
+ *
+ *  Deliberately NOT solved by tightening our own validator. isValidNanp
+ *  accepts "+15333333333" and "+14285714285" (area/exchange both satisfy the
+ *  NXX rule) and rejecting those needs the real NANP assignment list, which is
+ *  data we would have to carry and keep current. Twilio already knows. Let it
+ *  be the authority and record the answer — that is robust to every invalid
+ *  number, not just the ones we thought to enumerate. */
+export const PERMANENT_SMS_ERROR_CODES = new Set(["30005", "30006", "21211"]);
 
 /** PURE. Should this failure condemn the number permanently? */
 export function isPermanentFailure(errorCode: string | null | undefined): boolean {
@@ -35,6 +49,7 @@ export function isPermanentFailure(errorCode: string | null | undefined): boolea
 const REASONS: Record<string, string> = {
   "30005": "unknown destination handset (number does not exist)",
   "30006": "landline or carrier cannot receive SMS",
+  "21211": "not a valid destination number (rejected by Twilio at submit)",
 };
 
 /**

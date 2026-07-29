@@ -42,11 +42,30 @@ describe("isPermanentFailure", () => {
     expect(isPermanentFailure(" 30005 ")).toBe(true);
   });
 
+  it("condemns 21211 — rejected at submit as not a valid number", () => {
+    // Submit-time rejection, not a delivery failure. It never wrote an
+    // sms_send row, which is why 3,122 of these were invisible to the app in
+    // 30 days while Twilio counted every one.
+    expect(isPermanentFailure("21211")).toBe(true);
+  });
+
   it("keeps the permanent set deliberately small", () => {
     // A guard against future casual additions: widening this set silently
     // shrinks the reachable audience, so it should take a code change plus
     // this test failing to do it.
-    expect([...PERMANENT_SMS_ERROR_CODES].sort()).toEqual(["30005", "30006"]);
+    expect([...PERMANENT_SMS_ERROR_CODES].sort()).toEqual(["21211", "30005", "30006"]);
+  });
+
+  it("does NOT condemn on the other submit-time rejections", () => {
+    // 21610 is "recipient has opted out" — real, but it belongs in the
+    // CONSENT ledger (sms_opt_out), not the deliverability one, and mixing
+    // them is the bug the two-table split exists to prevent.
+    expect(isPermanentFailure("21610")).toBe(false);
+    // 21606 / 21612 are about OUR sending number or route, not theirs.
+    // Condemning the recipient for our own misconfiguration would delete
+    // audience while hiding the real fault.
+    expect(isPermanentFailure("21606")).toBe(false);
+    expect(isPermanentFailure("21612")).toBe(false);
   });
 });
 
