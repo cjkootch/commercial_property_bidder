@@ -611,6 +611,55 @@ export const smsSend = pgTable("sms_send", {
 // SMS opt-outs (STOP replies + manual). Checked before EVERY outbound SMS —
 // Twilio blocks STOP'd numbers at the carrier level too, but we keep our own
 // ledger so the UI can say "opted out" instead of silently failing.
+// --- prospect_contact ------------------------------------------------------
+// PEOPLE at a prospect company. The existing `contact` table is FK'd to
+// `property` — it holds the owner of a landscaping job, not the buyer-side
+// decision maker — so until now a prospect company had exactly one email and
+// one phone on the row itself and nowhere to put a named human.
+//
+// That gap cost something real: on 2026-07-28 Richard from Safeguard Home
+// Security called in and asked for pricing, and his direct line had no home in
+// the system. The company's stored email had hard-bounced that same afternoon,
+// so the only number that reached a decision maker existed in a chat log.
+//
+// A table rather than columns on prospect_company, because companies have more
+// than one person: the general line and the person who actually calls back are
+// different records, and the second one is the valuable one.
+
+export const prospectContact = pgTable(
+  "prospect_contact",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    prospect_company_id: uuid("prospect_company_id")
+      .notNull()
+      .references(() => prospectCompany.id, { onDelete: "cascade" }),
+    full_name: text("full_name").notNull(),
+    title: text("title"),
+    email: text("email"),
+    /** Direct line, E.164 where known. Deliberately separate from
+     *  prospect_company.phone, which is the scraped main line — that number is
+     *  frequently a landline or a switchboard, and overwriting it with a cell
+     *  would destroy the only record of how the company was originally reached. */
+    phone: text("phone"),
+    notes: text("notes"),
+    is_primary: boolean("is_primary").notNull().default(false),
+    /** Where the person came from: "call" | "reply" | "apollo" | "scrape" |
+     *  "manual". Provenance matters — a name from a phone call is worth more
+     *  than one from an enrichment vendor. */
+    source: text("source").notNull().default("manual"),
+    ...timestamps,
+  },
+  (t) => [
+    index("prospect_contact_company_idx").on(t.prospect_company_id),
+    // One row per person per company. Partial so several contacts without an
+    // email address remain legal — a name and a cell from a phone call is a
+    // perfectly good contact and often the only one that matters.
+    uniqueIndex("prospect_contact_company_email_uniq")
+      .on(t.prospect_company_id, t.email)
+      .where(sql`email is not null`),
+  ]
+);
+
 export const smsOptOut = pgTable("sms_opt_out", {
   id: uuid("id").primaryKey().defaultRandom(),
   phone: text("phone").notNull().unique(), // E.164

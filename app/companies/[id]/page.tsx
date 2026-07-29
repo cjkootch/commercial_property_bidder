@@ -1,11 +1,18 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyer, buyerOutreach, leadUnlock, property, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
+import { buyer, buyerOutreach, leadUnlock, property, prospectCompany, prospectContact, smsOptOut, smsSend } from "@/lib/db/schema";
 import { displayName } from "@/lib/leads/market";
 import { TRADES, asTrade } from "@/lib/leads/trades";
 import { toE164 } from "@/lib/integrations/twilio";
-import { blockCompany, replyToCompany, smsCompany, unblockCompany } from "../actions";
+import {
+  addProspectContact,
+  blockCompany,
+  deleteProspectContact,
+  replyToCompany,
+  smsCompany,
+  unblockCompany,
+} from "../actions";
 
 // Company profile drill-down: identity, the full cross-campaign email journey
 // (every send with its funnel state and the exact copy), claim-page reads, and
@@ -67,6 +74,14 @@ export default async function CompanyProfilePage({
   const clicks = sends.filter((r) => r.o.clicked_at).length;
   const bounced = sends.some((r) => r.o.status === "bounced");
   const score = p.buyer_id ? -1 : p.claim_views * 5 + clicks * 3 + opens;
+
+  // Named people at this company. Primary first, then oldest — the person
+  // who called in should not be buried under later additions.
+  const contacts = await db
+    .select()
+    .from(prospectContact)
+    .where(eq(prospectContact.prospect_company_id, p.id))
+    .orderBy(desc(prospectContact.is_primary), prospectContact.created_at);
 
   // Converted? Pull the account + what it has unlocked.
   const account = p.buyer_id
@@ -258,6 +273,85 @@ export default async function CompanyProfilePage({
           )}
         </div>
       ) : null}
+
+      {/* People. The company row holds one scraped email and one scraped main
+          line; this is where the human who actually picks up goes. */}
+      <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4">
+        <h2 className="text-sm font-bold text-gray-900">
+          Contacts{" "}
+          <span className="font-normal text-gray-400">
+            — named people, separate from the scraped company line
+          </span>
+        </h2>
+
+        {contacts.length ? (
+          <ul className="mt-3 divide-y divide-gray-100">
+            {contacts.map((c) => (
+              <li key={c.id} className="flex items-start justify-between gap-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900">
+                    {c.full_name}
+                    {c.title ? <span className="font-normal text-gray-500"> · {c.title}</span> : null}
+                    {c.is_primary ? (
+                      <span className="ml-2 rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-bold text-brand">
+                        PRIMARY
+                      </span>
+                    ) : null}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {[c.phone, c.email].filter(Boolean).join(" · ") || "no contact details"}
+                    {c.source ? <span className="text-gray-400"> · via {c.source}</span> : null}
+                  </p>
+                  {c.notes ? (
+                    <p className="mt-1 whitespace-pre-wrap break-words text-xs text-gray-600">{c.notes}</p>
+                  ) : null}
+                </div>
+                <form action={deleteProspectContact}>
+                  <input type="hidden" name="id" value={c.id} />
+                  <input type="hidden" name="companyId" value={p.id} />
+                  <button className="text-xs text-gray-400 hover:text-red-600 hover:underline">remove</button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-gray-400">No named contacts yet.</p>
+        )}
+
+        <form action={addProspectContact} className="mt-3 grid gap-2 sm:grid-cols-2">
+          <input type="hidden" name="companyId" value={p.id} />
+          <input
+            name="full_name"
+            placeholder="Name (required)"
+            required
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <input name="title" placeholder="Title" className="rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <input name="phone" placeholder="Direct phone" className="rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <input name="email" type="email" placeholder="Email" className="rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <input
+            name="notes"
+            placeholder="Notes — what they asked for, what you promised"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm sm:col-span-2"
+          />
+          <div className="flex items-center gap-3 sm:col-span-2">
+            <label className="flex items-center gap-1.5 text-xs text-gray-600">
+              <input type="checkbox" name="is_primary" className="rounded border-gray-300" />
+              Primary contact
+            </label>
+            <select name="source" defaultValue="manual" className="rounded-lg border border-gray-300 px-2 py-1.5 text-xs">
+              <option value="call">from a call</option>
+              <option value="reply">from a reply</option>
+              <option value="manual">manual</option>
+              <option value="apollo">Apollo</option>
+              <option value="scrape">website scrape</option>
+            </select>
+            <button className="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:opacity-90">
+              Add contact
+            </button>
+          </div>
+        </form>
+      </div>
 
       {p.email ? (
         <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4">

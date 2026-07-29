@@ -2,11 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { buyerOutreach, prospectCompany } from "@/lib/db/schema";
+import { buyerOutreach, prospectCompany, prospectContact } from "@/lib/db/schema";
 import { sendEmail } from "@/lib/integrations/resend";
-import { sendSms } from "@/lib/integrations/twilio";
+import { sendSms, toE164 } from "@/lib/integrations/twilio";
 
 // Operator verdicts on the company graph: a blocked profile never receives
 // another campaign email (the qualifier skips it in every run, every trade).
@@ -108,4 +108,80 @@ export async function smsCompany(formData: FormData): Promise<void> {
   if (!res.ok) redirect(`/companies/${id}?sms=${encodeURIComponent(res.error.slice(0, 80))}`);
   revalidatePath(`/companies/${id}`);
   redirect(`/companies/${id}?sms=sent`);
+}
+
+/** Add a named person to a prospect company. The company row carries one
+ *  scraped email and one scraped main line; this is where the human who
+ *  actually picks up goes.
+ *
+ *  Idempotent on (company, email) via the partial unique index, so a repeated
+ *  submit updates rather than duplicating. Contacts WITHOUT an email are not
+ *  covered by that index — deliberately, since several email-less contacts per
+ *  company is normal — so those are matched on name before inserting. */
+export async function addProspectContact(formData: FormData): Promise<void> {
+  const companyId = String(formData.get("companyId") ?? "").trim();
+  const fullName = String(formData.get("full_name") ?? "").trim().slice(0, 120);
+  if (!companyId || !fullName) return;
+
+  const clean = (k: string, max = 200) => {
+    const v = String(formData.get(k) ?? "").trim().slice(0, max);
+    return v || null;
+  };
+  const email = clean("email")?.toLowerCase() ?? null;
+  // Store the phone as given AND normalized: toE164 returns null for anything
+  // that isn't a dialable US number, and a contact with a foreign or extension
+  // number is still worth keeping — just not worth texting.
+  const rawPhone = clean("phone", 40);
+  const phone = rawPhone ? toE164(rawPhone) ?? rawPhone : null;
+
+  const values = {
+    prospect_company_id: companyId,
+    full_name: fullName,
+    title: clean("title", 120),
+    email,
+    phone,
+    notes: clean("notes", 1000),
+    is_primary: formData.get("is_primary") === "on",
+    source: clean("source", 40) ?? "manual",
+  };
+
+  if (email) {
+    await db
+      .insert(prospectContact)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [prospectContact.prospect_company_id, prospectContact.email],
+        set: { ...values, updated_at: new Date() },
+      });
+  } else {
+    const [existing] = await db
+      .select({ id: prospectContact.id })
+      .from(prospectContact)
+      .where(
+        and(
+          eq(prospectContact.prospect_company_id, companyId),
+          eq(prospectContact.full_name, fullName)
+        )
+      )
+      .limit(1);
+    if (existing) {
+      await db
+        .update(prospectContact)
+        .set({ ...values, updated_at: new Date() })
+        .where(eq(prospectContact.id, existing.id));
+    } else {
+      await db.insert(prospectContact).values(values);
+    }
+  }
+
+  revalidatePath(`/companies/${companyId}`);
+}
+
+/** Remove a contact. The person left the company, or the row was a mistake. */
+export async function deleteProspectContact(formData: FormData): Promise<void> {
+  const id = String(formData.get("id") ?? "").trim();
+  const companyId = String(formData.get("companyId") ?? "").trim();
+  if (!id) return;
+  await db.delete(prospectContact).where(eq(prospectContact.id, id));
+  if (companyId) revalidatePath(`/companies/${companyId}`);
 }
