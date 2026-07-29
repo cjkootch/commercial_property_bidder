@@ -13,6 +13,8 @@ import crypto from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { smsOptOut, smsSend } from "@/lib/db/schema";
+// No cycle: undeliverable.ts imports only db + schema.
+import { isUndeliverable, recordSmsFailure } from "@/lib/sms/undeliverable";
 
 export type SmsResult = { ok: true; sid: string } | { ok: false; error: string };
 
@@ -154,6 +156,14 @@ export async function sendSms(args: {
   const body = args.body.trim().slice(0, 1200); // ~8 segments hard stop
   if (!body) return { ok: false, error: "empty message" };
   if (await isSmsOptedOut(to)) return { ok: false, error: "number has opted out (STOP)" };
+  // Central guard. The queue, hold-expiry and long-tail each filter on this
+  // too, but those are optimizations that stop a doomed candidate being picked;
+  // THIS is the guarantee. Every send path funnels through here — including
+  // smoke tests and any future caller that forgets — so a number a carrier has
+  // already rejected cannot be retried from anywhere.
+  if (await isUndeliverable(to)) {
+    return { ok: false, error: "number is permanently undeliverable (prior carrier rejection)" };
+  }
 
   const base = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
   const params = new URLSearchParams({ To: to, Body: body });
@@ -182,9 +192,21 @@ export async function sendSms(args: {
        *  — it can be null while the message is still queued, in which case the
        *  status callback backfills it. */
       from?: string | null;
+      /** Twilio's numeric error code on a rejected request (e.g. 21211). */
+      code?: number | string | null;
     };
     if (!res.ok || !data.sid) {
-      return { ok: false, error: data.message ?? `Twilio HTTP ${res.status}` };
+      // A rejected send writes no sms_send row — that is why 3,122 of these
+      // were invisible to the app while Twilio counted every one. Record the
+      // verdict so the number is never submitted again. Permanent codes only;
+      // a transient failure must not condemn a good number.
+      if (data.code != null) {
+        await recordSmsFailure(to, String(data.code));
+      }
+      return {
+        ok: false,
+        error: data.message ?? `Twilio HTTP ${res.status}${data.code ? ` (${data.code})` : ""}`,
+      };
     }
     await db
       .insert(smsSend)
