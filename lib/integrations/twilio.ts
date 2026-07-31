@@ -110,13 +110,21 @@ export async function lookupLineType(raw: string): Promise<LineType | null> {
         },
       }
     );
-    if (!res.ok) return null;
+    // 404 is Lookup's verdict that no such number exists. That is an ANSWER,
+    // not an outage, and it must be recorded — a null return leaves the row
+    // permanently eligible, so an unlookupable number would be re-bought every
+    // single run (365×/yr since screen-lines went daily). Recording "unknown"
+    // stamps line_type_checked_at and drops it into the bounded 14-day
+    // re-check instead of the unbounded daily one.
+    if (res.status === 404) return "unknown";
+    if (!res.ok) return null; // 429/5xx — genuinely transient, retry next run
     const data = (await res.json()) as {
       line_type_intelligence?: { type?: string | null } | null;
     };
-    // A valid lookup for an unrecognized number returns the field as null; we
-    // record "unknown" so it's marked screened (won't re-cost) yet stays
-    // textable under the fail-open rule.
+    // A valid lookup that can't classify the line returns the field as null.
+    // We record "unknown", which is DISQUALIFYING (see NON_TEXTABLE_LINE_TYPES
+    // — that cohort ran 85.7% undelivered), not fail-open. The 14-day re-check
+    // in screenUnscreenedLines is what keeps that from being a life sentence.
     return data.line_type_intelligence?.type ?? "unknown";
   } catch {
     return null;

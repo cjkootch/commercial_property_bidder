@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import crypto from "node:crypto";
-import { isTextableLineType, smsStatusRank, toE164, verifyTwilioSignature } from "./twilio";
+import {
+  isTextableLineType,
+  lookupLineType,
+  smsStatusRank,
+  toE164,
+  verifyTwilioSignature,
+} from "./twilio";
 
 describe("smsStatusRank", () => {
   it("orders the delivery lifecycle monotonically", () => {
@@ -97,5 +103,69 @@ describe("verifyTwilioSignature", () => {
     expect(
       verifyTwilioSignature(url, { ...params, Body: "START" }, sign("testtoken"))
     ).toBe(false);
+  });
+});
+
+describe("lookupLineType — outage vs verdict", () => {
+  // The distinction exists because screen-lines went daily. A null return
+  // leaves line_type_checked_at unstamped, so the row stays eligible forever;
+  // that is correct for an outage and ruinous for a number Twilio will never
+  // recognize, which would be re-bought every run at $0.008 a time.
+  const withStubbedFetch = async (
+    res: { status: number; body?: unknown },
+    run: () => Promise<unknown>
+  ) => {
+    const prevFetch = globalThis.fetch;
+    const prevEnv = {
+      sid: process.env.TWILIO_ACCOUNT_SID,
+      token: process.env.TWILIO_AUTH_TOKEN,
+      from: process.env.TWILIO_FROM,
+    };
+    process.env.TWILIO_ACCOUNT_SID = "AC_test";
+    process.env.TWILIO_AUTH_TOKEN = "<REDACTED>";
+    process.env.TWILIO_FROM = "+17135550142";
+    globalThis.fetch = (async () => ({
+      ok: res.status >= 200 && res.status < 300,
+      status: res.status,
+      json: async () => res.body ?? {},
+    })) as unknown as typeof fetch;
+    try {
+      return await run();
+    } finally {
+      globalThis.fetch = prevFetch;
+      process.env.TWILIO_ACCOUNT_SID = prevEnv.sid;
+      process.env.TWILIO_AUTH_TOKEN = prevEnv.token;
+      process.env.TWILIO_FROM = prevEnv.from;
+    }
+  };
+  const num = "+17135550142";
+
+  it("treats a 404 as an answer, so the row gets stamped and stops retrying", async () => {
+    const out = await withStubbedFetch({ status: 404 }, () => lookupLineType(num));
+    expect(out).toBe("unknown");
+  });
+
+  it("treats 429 and 5xx as outages, so the row is retried", async () => {
+    expect(await withStubbedFetch({ status: 429 }, () => lookupLineType(num))).toBeNull();
+    expect(await withStubbedFetch({ status: 500 }, () => lookupLineType(num))).toBeNull();
+  });
+
+  it("passes through a real classification", async () => {
+    const out = await withStubbedFetch(
+      { status: 200, body: { line_type_intelligence: { type: "mobile" } } },
+      () => lookupLineType(num)
+    );
+    expect(out).toBe("mobile");
+  });
+
+  it("records 'unknown' when Lookup answers but cannot classify", async () => {
+    const out = await withStubbedFetch(
+      { status: 200, body: { line_type_intelligence: { type: null } } },
+      () => lookupLineType(num)
+    );
+    // And "unknown" is disqualifying — the two halves must agree, or numbers
+    // get texted on the strength of a non-answer.
+    expect(out).toBe("unknown");
+    expect(isTextableLineType("unknown")).toBe(false);
   });
 });

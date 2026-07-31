@@ -17,8 +17,8 @@
       "schedule": "7 11 * * 1"
     },
     {
-      "path": "/api/cron/screen-lines?limit=300",
-      "schedule": "2 11 * * 1"
+      "path": "/api/cron/screen-lines?limit=400",
+      "schedule": "2 11 * * *"
     },
     {
       "path": "/api/cron/data-health",
