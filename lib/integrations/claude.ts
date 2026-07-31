@@ -49,6 +49,10 @@ export type SmsDraftContext = {
   currentOpportunity?: string | null;
   /** Other open inventory the AI may offer (from inventoryContextFor). */
   inventory?: string | null;
+  /** Who we are, from companyIdentityBrief(). Passed per-call rather than baked
+   *  into SYSTEM because it is read from the company row, which can change
+   *  without a deploy. */
+  identity?: string | null;
   /** true = the live offer is a residential homeowner-address package — the
    *  prompt's residential rules apply (no free-lead/hold framing). */
   residential?: boolean;
@@ -129,6 +133,7 @@ export async function draftSmsReply(ctx: SmsDraftContext): Promise<SmsDraft | nu
               ? "\n*** RESIDENTIAL PACKAGE THREAD — apply the residential rules; NEVER use free-lead/claim/24h-hold framing. ***"
               : "") +
             (ctx.claimUrl ? `\nClaim link for their opportunity: ${ctx.claimUrl}` : "\nNo claim link available.") +
+            (ctx.identity ? `\n\n${ctx.identity}` : "") +
             (ctx.currentOpportunity ? `\n\n${ctx.currentOpportunity}` : "") +
             (ctx.inventory ? `\n\n${ctx.inventory}` : "") +
             `\n\nConversation so far:\n${convo}\n\nDraft Cole's next text.`,

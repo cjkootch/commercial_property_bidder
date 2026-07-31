@@ -23,7 +23,42 @@ export const PROGRAM_BRIEF = `How Greenkeep works (answer questions from these f
 - First Look (optional subscription) shows members brand-new leads before the public shelf.
 - RESIDENTIAL: yes, we sell those too — packages of homeowner addresses carrying a fresh signal (new construction, recently sold), bundled by area for route density. $${Math.round(PACKAGE_MIN_CENTS / 100)}–$${Math.round(PACKAGE_MAX_CENTS / 100)} per package depending on size and signal quality. They live on the buyer dashboard under Residential — creating a free profile (via any claim link) is how to browse them.
 - We are a lead marketplace only — we never take a cut of their contract, and their customer data stays theirs.
-If asked something outside these facts (refunds, legal, custom deals), say Cole will follow up directly.`;
+If asked something outside these facts (refunds, legal, custom deals, pricing exceptions), say Cole will follow up directly.
+NOTE: "who are you / where are you based / how did you get my number" are NOT outside these facts — they are answered by the identity block below, and deflecting them reads as evasive to someone deciding whether we are real.`;
+
+/**
+ * Who we are, in the prospect's terms. Built from the company row so it cannot
+ * drift from what every other surface says.
+ *
+ * This exists because of a real lost conversation on 2026-07-30: Space City Air
+ * Duct Cleaning OPENED their claim link, then asked "Where is your office
+ * located?" — twice — and got "Cole will follow up on that directly" both
+ * times, because the brief's catch-all treated it as out of scope. A prospect
+ * doing basic due-diligence a minute after clicking is the highest-intent
+ * moment in the whole funnel, and refusing to say what town you're in is the
+ * single worst thing to do at it.
+ *
+ * Only states what the record actually holds. If there is no street address or
+ * phone on file, the AI says the city — it must not invent premises.
+ */
+export async function companyIdentityBrief(): Promise<string> {
+  const co = await getDefaultCompany().catch(() => null);
+  if (!co) return "";
+  const where = co.city ? `${co.city}, TX${co.zip ? ` ${co.zip}` : ""}` : null;
+  const site = (process.env.NEXT_PUBLIC_APP_URL ?? "https://greenkeep.us").replace(/^https?:\/\//, "");
+  const lines = [
+    `Who we are (answer identity questions directly from this — never deflect these to Cole):`,
+    `- ${co.name} (${site}), a lead marketplace, not a contractor. We do not bid on or perform any of the work.`,
+    where ? `- Based in ${where}. Say the town plainly if asked where we are.` : null,
+    co.service_area_notes ? `- Service area: ${co.service_area_notes}` : null,
+    co.email ? `- Reachable at ${co.email}.` : null,
+    co.phone ? `- Phone: ${co.phone}.` : null,
+    co.booking_url ? `- Anyone who wants a live conversation can book one: ${co.booking_url}` : null,
+    `- How we got their number: it is published on their own website or public business listing. We are not a data broker and did not buy their details.`,
+    `- If asked for a street address and none is given above, say we run remotely out of ${co.city ?? "the Houston area"} and offer the email or a call — do NOT invent an address.`,
+  ].filter(Boolean);
+  return lines.join("\n");
+}
 
 export type InventoryItem = {
   propertyId: string;

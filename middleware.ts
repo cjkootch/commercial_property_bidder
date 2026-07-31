@@ -30,6 +30,7 @@ const PUBLIC_PREFIXES = [
   "/proposals",
   "/customer/login",
   "/customer/verify",
+  "/l", // SMS short links — envelope around a token-authenticated claim URL
   "/buyers/claim", // campaign claim links (token-authenticated)
   "/buyers/signup",
   "/buyers/login",

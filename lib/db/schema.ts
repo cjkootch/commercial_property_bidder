@@ -611,6 +611,41 @@ export const smsSend = pgTable("sms_send", {
 // SMS opt-outs (STOP replies + manual). Checked before EVERY outbound SMS —
 // Twilio blocks STOP'd numbers at the carrier level too, but we keep our own
 // ledger so the UI can say "opted out" instead of silently failing.
+// --- short_link ------------------------------------------------------------
+// Claim links are self-contained signed JWTs, which makes them stateless and
+// unforgeable — and roughly 400 characters. In an SMS that wraps to eight lines
+// of opaque base64, which reads like phishing at exactly the moment a stranger
+// is deciding whether to trust us.
+//
+// This maps a short code to the full URL. It does NOT replace the token: the
+// JWT still carries the authority and the expiry, and the redirect target is
+// the same signed URL it always was. The code is only an envelope.
+//
+// The code is therefore a BEARER credential — anyone holding it reaches the
+// claim page — so it is generated from crypto random over a 62-char alphabet,
+// long enough that guessing is not a threat at any plausible rate.
+export const shortLink = pgTable(
+  "short_link",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull().unique(),
+    target_url: text("target_url").notNull(),
+    /** Mirrors the token's own expiry. A short link must never outlive the
+     *  thing it points at, or we hand out a link that lands on an error. */
+    expires_at: timestamp("expires_at", { withTimezone: true }),
+    /** Click counting is free here and answers the question that motivated the
+     *  change: does a short link actually get opened more often than a
+     *  400-character one? */
+    click_count: integer("click_count").notNull().default(0),
+    last_clicked_at: timestamp("last_clicked_at", { withTimezone: true }),
+    /** What produced it — "sms" today; email keeps its long URLs, where length
+     *  costs nothing and a bare domain reads as more trustworthy. */
+    source: text("source").notNull().default("sms"),
+    created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("short_link_created_idx").on(t.created_at)]
+);
+
 // --- prospect_contact ------------------------------------------------------
 // PEOPLE at a prospect company. The existing `contact` table is FK'd to
 // `property` — it holds the owner of a landscaping job, not the buyer-side

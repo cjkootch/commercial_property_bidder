@@ -15,6 +15,7 @@ import { db } from "@/lib/db";
 import { smsOptOut, smsSend } from "@/lib/db/schema";
 // No cycle: undeliverable.ts imports only db + schema.
 import { isUndeliverable, recordSmsFailure } from "@/lib/sms/undeliverable";
+import { shortenClaimLinksIn } from "@/lib/links/shorten";
 
 export type SmsResult = { ok: true; sid: string } | { ok: false; error: string };
 
@@ -153,8 +154,14 @@ export async function sendSms(args: {
   }
   const to = toE164(args.to);
   if (!to) return { ok: false, error: `not a valid US number: ${args.to}` };
-  const body = args.body.trim().slice(0, 1200); // ~8 segments hard stop
+  let body = args.body.trim().slice(0, 1200); // ~8 segments hard stop
   if (!body) return { ok: false, error: "empty message" };
+  // Claim URLs are ~400-character signed JWTs. Shorten them here rather than at
+  // each mint site so every SMS path is covered — queue, nudges, hold expiry,
+  // long tail, the AI reply, and anything added later. Fails soft: a URL that
+  // cannot be shortened stays long, which is exactly the message we would have
+  // sent before. Email is untouched; length costs nothing there.
+  body = await shortenClaimLinksIn(body).catch(() => body);
   if (await isSmsOptedOut(to)) return { ok: false, error: "number has opted out (STOP)" };
   // Central guard. The queue, hold-expiry and long-tail each filter on this
   // too, but those are optimizations that stop a doomed candidate being picked;

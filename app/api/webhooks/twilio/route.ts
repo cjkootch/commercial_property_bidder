@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { buyerOutreach, pendingSms, prospectCompany, smsOptOut, smsSend } from "@/lib/db/schema";
 import { sendSms, smsStatusRank, verifyTwilioSignature } from "@/lib/integrations/twilio";
 import { draftSmsReply } from "@/lib/integrations/claude";
-import { inventoryContextFor } from "@/lib/sms/ai-context";
+import { companyIdentityBrief, inventoryContextFor } from "@/lib/sms/ai-context";
 import { freshClaimUrl, withinTcpaHours } from "@/lib/sms/queue";
 import { isOptOutPhrase } from "@/lib/sms/optout";
 import { clearUndeliverable, recordSmsFailure } from "@/lib/sms/undeliverable";
@@ -421,6 +421,7 @@ async function deferredAiReply(args: {
           // A residential thread pitches the package, not the commercial
           // shelf — cross-selling both in one SMS thread reads as spam.
           inventory: residential ? null : inventory,
+          identity: await companyIdentityBrief().catch(() => null),
           thread: thread.map((m) => ({ direction: m.direction, body: m.body })),
         });
         if (draft) {

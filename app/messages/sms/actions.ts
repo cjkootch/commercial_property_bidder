@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { buyerOutreach, prospectCompany, smsSend } from "@/lib/db/schema";
 import { sendSms, toE164, isTextableLineType } from "@/lib/integrations/twilio";
 import { freshClaimUrl, openerFor, queueSentToday, TEXT_QUEUE_DAILY_CAP } from "@/lib/sms/queue";
+import { companyIdentityBrief } from "@/lib/sms/ai-context";
 import { draftSmsReply } from "@/lib/integrations/claude";
 import { ensureOwnerCell } from "@/lib/sms/cell";
 import { ensureLineTypeScreened } from "@/lib/sms/screen";
@@ -212,6 +213,9 @@ export async function draftAiReply(formData: FormData): Promise<void> {
     claimUrl,
     residential,
     currentOpportunity,
+    // Same identity facts the auto-reply gets — the operator's draft button
+    // must not answer "where are you based" differently from the bot.
+    identity: await companyIdentityBrief().catch(() => null),
     thread,
   });
   const q = draft
