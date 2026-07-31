@@ -909,3 +909,19 @@ export function tradeValueInput(
     landUse: parcel?.land_use ?? null,
   };
 }
+
+/** Rotation slot length. MUST divide the gap between demand invocations: two
+ *  runs that land in the same slot compute the same offset and work the same
+ *  trades, and because there is always another fresh uncampaigned lead to
+ *  find, the front of the rotation is served twice while the back starves.
+ *  Demand runs hourly, so the slot is an hour. */
+export const ROTATION_SLOT_MS = 3_600_000;
+
+/** Stateless fair rotation: order `list` so a different entry leads each slot.
+ *  Used by the demand engine so every trade gets first pick over the week
+ *  without storing a cursor. Pure — the clock is an argument. */
+export function rotateForSlot<T>(list: readonly T[], nowMs: number): T[] {
+  if (list.length === 0) return [];
+  const offset = Math.floor(nowMs / ROTATION_SLOT_MS) % list.length;
+  return [...list.slice(offset), ...list.slice(0, offset)];
+}

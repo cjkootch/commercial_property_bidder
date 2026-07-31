@@ -5,12 +5,25 @@ import { usageCounter } from "@/lib/db/schema";
 import { guarded } from "@/lib/cron-guard";
 import { runBuyerProspecting } from "@/lib/pipeline/buyer-prospecting";
 import { maybeLowVolumeAlert } from "@/lib/pipeline/low-volume";
-import { TRADES, type Trade } from "@/lib/leads/trades";
+import { TRADES, rotateForSlot, type Trade } from "@/lib/leads/trades";
 
 // The autonomous daily demand engine (quality-plan item #1): reach and
-// frequency as software, not sessions. Three invocations per business day;
-// each rotates through the trade registry, auto-picks the best fresh
-// uncampaigned lead per trade, and sends — under a global daily email cap.
+// frequency as software, not sessions. Hourly through the send window on
+// business days; each invocation rotates through the trade registry,
+// auto-picks the best fresh uncampaigned lead per trade, and sends — under a
+// global daily email cap.
+//
+// Hourly since 2026-07-31, up from three invocations a day. Not a volume
+// increase: DAILY_CAP still bounds the day at 90 through the shared
+// usage_counter, and the engine was delivering ~26. The runs were being
+// TRUNCATED. Each invocation is configured for three leads but was landing one
+// or two, because a single run walks up to want*3 candidates with a fetch, a
+// geocode and a scrape apiece and can eat the whole 240s budget before the
+// second lead starts. Time is the binding constraint and it cannot be relaxed
+// (maxDuration is 300), so the fix is more invocations rather than longer
+// ones: each arrives with a fresh budget. The visible symptom was 686 of 780
+// sourced properties never campaigned while the few that were got hammered —
+// 30 offers on a roofing lead that caps at 3 buyers.
 //
 // Send authority: deploying this route IS the standing approval (spec §9's
 // env-var pattern, made explicit here after the operator's 2026-07-11
@@ -71,11 +84,11 @@ export async function GET(req: NextRequest) {
     let used = await sentToday();
     const results: Array<{ trade: Trade; lead: string | null; sent: number }> = [];
 
-    // Rotate the trade order by 2h slot so every trade gets first pick over
-    // the week — the same stateless-rotation trick as the feed rotor.
-    const trades = Object.keys(TRADES) as Trade[];
-    const offset = Math.floor(Date.now() / (2 * 3600_000)) % trades.length;
-    const rotated = [...trades.slice(offset), ...trades.slice(0, offset)];
+    // Rotate the trade order so every trade gets first pick over the week —
+    // the same stateless-rotation trick as the feed rotor. The slot must
+    // divide the gap between invocations; see ROTATION_SLOT_MS, which went
+    // hourly with this schedule. Tested in lib/leads/rotation.test.ts.
+    const rotated = rotateForSlot(Object.keys(TRADES) as Trade[], Date.now());
 
     let ran = 0;
     let truncated = false;

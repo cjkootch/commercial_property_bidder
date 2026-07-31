@@ -50,15 +50,7 @@
     },
     {
       "path": "/api/cron/demand",
-      "schedule": "7 14 * * 1-6"
-    },
-    {
-      "path": "/api/cron/demand",
-      "schedule": "7 17 * * 1-6"
-    },
-    {
-      "path": "/api/cron/demand",
-      "schedule": "7 20 * * 1-6"
+      "schedule": "7 14-20 * * 1-6"
     },
     {
       "path": "/api/cron/renewals",
