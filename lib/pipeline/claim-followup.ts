@@ -19,13 +19,14 @@
 // Once ever per company, enforced by kind+ref_id in sms_send/email_send — the
 // same ledger pattern hold-expiry uses. A second "still interested?" is nagging.
 
-import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { db } from "../db";
 import { buyerOutreach, emailSend, property, prospectCompany, smsOptOut, smsSend, suppression } from "../db/schema";
 import { sendSms, toE164 } from "../integrations/twilio";
 import { sendEmail } from "../integrations/resend";
 import { loadUndeliverable } from "../sms/undeliverable";
-import { withinSmsSendWindow } from "../sms/queue";
+import { TEXT_QUEUE_DAILY_CAP, withinSmsSendWindow } from "../sms/queue";
+import { rateLimit, releaseRateLimit } from "../ratelimit";
 import { pickOutcomeChannel } from "./outcome-check";
 import { TRADES, asTrade } from "../leads/trades";
 import { leadAvailability } from "../leads/availability";
@@ -80,10 +81,20 @@ export function selectClaimFollowUps(
     .slice(0, FOLLOWUP_MAX_PER_RUN);
 }
 
+/** PURE. County and permit feeds store cities shouted — "HOUSTON", "PASADENA".
+ *  A message that says "that HOUSTON cleaning job" reads like a broken mail
+ *  merge, which is precisely the impression this copy exists to avoid. */
+export function titleCity(c: string | null): string | null {
+  const t = c?.trim();
+  if (!t) return null;
+  return t.toLowerCase().replace(/\b[a-z]/g, (m) => m.toUpperCase());
+}
+
 /** PURE. The text. Names the job, never the tracking. */
 export function followUpSms(o: { city: string | null; trade: string }): string {
   const service = TRADES[asTrade(o.trade)].service;
-  const where = o.city ? `${o.city} ` : "";
+  const city = titleCity(o.city);
+  const where = city ? `${city} ` : "";
   return (
     `Cole with Greenkeep — that ${where}${service} job is still open if you want it. ` +
     `Anything I can answer about it?`
@@ -98,7 +109,8 @@ export function followUpEmail(o: {
   brand: string;
 }): { subject: string; body: string } {
   const service = TRADES[asTrade(o.trade)].service;
-  const where = o.city ? `${o.city} ` : "";
+  const city = titleCity(o.city);
+  const where = city ? `${city} ` : "";
   return {
     subject: `That ${where}${service} job is still open`,
     body: `${o.company} team —
@@ -109,6 +121,23 @@ If something about it didn't fit, tell me what you're actually looking for and I
 
 — ${o.brand}`,
   };
+}
+
+/** A decade-long window with a limit of one is an atomic once-ever claim, built
+ *  from the rate limiter's own INSERT rather than a read-then-write. The
+ *  send-table ledger is still the durable record; this only closes the window
+ *  between two overlapping runs both deciding to send. */
+const ONCE_WINDOW_SEC = 315_360_000; // 10 years
+const onceKey = (companyKey: string) => `${KIND}:${companyKey}`;
+
+async function claimOnce(companyKey: string): Promise<boolean> {
+  return (await rateLimit(onceKey(companyKey), 1, ONCE_WINDOW_SEC)).ok;
+}
+
+/** Hand the slot back when the provider refused — a failed send reached nobody
+ *  and must not consume the company's only follow-up. */
+async function releaseOnce(companyKey: string): Promise<void> {
+  await releaseRateLimit(onceKey(companyKey), ONCE_WINDOW_SEC);
 }
 
 export type ClaimFollowUpSummary = {
@@ -144,7 +173,13 @@ export async function runClaimFollowUps(opts?: { apply?: boolean }): Promise<Cla
       })
       .from(prospectCompany)
       .where(and(isNotNull(prospectCompany.last_claim_view_at), isNull(prospectCompany.buyer_id))),
-    db.select({ ref_id: smsSend.ref_id }).from(smsSend).where(eq(smsSend.kind, KIND)),
+    // A carrier-rejected text reached nobody, so it must NOT consume the
+    // once-ever slot — otherwise a company with a perfectly good email address
+    // is never reached at all. Same exclusion hold-expiry makes.
+    db
+      .select({ ref_id: smsSend.ref_id })
+      .from(smsSend)
+      .where(and(eq(smsSend.kind, KIND), notInArray(smsSend.status, ["undelivered", "failed"]))),
     db.select({ ref_id: emailSend.ref_id }).from(emailSend).where(eq(emailSend.kind, KIND)),
     db.select({ phone: smsOptOut.phone }).from(smsOptOut),
     db.select({ email: suppression.email }).from(suppression),
@@ -192,7 +227,18 @@ export async function runClaimFollowUps(opts?: { apply?: boolean }): Promise<Cla
     const [lastOffer] = await db
       .select({ property_id: buyerOutreach.property_id })
       .from(buyerOutreach)
-      .where(and(eq(buyerOutreach.company_key, r.key), isNotNull(buyerOutreach.property_id)))
+      // sent_at IS NOT NULL is load-bearing, not decorative: Postgres sorts
+      // NULLS FIRST on DESC, and queued/skipped rows carry a null sent_at — so
+      // without this the "most recent offer" is whichever one we never sent.
+      // Phone-only companies always have such a row (the skipped respkg
+      // pattern), which makes this the common case, not the edge case.
+      .where(
+        and(
+          eq(buyerOutreach.company_key, r.key),
+          isNotNull(buyerOutreach.property_id),
+          isNotNull(buyerOutreach.sent_at)
+        )
+      )
       .orderBy(desc(buyerOutreach.sent_at))
       .limit(1);
     if (!lastOffer?.property_id) {
@@ -238,9 +284,20 @@ export async function runClaimFollowUps(opts?: { apply?: boolean }): Promise<Cla
         log.push(`  … ${r.name} — SMS window closed`);
         continue;
       }
-      const text = followUpSms({ city: r.city, trade: r.trade });
+      // prop.city, not r.city: the message describes the JOB, and a company
+      // headquartered in Katy can be offered a job in Houston.
+      const text = followUpSms({ city: prop.city, trade: r.trade });
       if (!apply) {
         log.push(`  DRY sms ${r.name} — "${text.slice(0, 70)}…"`);
+        continue;
+      }
+      // Read-then-send is not once-ever: two overlapping invocations can both
+      // pass the ledger check before either logs. Claim the company FIRST —
+      // rateLimit's insert is atomic — and release it if the send fails so a
+      // provider error doesn't silently burn the company's only slot.
+      if (apply && !(await claimOnce(r.key))) {
+        skipped++;
+        log.push(`  … ${r.name} — already claimed by a concurrent run`);
         continue;
       }
       const res = await sendSms({ to: cell!, body: text, kind: KIND, companyKey: r.key, refId: r.key });
@@ -248,18 +305,28 @@ export async function runClaimFollowUps(opts?: { apply?: boolean }): Promise<Cla
         texted++;
         log.push(`  ✓ texted ${r.name}`);
       } else {
+        if (apply) await releaseOnce(r.key);
         skipped++;
         log.push(`  × ${r.name} — ${res.error}`);
       }
       continue;
     }
 
-    const { subject, body } = followUpEmail({ company: r.name, city: r.city, trade: r.trade, brand });
+    if (apply && !(await claimOnce(r.key))) {
+      skipped++;
+      log.push(`  … ${r.name} — already claimed by a concurrent run`);
+      continue;
+    }
+    const { subject, body } = followUpEmail({ company: r.name, city: prop.city, trade: r.trade, brand });
     if (!apply) {
       log.push(`  DRY email ${r.name} — "${subject}"`);
       continue;
     }
-    const unsubUrl = `${siteBase()}/api/unsubscribe?t=${signBuyerUnsub(addr!)}`;
+    // ?token=, url-encoded — what app/api/unsubscribe/route.ts actually reads
+    // and what every other email pipeline sends. A "?t=" here meant both the
+    // visible link and the List-Unsubscribe header returned invalid-token, so
+    // recipients of a marketing email had no working way to opt out.
+    const unsubUrl = `${siteBase()}/api/unsubscribe?token=${encodeURIComponent(signBuyerUnsub(addr!))}`;
     const res = await sendEmail({
       to: addr!,
       subject,
@@ -279,6 +346,7 @@ export async function runClaimFollowUps(opts?: { apply?: boolean }): Promise<Cla
       emailed++;
       log.push(`  ✓ emailed ${r.name}`);
     } else {
+      if (apply) await releaseOnce(r.key);
       skipped++;
       log.push(`  × ${r.name} — ${res.error}`);
     }

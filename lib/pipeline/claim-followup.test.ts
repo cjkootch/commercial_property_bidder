@@ -5,6 +5,7 @@ import {
   followUpEmail,
   followUpSms,
   selectClaimFollowUps,
+  titleCity,
   type ClaimViewer,
 } from "./claim-followup";
 
@@ -122,5 +123,29 @@ describe("the message", () => {
     expect(subject).toContain("Houston");
     expect(body).toMatch(/tell me what you're actually looking for/i);
     expect(body).not.toMatch(/saw you|you (clicked|opened|viewed)/i);
+  });
+});
+
+describe("titleCity", () => {
+  it("tames the shouted city names the permit feeds store", () => {
+    // "That HOUSTON cleaning job" reads like a broken mail merge — the exact
+    // impression this copy exists to avoid.
+    expect(titleCity("HOUSTON")).toBe("Houston");
+    expect(titleCity("PASADENA")).toBe("Pasadena");
+    expect(titleCity("  new caney ")).toBe("New Caney");
+  });
+
+  it("leaves an already-clean name alone", () => {
+    expect(titleCity("Orlando")).toBe("Orlando");
+  });
+
+  it("returns null for nothing, so the message just omits the city", () => {
+    expect(titleCity(null)).toBeNull();
+    expect(titleCity("   ")).toBeNull();
+  });
+
+  it("the message never shouts", () => {
+    expect(followUpSms({ city: "HOUSTON", trade: "cleaning" })).toContain("Houston");
+    expect(followUpSms({ city: "HOUSTON", trade: "cleaning" })).not.toContain("HOUSTON");
   });
 });
