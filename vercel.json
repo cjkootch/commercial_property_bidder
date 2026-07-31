@@ -119,6 +119,14 @@
     {
       "path": "/api/cron/buyer-alerts",
       "schedule": "19 17 * * 1-5"
+    },
+    {
+      "path": "/api/cron/claim-followup?apply=1",
+      "schedule": "23 16 * * 1-5"
+    },
+    {
+      "path": "/api/cron/claim-followup?apply=1",
+      "schedule": "23 21 * * 1-5"
     }
   ]
 }
