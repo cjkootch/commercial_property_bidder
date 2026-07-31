@@ -8,6 +8,7 @@ import { draftSmsReply } from "@/lib/integrations/claude";
 import { companyIdentityBrief, inventoryContextFor } from "@/lib/sms/ai-context";
 import { freshClaimUrl, withinTcpaHours } from "@/lib/sms/queue";
 import { isOptOutPhrase } from "@/lib/sms/optout";
+import { detectLoop } from "@/lib/sms/loop-guard";
 import { clearUndeliverable, recordSmsFailure } from "@/lib/sms/undeliverable";
 import { marketTz } from "@/lib/markets";
 import type { SmsIntent } from "@/lib/integrations/claude";
@@ -303,6 +304,7 @@ async function deferredAiReply(args: {
   let aiIntent: SmsIntent | null = null;
   let aiCapped = false;
   let aiDeferred = false; // drafted but held for TCPA quiet hours (sms-flush sends it)
+  let aiStalled: "self_repeat" | "counterparty_loop" | null = null;
   // Every inbound text the AI hasn't answered yet — the alert quotes them all,
   // so a rapid-fire prospect's earlier messages aren't invisible to the
   // operator when only the newest invocation survives the supersede check.
@@ -424,7 +426,26 @@ async function deferredAiReply(args: {
           identity: await companyIdentityBrief().catch(() => null),
           thread: thread.map((m) => ({ direction: m.direction, body: m.body })),
         });
-        if (draft) {
+        // Stall brake. AI_REPLY_CAP counts volume, which only helps after
+        // thirty messages have already gone out; this asks whether the reply
+        // ADDS anything, which is answerable at message two. See
+        // lib/sms/loop-guard.ts for the exchange that motivated it.
+        const loop = draft
+          ? detectLoop({
+              priorOwnReplies: thread
+                .filter((m) => m.direction === "out" && m.kind === "ai_reply")
+                .map((m) => m.body),
+              recentInbounds: inbounds.map((m) => m.body),
+              candidate: draft.text,
+            })
+          : { stalled: false, reason: null };
+        if (loop.stalled) {
+          // Deliberately silent to the prospect: another "just checking in"
+          // is what got us here. The operator alert below still fires, so the
+          // thread surfaces to a human rather than vanishing.
+          console.warn(`ai_reply suppressed (${loop.reason}) for ${from}`);
+          aiStalled = loop.reason;
+        } else if (draft) {
           // TCPA quiet hours: never auto-text a prospect outside 8am–9pm on
           // THEIR local clock, even in reply to an inbound. Inside the window we
           // send now; outside it we PARK the drafted reply and the sms-flush
@@ -508,7 +529,13 @@ async function deferredAiReply(args: {
               : "")
           : aiCapped
             ? `<p>⚠️ Runaway brake tripped (${AI_REPLY_CAP} AI replies to this number in 24h) — <strong>your turn</strong>.</p>`
-            : `<p>No AI reply was sent — reply yourself.</p>`) +
+            : aiStalled
+              ? `<p>🔁 <strong>Stalled — AI reply withheld.</strong> ${
+                  aiStalled === "self_repeat"
+                    ? "The draft repeated what we already said; the AI has run out of moves on this thread."
+                    : "The other end is auto-replying — their last few messages were interchangeable. Likely an AI receptionist, not a person."
+                } Nothing further will send here until you reply.</p>`
+              : `<p>No AI reply was sent — reply yourself.</p>`) +
         `<p><a href="${link}">Open the thread</a> to take over any time.</p>`,
       tags: { kind: "operator_alert" },
     }).catch(() => {});
