@@ -217,7 +217,19 @@ export async function sendSms(args: {
         buyer_id: args.buyerId ?? null,
         ref_id: args.refId ?? null,
         phone: to,
-        our_number: data.from ?? c.from ?? null,
+        // ONLY the sender Twilio actually reports. The previous fallback to
+        // c.from was wrong whenever a Messaging Service is in use: the create
+        // response usually comes back queued with no sender assigned yet, so
+        // every row got stamped with the configured TWILIO_FROM regardless of
+        // which pool number really sent it. The lie was visible in the data —
+        // 288 outbound rows all claimed +18329242682 while 50 replies arrived
+        // on +18325983318, a number our records said had never sent anything.
+        //
+        // Null here is correct and temporary: the status callback fills it in
+        // from the From it receives, which is authoritative. Only fall back to
+        // the configured number when there is no service and we therefore
+        // genuinely know the sender up front.
+        our_number: data.from ?? (c.serviceSid ? null : c.from) ?? null,
         body,
         twilio_sid: data.sid,
         status: data.status ?? "queued",
