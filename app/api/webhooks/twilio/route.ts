@@ -435,7 +435,10 @@ async function deferredAiReply(args: {
               priorOwnReplies: thread
                 .filter((m) => m.direction === "out" && m.kind === "ai_reply")
                 .map((m) => m.body),
-              recentInbounds: inbounds.map((m) => m.body),
+              // The whole tail, not just their side: our messages sitting
+              // between theirs is what distinguishes a bot answering us from
+              // a person we have left hanging.
+              tail: thread.slice(-8).map((m) => ({ direction: m.direction, body: m.body })),
               candidate: draft.text,
             })
           : { stalled: false, reason: null };
