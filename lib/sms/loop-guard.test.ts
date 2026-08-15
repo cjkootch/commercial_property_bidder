@@ -63,13 +63,19 @@ describe("contentTokens", () => {
 });
 
 describe("isSelfRepeat", () => {
-  it("catches the loop at the SECOND message, not the thirtieth", () => {
-    // The whole point. AI_REPLY_CAP would have allowed 28 more.
-    expect(isSelfRepeat([OURS[0]], OURS[0])).toBe(true);
+  it("catches the loop early — at the third echo, not the thirtieth", () => {
+    // AI_REPLY_CAP would have allowed 27 more.
+    expect(isSelfRepeat([OURS[0], OURS[1]], OURS[0])).toBe(true);
   });
 
-  it("catches a reworded repeat", () => {
-    expect(isSelfRepeat([OURS[2]], OURS[0])).toBe(true);
+  it("ALLOWS one echo — a recurring situation deserves the same answer twice", () => {
+    // The Home Keepers case: they asked for a call on Monday and again on
+    // Tuesday. "Cole will call you" is the correct reply both times.
+    expect(isSelfRepeat([OURS[0]], OURS[0])).toBe(false);
+  });
+
+  it("catches a reworded repeat once it is the second echo", () => {
+    expect(isSelfRepeat([OURS[2], OURS[1]], OURS[0])).toBe(true);
   });
 
   it("lets a genuinely new reply through", () => {
@@ -79,7 +85,7 @@ describe("isSelfRepeat", () => {
   });
 
   it("only looks at recent replies, so an old topic can come back", () => {
-    const long = [OURS[0], "a", "b", "c", "d", "e"].map(String);
+    const long = [OURS[0], OURS[1], "a", "b", "c", "d", "e"].map(String);
     expect(isSelfRepeat(long, OURS[0])).toBe(false);
   });
 
@@ -89,40 +95,70 @@ describe("isSelfRepeat", () => {
 });
 
 describe("isCounterpartyLooping", () => {
-  it("recognizes an auto-responder from three interchangeable messages", () => {
-    expect(isCounterpartyLooping(THEIRS)).toBe(true);
+  // Helper: build an interleaved thread (them, us, them, us, them ...) — the
+  // shape a bot loop actually has, since each of their messages answers ours.
+  const interleaved = (theirs: string[]) =>
+    theirs.flatMap((b, i) =>
+      i === 0
+        ? [{ direction: "in", body: b }]
+        : [{ direction: "out", body: `our reply ${i}` }, { direction: "in", body: b }]
+    );
+
+  it("recognizes an auto-responder from three interchangeable INTERLEAVED messages", () => {
+    expect(isCounterpartyLooping(interleaved(THEIRS))).toBe(true);
   });
 
   it("does NOT fire on two — a person repeating themselves deserves an answer", () => {
-    // We were probably unclear. Shrugging at them is the wrong response.
-    expect(isCounterpartyLooping(THEIRS.slice(0, 2))).toBe(false);
+    expect(isCounterpartyLooping(interleaved(THEIRS.slice(0, 2)))).toBe(false);
   });
 
   it("does not fire on a real human thread", () => {
     expect(
-      isCounterpartyLooping([
-        "Hello, yes definitely",
-        "whats the address on it",
-        "ok send me the link",
-      ])
+      isCounterpartyLooping(
+        interleaved(["Hello, yes definitely", "whats the address on it", "ok send me the link"])
+      )
     ).toBe(false);
   });
 
   it("needs the run to be UNBROKEN — one substantive message resets it", () => {
-    expect(isCounterpartyLooping([THEIRS[0], "Whats your pricing for residential?", THEIRS[1]])).toBe(
-      false
-    );
+    expect(
+      isCounterpartyLooping(interleaved([THEIRS[0], "Whats your pricing for residential?", THEIRS[1]]))
+    ).toBe(false);
+  });
+
+  it("does NOT fire when they sent a RUN with no reply from us", () => {
+    // The Strategic Protection case. Identical messages, but nothing of ours
+    // between them: that is a person being ignored, not a bot conversing.
+    expect(
+      isCounterpartyLooping([
+        { direction: "out", body: "Hey, would you like a free lead on a large commercial job?" },
+        { direction: "in", body: "Sure tell me more" },
+        { direction: "in", body: "Sure tell me more" },
+        { direction: "in", body: "Sure tell me more" },
+        { direction: "in", body: "Sure tell me more" },
+      ])
+    ).toBe(false);
   });
 });
 
 describe("detectLoop", () => {
   it("reports WHICH loop tripped, because they need different human responses", () => {
     expect(
-      detectLoop({ priorOwnReplies: [OURS[0]], recentInbounds: [], candidate: OURS[0] })
+      detectLoop({ priorOwnReplies: [OURS[0], OURS[1]], tail: [], candidate: OURS[0] })
     ).toEqual({ stalled: true, reason: "self_repeat" });
 
     expect(
-      detectLoop({ priorOwnReplies: [], recentInbounds: THEIRS, candidate: "Something new entirely" })
+      detectLoop({
+        priorOwnReplies: [],
+        tail: [
+          { direction: "in", body: THEIRS[0] },
+          { direction: "out", body: "ok" },
+          { direction: "in", body: THEIRS[1] },
+          { direction: "out", body: "ok" },
+          { direction: "in", body: THEIRS[2] },
+        ],
+        candidate: "Something new entirely",
+      })
     ).toEqual({ stalled: true, reason: "counterparty_loop" });
   });
 
@@ -130,7 +166,7 @@ describe("detectLoop", () => {
     expect(
       detectLoop({
         priorOwnReplies: ["Cole with Greenkeep — that Houston painting job is still open."],
-        recentInbounds: ["Hello, yes definitely"],
+        tail: [{ direction: "in", body: "Hello, yes definitely" }],
         candidate: "It's a 12,000 sq ft repaint off Westheimer, roughly $40k.",
       })
     ).toEqual({ stalled: false, reason: null });
@@ -140,7 +176,13 @@ describe("detectLoop", () => {
     // Replay: by the third exchange both detectors are screaming.
     const verdict = detectLoop({
       priorOwnReplies: OURS,
-      recentInbounds: THEIRS,
+      tail: [
+        { direction: "in", body: THEIRS[0] },
+        { direction: "out", body: OURS[0] },
+        { direction: "in", body: THEIRS[1] },
+        { direction: "out", body: OURS[1] },
+        { direction: "in", body: THEIRS[2] },
+      ],
       candidate: "Cole will text JJ directly.",
     });
     expect(verdict.stalled).toBe(true);
@@ -174,5 +216,68 @@ describe("the containment trap", () => {
         "The building is off Westheimer, two stories, and the owner wants it done before October."
       )
     ).toBeLessThan(SAME_MOVE);
+  });
+});
+
+describe("the leads this guard cost — regression fixtures", () => {
+  // Both of these are real threads the first version of this guard silenced.
+  // They are the reason it exists in its current form, and neither may ever
+  // be suppressed again.
+
+  it("answers a human hammering send (Strategic Protection, 2026-08-10)", () => {
+    // Four identical messages in sixteen seconds — a person getting impatient
+    // because nothing came back, which the first version read as a bot and
+    // answered with silence. They were the warmest inbound in the database.
+    const tail = [
+      { direction: "out", body: "Hey, would you like a free lead on a large commercial job?" },
+      { direction: "in", body: "Sure tell me more" },
+      { direction: "in", body: "Sure tell me more" },
+      { direction: "in", body: "Sure tell me more" },
+      { direction: "in", body: "Sure tell me more" },
+    ];
+    expect(
+      detectLoop({
+        priorOwnReplies: [],
+        tail,
+        candidate: "Happy to — it's a Katy security job. Here's the link for first look.",
+      })
+    ).toEqual({ stalled: false, reason: null });
+  });
+
+  it("answers a prospect asking for a call again (Home Keepers, 2026-08-04)", () => {
+    // They asked for a call Monday, we said Cole would ring 3-4. Tuesday they
+    // asked again and said they were free "for the next 30 to 40 minutes".
+    // The honest reply resembles Monday's (0.714) — because the situation
+    // recurred, not because the AI was stuck.
+    const priorOwnReplies = [
+      "Got it — Cole will call you at 713-984-8639 between 3-4 CT.",
+      "No rush. The Katy cleaning lead is still open when you're back.",
+    ];
+    const tail = [
+      { direction: "out", body: "Heads up — your hold on the KATY cleaning job ends at 11:10 AM." },
+      { direction: "in", body: "OK, I have asked if someone could call me." },
+      { direction: "in", body: "I'm available right now for the next probably 30 to 40 minutes" },
+    ];
+    expect(
+      detectLoop({
+        priorOwnReplies,
+        tail,
+        candidate: "Got it — Cole will call you at 713-984-8639 in the next few minutes.",
+      })
+    ).toEqual({ stalled: false, reason: null });
+  });
+
+  it("STILL stops the bot loop it was built for (2026-07-31)", () => {
+    // The fix must not be bought by reopening the original hole.
+    const tail = [
+      { direction: "in", body: THEIRS[0] },
+      { direction: "out", body: OURS[0] },
+      { direction: "in", body: THEIRS[1] },
+      { direction: "out", body: OURS[1] },
+      { direction: "in", body: THEIRS[2] },
+    ];
+    expect(
+      detectLoop({ priorOwnReplies: OURS, tail, candidate: "Cole will text JJ directly." }).stalled
+    ).toBe(true);
   });
 });

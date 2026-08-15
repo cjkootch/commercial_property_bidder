@@ -96,23 +96,55 @@ export const SAME_MOVE = 0.6;
  *  revisits topics; what we are catching is an immediate ping-pong. */
 export const LOOKBACK = 4;
 
-/** Would sending `candidate` just repeat something we already said? Compares
- *  against our most recent replies only. */
+/** How many times we may echo ourselves before it counts as a loop. ONE is
+ *  conversation — a prospect who asks for a call twice gets told twice that
+ *  Cole will call, and that second answer is correct, not redundant. Two is a
+ *  machine. Set to 0 this suppressed a live prospect who said "I'm available
+ *  right now for the next 30 to 40 minutes" because the honest reply resembled
+ *  yesterday's (0.714). */
+export const SELF_REPEAT_TOLERANCE = 1;
+
+/** Would sending `candidate` be at least the SECOND echo of something we
+ *  already said? Compares against our most recent replies only. */
 export function isSelfRepeat(priorOwnReplies: readonly string[], candidate: string): boolean {
-  return priorOwnReplies
+  const echoes = priorOwnReplies
     .slice(-LOOKBACK)
-    .some((prior) => similarity(prior, candidate) >= SAME_MOVE);
+    .filter((prior) => similarity(prior, candidate) >= SAME_MOVE).length;
+  return echoes > SELF_REPEAT_TOLERANCE;
 }
 
-/** Is the OTHER side looping? True when the last few inbounds are mutually
- *  interchangeable. Needs at least three: two similar messages is a person
- *  repeating themselves because we were unclear, which deserves an answer,
- *  not a shrug. */
-export function isCounterpartyLooping(recentInbounds: readonly string[]): boolean {
-  const recent = recentInbounds.slice(-3);
-  if (recent.length < 3) return false;
-  for (let i = 1; i < recent.length; i++) {
-    if (similarity(recent[i - 1], recent[i]) < SAME_MOVE) return false;
+/** One message in the thread, oldest-first. */
+export type Turn = { direction: string; body: string };
+
+/** Is the OTHER side looping?
+ *
+ *  Repetition from the counterparty is ambiguous on its own, and reading it as
+ *  "bot" cost a real lead: a human sent "Sure tell me more" four times in
+ *  sixteen seconds — the most eager reply in the database — and got silence,
+ *  because three identical messages scored 1.0.
+ *
+ *  The discriminator is INTERLEAVING. A bot loop is a conversation: their
+ *  message is a reply to ours, so our text sits between each of theirs. A
+ *  person hammering send does it in an unbroken run with nothing from us in
+ *  between — which is not a loop, it is someone being ignored, and the answer
+ *  is to reply, not to go quieter.
+ *
+ *  Still requires three: two similar messages is a person restating themselves
+ *  because we were unclear, which deserves an answer. */
+export function isCounterpartyLooping(tail: readonly Turn[]): boolean {
+  const inboundIdx: number[] = [];
+  for (let i = tail.length - 1; i >= 0 && inboundIdx.length < 3; i--) {
+    if (tail[i].direction === "in") inboundIdx.unshift(i);
+  }
+  if (inboundIdx.length < 3) return false;
+  // Unbroken run of theirs => a person we have not answered.
+  for (let k = 1; k < inboundIdx.length; k++) {
+    const between = tail.slice(inboundIdx[k - 1] + 1, inboundIdx[k]);
+    if (!between.some((m) => m.direction === "out")) return false;
+  }
+  const bodies = inboundIdx.map((i) => tail[i].body);
+  for (let i = 1; i < bodies.length; i++) {
+    if (similarity(bodies[i - 1], bodies[i]) < SAME_MOVE) return false;
   }
   return true;
 }
@@ -125,13 +157,16 @@ export type LoopVerdict = { stalled: boolean; reason: "self_repeat" | "counterpa
  *  human. */
 export function detectLoop(args: {
   priorOwnReplies: readonly string[];
-  recentInbounds: readonly string[];
+  /** The thread tail, oldest-first, INCLUDING our messages — the interleaving
+   *  is what separates a bot from an unanswered person, so inbounds alone are
+   *  not enough to decide. */
+  tail: readonly Turn[];
   candidate: string;
 }): LoopVerdict {
   if (isSelfRepeat(args.priorOwnReplies, args.candidate)) {
     return { stalled: true, reason: "self_repeat" };
   }
-  if (isCounterpartyLooping(args.recentInbounds)) {
+  if (isCounterpartyLooping(args.tail)) {
     return { stalled: true, reason: "counterparty_loop" };
   }
   return { stalled: false, reason: null };
