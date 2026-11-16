@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { buyer, emailSend, prospectCompany } from "@/lib/db/schema";
 import { parseInboundEmail } from "@/lib/email/inbound";
 import { alertOperatorOfReply } from "@/lib/email/reply-alert";
+import { addressedToUs } from "@/lib/email/inbound-domains";
 
 // Inbound email (replies to leads@): AWS SES receives for the domain (MX ->
 // inbound-smtp), a receipt rule publishes each message to an SNS topic, and
@@ -74,6 +75,12 @@ export async function POST(req: NextRequest) {
   } catch {
     return new Response("ok", { status: 200 });
   }
+
+  // Only mail addressed to one of our domains (lib/email/inbound-domains.ts).
+  // A receipt rule that also covers another business's domain must not log its
+  // mail to email_send or page our operator about it. Placed before the decode
+  // so we never parse another business's message body either.
+  if (!addressedToUs(note.mail?.destination)) return new Response("ok", { status: 200 });
 
   // Decode the raw message. SES SNS content is base64 in practice; fall back
   // to treating it as text if decoding produces garbage.

@@ -8,6 +8,7 @@ import {
   verifyResendSignature,
 } from "@/lib/integrations/resend";
 import { alertOperatorOfReply, emailAddressOf } from "@/lib/email/reply-alert";
+import { addressedToUs, isOurDomain } from "@/lib/email/inbound-domains";
 
 // Resend webhook sink: records email delivery/open/click/bounce/complaint events
 // against the matching outreach row (by Resend message id), powering email open
@@ -75,6 +76,15 @@ export async function POST(req: NextRequest) {
   if (!emailId) return NextResponse.json({ ok: true }); // nothing to match
 
   const at = evt.created_at ? new Date(evt.created_at) : new Date();
+
+  // This Resend account is shared with other businesses and its webhooks are
+  // account-level (lib/email/inbound-domains.ts). Mail another business sent
+  // can bounce or draw a complaint, and that recipient is not ours to
+  // suppress — doing so taught Greenkeep not to email Wild Rose's contacts.
+  // Keyed on the SENDER, not the recipient: `to` on a bounce is whoever was
+  // written to, which says nothing about whose campaign it was. An event with
+  // no sender keeps the previous behaviour rather than silently dropping.
+  const fromOther = !!evt.data?.from && !isOurDomain(evt.data.from);
 
   try {
     switch (type) {
@@ -175,7 +185,7 @@ export async function POST(req: NextRequest) {
         // this the next campaign would rediscover the company, re-scrape the
         // same dead address, and bounce again — reputation poison.
         const bounced = Array.isArray(evt.data?.to) ? evt.data?.to[0] : evt.data?.to;
-        if (bounced) {
+        if (bounced && !fromOther) {
           await db
             .insert(suppression)
             .values({ email: bounced.toLowerCase(), reason: "resend bounce" })
@@ -194,7 +204,7 @@ export async function POST(req: NextRequest) {
           .where(eq(buyerOutreach.resend_message_id, emailId));
         // Suppress the complainer so we never email them again.
         const to = Array.isArray(evt.data?.to) ? evt.data?.to[0] : evt.data?.to;
-        if (to) {
+        if (to && !fromOther) {
           await db
             .insert(suppression)
             .values({ email: to, reason: "resend complaint" })
@@ -203,6 +213,11 @@ export async function POST(req: NextRequest) {
         break;
       }
       case "email.received": {
+        // Only mail addressed to one of our domains. Another business on the
+        // shared account handles its own replies in its own app; alerting here
+        // forwarded their mail to our operator, from our own leads@ address.
+        // Before the body fetch, so we never pull another business's content.
+        if (!addressedToUs(evt.data?.to)) break;
         // An inbound reply to leads@ (Resend receiving handles the domain's
         // MX). The event carries metadata only — fetch the parsed body, then
         // alert the operator with a company-profile match.
